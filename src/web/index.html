@@ -2660,42 +2660,44 @@
             // Update dropdown to match
             document.getElementById('mapSelector').value = (index + 1).toString();
             
-            const mapData = maps[index];
-            let loadedCount = 0;
-            
-            const colorImg = new Image();
-            const heightImg = new Image();
-            
-            function checkLoaded() {
-                loadedCount++;
-                if (loadedCount === 2) {
-                    processMapImages(colorImg, heightImg);
-                    loadingEl.style.display = 'none';
-                    
-                    // Reset camera position
-                    camera.x = 512;
-                    camera.y = 512;
-                    camera.height = 80;
-                    camera.angle = 0;
-                    camera.horizon = screenHeight * 0.4;
-                    
-                    // Initialize combat
-                    initCombat();
-                }
-            }
-            
-            colorImg.onload = checkLoaded;
-            heightImg.onload = checkLoaded;
-            
-            colorImg.onerror = () => {
-                loadingEl.textContent = 'ERROR LOADING COLOR MAP';
-            };
-            heightImg.onerror = () => {
-                loadingEl.textContent = 'ERROR LOADING HEIGHT MAP';
-            };
-            
-            colorImg.src = mapData.color;
-            heightImg.src = mapData.height;
+             const mapData = maps[index];
+             let loadedCount = 0;
+             
+             const colorImg = new Image();
+             const heightImg = new Image();
+             colorImg.crossOrigin = 'anonymous';
+             heightImg.crossOrigin = 'anonymous';
+             
+             function checkLoaded() {
+                 loadedCount++;
+                 if (loadedCount === 2) {
+                     processMapImages(colorImg, heightImg);
+                     loadingEl.style.display = 'none';
+                     
+                     // Reset camera position
+                     camera.x = 512;
+                     camera.y = 512;
+                     camera.height = 80;
+                     camera.angle = 0;
+                     camera.horizon = screenHeight * 0.4;
+                     
+                     // Initialize combat
+                     initCombat();
+                 }
+             }
+             
+             colorImg.onload = checkLoaded;
+             heightImg.onload = checkLoaded;
+             
+             colorImg.onerror = () => {
+                 loadingEl.textContent = 'ERROR LOADING COLOR MAP';
+             };
+             heightImg.onerror = () => {
+                 loadingEl.textContent = 'ERROR LOADING HEIGHT MAP';
+             };
+             
+             colorImg.src = mapData.color;
+             heightImg.src = mapData.height;
         }
         
          function processMapImages(colorImg, heightImg) {
@@ -3180,33 +3182,35 @@
             // Update dropdown to match
             document.getElementById('mapSelector').value = (mapIndex + 1).toString();
             
-            const mapData = maps[mapIndex];
-            let loadedCount = 0;
-            
-            const colorImg = new Image();
-            const heightImg = new Image();
-            
-            function checkLoaded() {
-                loadedCount++;
-                if (loadedCount === 2) {
-                    processMapImages(colorImg, heightImg);
-                    loadingEl.style.display = 'none';
-                    if (callback) callback();
-                }
-            }
-            
-            colorImg.onload = checkLoaded;
-            heightImg.onload = checkLoaded;
-            
-            colorImg.onerror = () => {
-                loadingEl.textContent = 'ERROR LOADING COLOR MAP';
-            };
-            heightImg.onerror = () => {
-                loadingEl.textContent = 'ERROR LOADING HEIGHT MAP';
-            };
-            
-            colorImg.src = mapData.color;
-            heightImg.src = mapData.height;
+             const mapData = maps[mapIndex];
+             let loadedCount = 0;
+             
+             const colorImg = new Image();
+             const heightImg = new Image();
+             colorImg.crossOrigin = 'anonymous';
+             heightImg.crossOrigin = 'anonymous';
+             
+             function checkLoaded() {
+                 loadedCount++;
+                 if (loadedCount === 2) {
+                     processMapImages(colorImg, heightImg);
+                     loadingEl.style.display = 'none';
+                     if (callback) callback();
+                 }
+             }
+             
+             colorImg.onload = checkLoaded;
+             heightImg.onload = checkLoaded;
+             
+             colorImg.onerror = () => {
+                 loadingEl.textContent = 'ERROR LOADING COLOR MAP';
+             };
+             heightImg.onerror = () => {
+                 loadingEl.textContent = 'ERROR LOADING HEIGHT MAP';
+             };
+             
+             colorImg.src = mapData.color;
+             heightImg.src = mapData.height;
         }
         
         function spawnMissionTargets(mission) {
