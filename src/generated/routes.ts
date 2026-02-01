@@ -158,55 +158,6 @@ declare module '@agentuity/frontend' {
 	}
 }
 
-// Backward compatibility: also augment @agentuity/react for older versions
-// that define RouteRegistry locally instead of re-exporting from @agentuity/frontend
-declare module '@agentuity/react' {
-	export interface RouteRegistry {
-	'POST /api/translate': {
-				inputSchema: POSTApiTranslateInputSchema;
-				outputSchema: POSTApiTranslateOutputSchema;
-				stream: typeof translate extends { stream?: infer S } ? S : false;
-				params: never;
-			};
-	'GET /api/translate/history': {
-				inputSchema: GETApiTranslateHistoryInputSchema;
-				outputSchema: GETApiTranslateHistoryOutputSchema;
-				stream: false;
-				params: never;
-			};
-	'DELETE /api/translate/history': {
-				inputSchema: DELETEApiTranslateHistoryInputSchema;
-				outputSchema: DELETEApiTranslateHistoryOutputSchema;
-				stream: false;
-				params: never;
-			};
-	}
-	export interface WebSocketRouteRegistry {
-
-	}
-	export interface SSERouteRegistry {
-
-	}
-	export interface RPCRouteRegistry {
-		translate: {
-			history: {
-				/**
-				 * Route: DELETE /api/translate/history
-				 */
-				delete: { input: DELETEApiTranslateHistoryInput; output: DELETEApiTranslateHistoryOutput; type: 'api'; params: never; paramsTuple: [] };
-				/**
-				 * Route: GET /api/translate/history
-				 */
-				get: { input: GETApiTranslateHistoryInput; output: GETApiTranslateHistoryOutput; type: 'api'; params: never; paramsTuple: [] };
-			};
-			/**
-			 * Route: POST /api/translate
-			 */
-			post: { input: POSTApiTranslateInput; output: POSTApiTranslateOutput; type: 'api'; params: never; paramsTuple: [] };
-		};
-	}
-}
-
 /**
  * Runtime metadata for RPC routes.
  * Contains route type information for client routing decisions.
@@ -235,18 +186,6 @@ const _rpcRouteMetadata = {
 if (typeof globalThis !== 'undefined') {
 	(globalThis as Record<string, unknown>).__rpcRouteMetadata = _rpcRouteMetadata;
 }
-
-/**
- * Type-safe API client is available from @agentuity/react
- *
- * @example
- * ```typescript
- * import { createAPIClient } from '@agentuity/react';
- *
- * const api = createAPIClient();
- * const result = await api.hello.post({ name: 'World' });
- * ```
- */
 
 // FOUND AN ERROR IN THIS FILE?
 // Please file an issue at https://github.com/agentuity/sdk/issues
