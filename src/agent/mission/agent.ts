@@ -90,7 +90,7 @@ Create an engaging mission with appropriate enemies, objectives, and a dramatic 
 
 		try {
 			const completion = await client.chat.completions.create({
-				model: 'gpt-5-mini',
+				model: 'gpt-4o-mini',  // Fixed model name
 				messages: [
 					{ role: 'system', content: systemPrompt },
 					{ role: 'user', content: userPrompt },
@@ -98,8 +98,19 @@ Create an engaging mission with appropriate enemies, objectives, and a dramatic 
 				response_format: { type: 'json_object' },
 			});
 
-			const content = completion.choices[0]?.message?.content ?? '{}';
-			const generated = JSON.parse(content) as Record<string, unknown>;
+			const content = completion.choices[0]?.message?.content;
+			if (!content) {
+				ctx.logger.error('No content in OpenAI response');
+				throw new Error('No content in response');
+			}
+			
+			let generated: Record<string, unknown>;
+			try {
+				generated = JSON.parse(content) as Record<string, unknown>;
+			} catch (parseError) {
+				ctx.logger.error('Failed to parse OpenAI response:', content);
+				throw new Error('Invalid JSON response');
+			}
 
 			const rawEntities = Array.isArray(generated.entities) ? generated.entities : [];
 			const rawObjectives = Array.isArray(generated.objectives) ? generated.objectives : [];
@@ -141,7 +152,13 @@ Create an engaging mission with appropriate enemies, objectives, and a dramatic 
 			ctx.logger.info('Mission generated', {
 				entityCount: result.entities.length,
 				objectiveCount: result.objectives.length,
+				seed: result.seed,
+				weather: result.weather,
+				briefing: result.briefing?.substring(0, 50),
 			});
+
+			// Log the full result for debugging
+			ctx.logger.info('Full result:', JSON.stringify(result));
 
 			return result;
 		} catch (error) {

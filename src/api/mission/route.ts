@@ -5,9 +5,10 @@ import debriefAgent from '@agent/debrief';
 const router = createRouter();
 
 // POST /api/mission/generate - Generate a new mission
-router.post('/generate', missionAgent.validator(), async (c) => {
+// Note: Don't use missionAgent.validator() here since we wrap the response
+router.post('/generate', async (c) => {
 	try {
-		const data = c.req.valid('json');
+		const data = await c.req.json();
 		const result = await missionAgent.run(data);
 		return c.json({ success: true, mission: result });
 	} catch (error) {
@@ -17,9 +18,10 @@ router.post('/generate', missionAgent.validator(), async (c) => {
 });
 
 // POST /api/mission/debrief - Generate mission debrief
-router.post('/debrief', debriefAgent.validator(), async (c) => {
+// Note: Don't use debriefAgent.validator() here since we wrap the response
+router.post('/debrief', async (c) => {
 	try {
-		const data = c.req.valid('json');
+		const data = await c.req.json();
 		const result = await debriefAgent.run(data);
 		return c.json({ success: true, debrief: result });
 	} catch (error) {

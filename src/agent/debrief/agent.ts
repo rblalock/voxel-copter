@@ -56,7 +56,7 @@ Provide a brief debrief with performance rating, 2-3 strengths, 2-3 areas for im
 
 		try {
 			const completion = await client.chat.completions.create({
-				model: 'gpt-5-mini',
+				model: 'gpt-4o-mini',
 				messages: [
 					{ role: 'system', content: systemPrompt },
 					{ role: 'user', content: userPrompt },

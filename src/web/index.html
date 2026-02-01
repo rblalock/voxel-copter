@@ -1697,7 +1697,7 @@
         let comancheTriggerHeld = false;
 
         // Menu navigation state
-        const MAIN_MENU_OPTIONS = ['MODE', 'CAMPAIGN', 'FREE PLAY', 'SETTINGS', 'ACHIEVEMENTS', 'LEADERBOARD', 'HOW TO PLAY'];
+        const MAIN_MENU_OPTIONS = ['MODE', 'CAMPAIGN', 'FREE PLAY', 'AI MISSION', 'SETTINGS', 'ACHIEVEMENTS', 'LEADERBOARD', 'HOW TO PLAY'];
         const FREEPLAY_OPTIONS = ['LAUNCH FREE PLAY', 'BACK TO MENU'];
         const PAUSE_OPTIONS = ['RESUME [ESC]', 'RESTART MISSION', 'QUIT TO MENU'];
         const SETTINGS_ITEMS = [
@@ -3218,13 +3218,17 @@
                 freePlaySelectionIndex = 0;
                 startTransition(GAME_STATES.FREEPLAY, 600);
             } else if (index === 3) {
+                // AI MISSION - open mission generator
+                missionGeneratorInput = '';
+                startTransition(GAME_STATES.MISSION_GENERATOR, 400);
+            } else if (index === 4) {
                 settingsSelectionIndex = 0;
                 startTransition(GAME_STATES.SETTINGS, 600);
-            } else if (index === 4) {
-                startTransition(GAME_STATES.ACHIEVEMENTS, 600);
             } else if (index === 5) {
-                startTransition(GAME_STATES.LEADERBOARD, 600);
+                startTransition(GAME_STATES.ACHIEVEMENTS, 600);
             } else if (index === 6) {
+                startTransition(GAME_STATES.LEADERBOARD, 600);
+            } else if (index === 7) {
                 startTransition(GAME_STATES.HOWTO, 600);
             }
         }
@@ -3461,24 +3465,10 @@
             restoreBaseMap();
             for (const stamp of stamps) {
                 if (stamp.type === 'flatten') {
-                    const centerHeight = getTerrainHeight(stamp.x, stamp.y);
-                    if (centerHeight < 15 || isWaterAt(stamp.x, stamp.y, centerHeight)) {
-                        continue;
-                    }
-                    const sampleRadius = Math.max(stamp.width, stamp.length) * 0.6 + 20;
-                    let ringTotal = 0;
-                    let ringSamples = 0;
-                    for (let a = 0; a < Math.PI * 2; a += Math.PI / 4) {
-                        const sx = stamp.x + Math.cos(a) * sampleRadius;
-                        const sy = stamp.y + Math.sin(a) * sampleRadius;
-                        ringTotal += getTerrainHeight(sx, sy);
-                        ringSamples += 1;
-                    }
-                    const ringAvg = ringSamples > 0 ? ringTotal / ringSamples : centerHeight;
-                    if (ringAvg - centerHeight > 20) {
-                        continue;
-                    }
-                    stampFlattenRect(stamp.x, stamp.y, stamp.width, stamp.length, stamp.heading || 0, stamp.height, stamp.feather || 2);
+                    // Skip flatten stamps entirely - we now rely on naturally flat terrain
+                    // This prevents terrain distortion/stretching artifacts
+                    // The findFlatSpot() function now finds VERY flat areas that don't need modification
+                    continue;
                 } else if (stamp.type === 'color') {
                     stampColorRect(stamp.x, stamp.y, stamp.width, stamp.length, stamp.heading || 0, stamp.color, stamp.alpha || 1);
                 }
@@ -3758,7 +3748,7 @@
             return maxDiff;
         }
 
-        function findFlatSpot(tries = 100, minHeight = 20, maxSlope = 8, avoidX = 512, avoidY = 512, minDist = 200) {
+        function findFlatSpot(tries = 200, minHeight = 20, maxSlope = 10, avoidX = 512, avoidY = 512, minDist = 200) {
             for (let i = 0; i < tries; i++) {
                 const x = Math.random() * CONFIG.MAP_SIZE;
                 const y = Math.random() * CONFIG.MAP_SIZE;
@@ -3770,9 +3760,13 @@
                 // Avoid water/shorelines
                 if (isWaterAt(x, y, height)) continue;
 
-                // Check slope
-                const slope = estimateSlope(x, y, 15);
-                if (slope > maxSlope) continue;
+                // Check slope at multiple radii for better flatness detection
+                const slopeSmall = estimateSlope(x, y, 15);
+                const slopeMedium = estimateSlope(x, y, 30);
+                const slopeLarge = estimateSlope(x, y, 50);
+                
+                // All sample radii must be within tolerance
+                if (slopeSmall > maxSlope || slopeMedium > maxSlope * 1.2 || slopeLarge > maxSlope * 1.5) continue;
 
                 // Check distance from avoid point (player start)
                 const dx = x - avoidX;
@@ -3782,8 +3776,8 @@
                 return { x, y, height };
             }
 
-            // Fallback - return a random spot
-            return { x: Math.random() * CONFIG.MAP_SIZE, y: Math.random() * CONFIG.MAP_SIZE, height: 50 };
+            // No suitable flat spot found - return null so callers can skip this structure
+            return null;
         }
 
         function getHeliAGL(heli) {
@@ -4287,11 +4281,57 @@
             const template = TARGET_TYPES[typeKey];
             if (!template) return null;
 
+            // Check slope for BUILDINGS only (not mobile units like soldiers, tanks, SAMs)
+            // Mobile units can be placed on slopes - they'll adapt
+            const buildingTypes = ['building', 'hangar', 'control_tower', 'barracks', 'fuel_depot', 'helipad'];
+            if (template.domain !== DOMAINS.AIR && baseHeight === null && buildingTypes.includes(template.type)) {
+                const slope = estimateSlope(x, y, 10);
+                const maxBuildingSlope = 15; // Allow 15 units height difference over sample radius
+                if (slope > maxBuildingSlope) {
+                    // Try to find a flatter nearby spot
+                    let foundFlat = false;
+                    for (let attempt = 0; attempt < 8; attempt++) {
+                        const offsetX = (Math.random() - 0.5) * 30;
+                        const offsetY = (Math.random() - 0.5) * 30;
+                        const newX = ((x + offsetX) % CONFIG.MAP_SIZE + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
+                        const newY = ((y + offsetY) % CONFIG.MAP_SIZE + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
+                        if (estimateSlope(newX, newY, 10) <= maxBuildingSlope) {
+                            x = newX;
+                            y = newY;
+                            foundFlat = true;
+                            break;
+                        }
+                    }
+                    // If no flat spot found, skip spawning this building
+                    if (!foundFlat) {
+                        return null;
+                    }
+                }
+            }
+
             // Use provided baseHeight (for airport buildings on flattened terrain) or get from terrain
-            const terrainHeight = baseHeight !== null ? baseHeight : getTerrainHeight(x, y);
+            // For buildings without baseHeight, sample terrain in a grid and use MAXIMUM height to prevent embedding
+            let terrainHeight;
+            if (baseHeight !== null) {
+                terrainHeight = baseHeight;
+            } else if (buildingTypes.includes(template.type)) {
+                // Sample terrain in a grid and use the MAXIMUM height to prevent embedding
+                let maxHeight = getTerrainHeight(x, y);
+                const sampleRadius = template.size * 0.5 || 10;
+                for (let ox = -sampleRadius; ox <= sampleRadius; ox += sampleRadius) {
+                    for (let oy = -sampleRadius; oy <= sampleRadius; oy += sampleRadius) {
+                        const sx = ((x + ox) % CONFIG.MAP_SIZE + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
+                        const sy = ((y + oy) % CONFIG.MAP_SIZE + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
+                        maxHeight = Math.max(maxHeight, getTerrainHeight(sx, sy));
+                    }
+                }
+                terrainHeight = maxHeight;
+            } else {
+                terrainHeight = getTerrainHeight(x, y);
+            }
             const heightOffset = (typeof template.heightOffset === 'number')
                 ? template.heightOffset
-                : (template.type === 'helipad' ? 0.5 : template.size * 0.3);
+                : (template.type === 'helipad' ? 1 : template.size * 0.5);
 
             let aiState = null;
             if (template.ai) {
@@ -4411,10 +4451,10 @@
 
         function generateAirport(x, y, heading, faction = FACTIONS.ENEMY) {
             const id = 'airport_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
-            const runwayLength = 180;
+            const runwayLength = 90;  // Reduced from 180 to fit naturally flat areas
             const runwayWidth = 20;
             
-            // Get the flattened runway height for building placement
+            // Get the terrain height - we rely on naturally flat spots now
             // All airport buildings should sit at this height
             const runwayHeight = getTerrainHeight(x, y);
             if (runwayHeight < 15 || isWaterAt(x, y, runwayHeight)) {
@@ -4429,42 +4469,42 @@
                 baseHeight: runwayHeight  // Store for reference
             };
 
-            // Create stamps for runway
+            // Create stamps for runway - NO flattening, just paint on naturally flat terrain
             const stamps = [
-                { type: 'flatten', x, y, width: runwayWidth + 10, length: runwayLength + 20, heading, height: runwayHeight, feather: 5 },
+                // Paint runway color directly on terrain (no flatten stamp)
                 { type: 'color', x, y, width: runwayWidth, length: runwayLength, heading, color: 0xFF2a2a2a, alpha: 1 },
                 // Center line
-                { type: 'color', x, y, width: 2, length: runwayLength - 20, heading, color: 0xFF4a4a4a, alpha: 1 }
+                { type: 'color', x, y, width: 2, length: runwayLength - 10, heading, color: 0xFF4a4a4a, alpha: 1 }
             ];
 
-            // Spawn buildings alongside runway
+            // Spawn buildings alongside runway - positions halved for shorter runway
             const cos = Math.cos(heading);
             const sin = Math.sin(heading);
-            const sideOffset = runwayWidth + 18;
+            const sideOffset = runwayWidth + 15;
 
-            // Hangar
-            const hangarX = x + cos * 40 + sin * sideOffset;
-            const hangarY = y - sin * 40 + cos * sideOffset;
+            // Hangar - offset reduced from 40 to 20
+            const hangarX = x + cos * 20 + sin * sideOffset;
+            const hangarY = y - sin * 20 + cos * sideOffset;
             const hangar = spawnTargetAt('HANGAR', hangarX, hangarY, faction, runwayHeight);
-            airport.entities.push(hangar);
+            if (hangar) airport.entities.push(hangar);
 
-            // Control tower
-            const towerX = x - cos * 15 + sin * sideOffset;
-            const towerY = y + sin * 15 + cos * sideOffset;
+            // Control tower - offset reduced from -15 to -8
+            const towerX = x - cos * 8 + sin * sideOffset;
+            const towerY = y + sin * 8 + cos * sideOffset;
             const tower = spawnTargetAt('CONTROL_TOWER', towerX, towerY, faction, runwayHeight);
-            airport.entities.push(tower);
+            if (tower) airport.entities.push(tower);
 
-            // Fuel depot
-            const fuelX = x + cos * 70 + sin * sideOffset;
-            const fuelY = y - sin * 70 + cos * sideOffset;
+            // Fuel depot - offset reduced from 70 to 35
+            const fuelX = x + cos * 35 + sin * sideOffset;
+            const fuelY = y - sin * 35 + cos * sideOffset;
             const fuel = spawnTargetAt('FUEL_DEPOT', fuelX, fuelY, faction, runwayHeight);
-            airport.entities.push(fuel);
+            if (fuel) airport.entities.push(fuel);
 
-            // SAM site for defense
-            const samX = x - cos * 60 - sin * (sideOffset + 30);
-            const samY = y + sin * 60 - cos * (sideOffset + 30);
+            // SAM site for defense - offset reduced from -60 to -30
+            const samX = x - cos * 30 - sin * (sideOffset + 20);
+            const samY = y + sin * 30 - cos * (sideOffset + 20);
             const sam = spawnTargetAt('SAM_SITE', samX, samY, faction);
-            airport.entities.push(sam);
+            if (sam) airport.entities.push(sam);
 
             world.airports.push(airport);
             return { stamps, airport };
@@ -4481,9 +4521,8 @@
             };
 
             // Flatten the base area
-            const stamps = [
-                { type: 'flatten', x, y, width: baseRadius * 2, length: baseRadius * 2, heading: 0, height: getTerrainHeight(x, y), feather: 8 }
-            ];
+            // No flatten stamp - we rely on naturally flat terrain found by findFlatSpot()
+            const stamps = [];
 
             // Spawn buildings in a rough layout
             const buildingCount = size === 'small' ? 2 : size === 'large' ? 5 : 3;
@@ -4495,19 +4534,21 @@
                 const bx = x + Math.cos(angle) * dist;
                 const by = y + Math.sin(angle) * dist;
                 const barracks = spawnTargetAt('BARRACKS', bx, by, faction);
-                base.buildings.push(barracks);
+                if (barracks) base.buildings.push(barracks);
             }
 
             // Helipad
             const helipadX = x + (Math.random() - 0.5) * baseRadius * 0.6;
             const helipadY = y + (Math.random() - 0.5) * baseRadius * 0.6;
             const helipad = spawnTargetAt('HELIPAD', helipadX, helipadY, faction);
-            base.buildings.push(helipad);
-            world.helipads.push({ id: helipad.id, x: helipadX, y: helipadY, faction });
-            stamps.push(
-                { type: 'color', x: helipadX, y: helipadY, width: 26, length: 26, heading: 0, color: 0xFF2a2a2a, alpha: 1 },
-                { type: 'color', x: helipadX, y: helipadY, width: 18, length: 18, heading: 0, color: 0xFF3a3a3a, alpha: 1 }
-            );
+            if (helipad) {
+                base.buildings.push(helipad);
+                world.helipads.push({ id: helipad.id, x: helipadX, y: helipadY, faction });
+                stamps.push(
+                    { type: 'color', x: helipadX, y: helipadY, width: 26, length: 26, heading: 0, color: 0xFF2a2a2a, alpha: 1 },
+                    { type: 'color', x: helipadX, y: helipadY, width: 18, length: 18, heading: 0, color: 0xFF3a3a3a, alpha: 1 }
+                );
+            }
 
             // Defenses - soldiers and maybe a tank
             for (let i = 0; i < 3; i++) {
@@ -4516,20 +4557,20 @@
                 const sx = x + Math.cos(angle) * dist;
                 const sy = y + Math.sin(angle) * dist;
                 const soldier = spawnTargetAt('SOLDIER', sx, sy, faction);
-                base.defenses.push(soldier);
+                if (soldier) base.defenses.push(soldier);
             }
 
             if (size !== 'small') {
                 const tankAngle = Math.random() * Math.PI * 2;
                 const tankDist = baseRadius * 0.8;
                 const tank = spawnTargetAt('TANK', x + Math.cos(tankAngle) * tankDist, y + Math.sin(tankAngle) * tankDist, faction);
-                base.defenses.push(tank);
+                if (tank) base.defenses.push(tank);
             }
 
             // SAM site
             const samAngle = Math.random() * Math.PI * 2;
             const sam = spawnTargetAt('SAM_SITE', x + Math.cos(samAngle) * baseRadius, y + Math.sin(samAngle) * baseRadius, faction);
-            base.defenses.push(sam);
+            if (sam) base.defenses.push(sam);
 
             world.bases.push(base);
             return { stamps, base };
@@ -4543,10 +4584,10 @@
             world.helipads = [];
             airportSpawnTimers = {};
 
-            // Generate 1-2 airports
+            // Generate 1-2 airports - allow 8 units height difference over sample radius
             const airportCount = 1 + Math.floor(Math.random() * 2);
             for (let i = 0; i < airportCount; i++) {
-                const spot = findFlatSpot(50, 30, 6, 512, 512, 250 + i * 150);
+                const spot = findFlatSpot(300, 30, 8, 512, 512, 250 + i * 150);
                 if (spot) {
                     const heading = Math.random() * Math.PI * 2;
                     const result = generateAirport(spot.x, spot.y, heading);
@@ -4556,10 +4597,10 @@
                 }
             }
 
-            // Generate 2-4 bases
+            // Generate 2-4 bases - allow 12 units height difference for bases
             const baseCount = 2 + Math.floor(Math.random() * 3);
             for (let i = 0; i < baseCount; i++) {
-                const spot = findFlatSpot(50, 20, 10, 512, 512, 200 + i * 100);
+                const spot = findFlatSpot(300, 20, 12, 512, 512, 200 + i * 100);
                 if (spot) {
                     const sizes = ['small', 'medium', 'large'];
                     const size = sizes[Math.floor(Math.random() * sizes.length)];
@@ -4592,7 +4633,7 @@
             airportSpawnTimers = {};
 
             for (let i = 0; i < (mission.airportCount || 1); i++) {
-                const spot = findFlatSpot(50, 30, 6, 512, 512, 250 + i * 150);
+                const spot = findFlatSpot(300, 30, 8, 512, 512, 250 + i * 150);
                 if (spot) {
                     const heading = Math.random() * Math.PI * 2;
                     const result = generateAirport(spot.x, spot.y, heading);
@@ -4603,7 +4644,7 @@
             }
 
             for (let i = 0; i < (mission.baseCount || 2); i++) {
-                const spot = findFlatSpot(50, 20, 10, 512, 512, 200 + i * 100);
+                const spot = findFlatSpot(300, 20, 12, 512, 512, 200 + i * 100);
                 if (spot) {
                     const sizes = ['small', 'medium', 'large'];
                     const size = sizes[Math.floor(Math.random() * sizes.length)];
@@ -4939,7 +4980,8 @@
                 projectileType: weapon.projectileType,
                 color: weapon.color,
                 guided: weapon.guided || false,
-                airToAir: weapon.airToAir || false
+                airToAir: weapon.airToAir || false,
+                playerFired: true  // Use crosshair targeting for guided missiles
             });
 
             sessionStats.shotsFired += 1;
@@ -4986,7 +5028,8 @@
                 projectileType: weapon.projectileType || 'bullet',
                 color: weapon.color,
                 guided: weapon.guided || false,
-                airToAir: weapon.airToAir || false
+                airToAir: weapon.airToAir || false,
+                playerFired: true
             });
 
             sessionStats.shotsFired += 1;
@@ -5004,6 +5047,91 @@
         // ============================================
         // GUIDED MISSILE SYSTEM
         // ============================================
+        function findTargetInCrosshair(cam, maxRange = 500) {
+            // Cast a ray from camera in look direction
+            const sinAngle = Math.sin(cam.angle);
+            const cosAngle = Math.cos(cam.angle);
+            
+            // Get pitch from horizon offset
+            const pitchFactor = (cam.horizon - screenHeight / 2) / 240.0;
+            
+            let bestTarget = null;
+            let bestDist = maxRange;
+            const crosshairTolerance = 0.15; // How close to center of screen (in radians)
+            
+            for (const target of targets) {
+                if (target.destroyed) continue;
+                if (target.faction !== FACTIONS.ENEMY) continue;
+                
+                // Calculate relative position
+                let dx = target.x - cam.x;
+                let dy = target.y - cam.y;
+                
+                // Handle map wrapping
+                if (dx > CONFIG.MAP_SIZE / 2) dx -= CONFIG.MAP_SIZE;
+                if (dx < -CONFIG.MAP_SIZE / 2) dx += CONFIG.MAP_SIZE;
+                if (dy > CONFIG.MAP_SIZE / 2) dy -= CONFIG.MAP_SIZE;
+                if (dy < -CONFIG.MAP_SIZE / 2) dy += CONFIG.MAP_SIZE;
+                
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                if (dist > maxRange || dist < 10) continue;
+                
+                // Rotate to camera space
+                const rx = dx * cosAngle - dy * sinAngle;
+                const ry = -dx * sinAngle - dy * cosAngle;
+                
+                // Must be in front of camera
+                if (ry < 10) continue;
+                
+                // Calculate angle to target from camera's forward direction
+                const angleToTarget = Math.atan2(rx, ry);
+                
+                // Calculate vertical angle to target
+                const dz = target.z - cam.height;
+                const verticalAngle = Math.atan2(dz, dist);
+                const verticalDiff = Math.abs(verticalAngle - pitchFactor);
+                
+                // Check if target is within crosshair tolerance
+                const totalAngleDiff = Math.sqrt(angleToTarget * angleToTarget + verticalDiff * verticalDiff);
+                
+                if (totalAngleDiff < crosshairTolerance && dist < bestDist) {
+                    bestTarget = target;
+                    bestDist = dist;
+                }
+            }
+            
+            // If nothing in crosshair, fall back to nearest in forward cone
+            if (!bestTarget) {
+                const coneTolerance = 0.4; // Wider cone for fallback
+                for (const target of targets) {
+                    if (target.destroyed) continue;
+                    if (target.faction !== FACTIONS.ENEMY) continue;
+                    
+                    let dx = target.x - cam.x;
+                    let dy = target.y - cam.y;
+                    if (dx > CONFIG.MAP_SIZE / 2) dx -= CONFIG.MAP_SIZE;
+                    if (dx < -CONFIG.MAP_SIZE / 2) dx += CONFIG.MAP_SIZE;
+                    if (dy > CONFIG.MAP_SIZE / 2) dy -= CONFIG.MAP_SIZE;
+                    if (dy < -CONFIG.MAP_SIZE / 2) dy += CONFIG.MAP_SIZE;
+                    
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    if (dist > maxRange || dist < 10) continue;
+                    
+                    const rx = dx * cosAngle - dy * sinAngle;
+                    const ry = -dx * sinAngle - dy * cosAngle;
+                    if (ry < 10) continue;
+                    
+                    const angleToTarget = Math.atan2(rx, ry);
+                    if (Math.abs(angleToTarget) < coneTolerance && dist < bestDist) {
+                        bestTarget = target;
+                        bestDist = dist;
+                    }
+                }
+            }
+            
+            return bestTarget;
+        }
+        
         function findNearestTarget(x, y, options = {}) {
             const { airToAir = false, faction = FACTIONS.ENEMY, maxRange = Infinity } = options;
             let nearest = null;
@@ -5042,8 +5170,14 @@
         }
         
         function updateGuidedMissile(projectile) {
-            // Find nearest valid target
-            const target = findNearestTarget(projectile.x, projectile.y, { airToAir: projectile.airToAir });
+            // For player-fired guided missiles, use crosshair targeting
+            // For AI missiles, use nearest target
+            let target;
+            if (projectile.playerFired) {
+                target = findTargetInCrosshair(camera, 600);
+            } else {
+                target = findNearestTarget(projectile.x, projectile.y, { airToAir: projectile.airToAir });
+            }
             
             if (target) {
                 // Calculate relative position with map wrapping
@@ -5375,19 +5509,31 @@
             
             const dist = Math.sqrt(dx * dx + dy * dy);
             
-            // In range and can fire
-            if (dist < target.ai.range && currentTime - target.ai.lastFired > target.ai.fireRate) {
-                // Launch missile at player
+            // Check line-of-sight before firing - SAM needs to see the player
+            const playerTarget = { x: camera.x, y: camera.y, z: camera.height };
+            const samCam = { x: target.x, y: target.y, height: target.z + 10 };
+            const hasLineOfSight = !isTargetOccluded(playerTarget, samCam, -dx, -dy, dist);
+            
+            // In range, has LOS, and can fire
+            if (dist < target.ai.range && hasLineOfSight && currentTime - target.ai.lastFired > target.ai.fireRate) {
+                // Launch missile VERTICALLY first, then track after reaching altitude
                 enemyProjectiles.push({
                     x: target.x,
                     y: target.y,
                     z: target.z + 10,
+                    vx: 0,  // No horizontal velocity initially
+                    vy: 0,
+                    vz: target.ai.missileSpeed * 3,  // FASTER vertical launch (was 1.5)
                     targetX: camera.x,
                     targetY: camera.y,
+                    targetZ: camera.height,
                     speed: target.ai.missileSpeed,
                     damage: target.ai.missileDamage,
                     type: 'sam_missile',
-                    lifetime: 400
+                    lifetime: 800,  // LONGER lifetime (was 400)
+                    phase: 'launch',  // 'launch' then 'track'
+                    launchAltitude: target.z + 60,  // Lower altitude to start tracking sooner (was 80)
+                    angle: 0  // Will be set when tracking begins
                 });
                 target.ai.lastFired = currentTime;
                 
@@ -5704,8 +5850,54 @@
                     ep.x += Math.sin(ep.angle) * ep.speed;
                     ep.y += Math.cos(ep.angle) * ep.speed;
                     ep.z += ep.pitch * ep.speed;
+                } else if (ep.type === 'sam_missile') {
+                    // SAM missile has two phases: launch (vertical) and track (homing)
+                    if (ep.phase === 'launch') {
+                        // Vertical launch phase - go straight up
+                        ep.z += ep.vz * 0.06;
+                        
+                        // Switch to tracking when altitude reached
+                        if (ep.z >= ep.launchAltitude) {
+                            ep.phase = 'track';
+                            // Initialize tracking angle toward player
+                            let dx = camera.x - ep.x;
+                            let dy = camera.y - ep.y;
+                            if (dx > CONFIG.MAP_SIZE / 2) dx -= CONFIG.MAP_SIZE;
+                            if (dx < -CONFIG.MAP_SIZE / 2) dx += CONFIG.MAP_SIZE;
+                            if (dy > CONFIG.MAP_SIZE / 2) dy -= CONFIG.MAP_SIZE;
+                            if (dy < -CONFIG.MAP_SIZE / 2) dy += CONFIG.MAP_SIZE;
+                            ep.angle = Math.atan2(dx, dy);
+                        }
+                    } else {
+                        // Tracking phase - home in on target
+                        let dx = camera.x - ep.x;
+                        let dy = camera.y - ep.y;
+                        if (dx > CONFIG.MAP_SIZE / 2) dx -= CONFIG.MAP_SIZE;
+                        if (dx < -CONFIG.MAP_SIZE / 2) dx += CONFIG.MAP_SIZE;
+                        if (dy > CONFIG.MAP_SIZE / 2) dy -= CONFIG.MAP_SIZE;
+                        if (dy < -CONFIG.MAP_SIZE / 2) dy += CONFIG.MAP_SIZE;
+                        
+                        const dist = Math.sqrt(dx * dx + dy * dy);
+                        
+                        if (dist > 0) {
+                            // Homing behavior with turn rate limit
+                            const targetAngle = Math.atan2(dx, dy);
+                            const currentAngle = ep.angle || targetAngle;
+                            const turnRate = 0.06;
+                            const angleDiff = normalizeAngle(targetAngle - currentAngle);
+                            ep.angle = currentAngle + Math.sign(angleDiff) * Math.min(Math.abs(angleDiff), turnRate);
+                            
+                            // Move toward player
+                            ep.x += Math.sin(ep.angle) * ep.speed;
+                            ep.y += Math.cos(ep.angle) * ep.speed;
+                            
+                            // Gradually adjust altitude toward player
+                            const dz = camera.height - ep.z;
+                            ep.z += dz * 0.03;
+                        }
+                    }
                 } else {
-                    // Calculate direction to player with map wrapping
+                    // Generic homing projectile (fallback)
                     let dx = camera.x - ep.x;
                     let dy = camera.y - ep.y;
                     if (dx > CONFIG.MAP_SIZE / 2) dx -= CONFIG.MAP_SIZE;
@@ -5716,18 +5908,15 @@
                     const dist = Math.sqrt(dx * dx + dy * dy);
                     
                     if (dist > 0) {
-                        // Homing behavior with turn rate limit
                         const targetAngle = Math.atan2(dx, dy);
-                        const currentAngle = ep.angle || Math.atan2(dx, dy);
-                        const turnRate = 0.06;  // Slightly better tracking
+                        const currentAngle = ep.angle || targetAngle;
+                        const turnRate = 0.06;
                         const angleDiff = normalizeAngle(targetAngle - currentAngle);
                         ep.angle = currentAngle + Math.sign(angleDiff) * Math.min(Math.abs(angleDiff), turnRate);
                         
-                        // Move TOWARD player (was moving away due to wrong signs)
                         ep.x += Math.sin(ep.angle) * ep.speed;
                         ep.y += Math.cos(ep.angle) * ep.speed;
                         
-                        // Gradually rise toward player altitude
                         const dz = camera.height - ep.z;
                         ep.z += dz * 0.03;
                     }
@@ -6263,7 +6452,10 @@
             ctx.textAlign = 'center';
             ctx.fillText('ARROW KEYS + ENTER', centerX, controlsY);
 
-            renderAIMissionUI();
+            // Only show AI mission panel when AI MISSION menu item is selected (index 3)
+            if (menuSelectionIndex === 3) {
+                renderAIMissionUI();
+            }
         }
 
         function renderAIMissionUI() {
@@ -6301,6 +6493,9 @@
         }
 
         function renderMissionGeneratorOverlay() {
+            // Clear menuButtons for this overlay - we'll add our own
+            menuButtons = [];
+            
             const centerX = screenWidth / 2;
             const centerY = screenHeight / 2;
             const boxWidth = 500;
@@ -6364,7 +6559,8 @@
             const genBtnH = 32;
             
             const canGenerate = missionGeneratorInput.trim().length > 0 && !isGeneratingMission;
-            ctx.fillStyle = canGenerate ? 'rgba(0, 80, 0, 0.7)' : 'rgba(0, 30, 0, 0.5)';
+            const genBtnHovered = hitTest({ x: genBtnX, y: genBtnY, width: genBtnW, height: genBtnH }, mouseX, mouseY);
+            ctx.fillStyle = canGenerate ? (genBtnHovered ? 'rgba(0, 100, 0, 0.8)' : 'rgba(0, 80, 0, 0.7)') : 'rgba(0, 30, 0, 0.5)';
             ctx.fillRect(genBtnX, genBtnY, genBtnW, genBtnH);
             ctx.strokeStyle = canGenerate ? '#0f0' : '#050';
             ctx.strokeRect(genBtnX, genBtnY, genBtnW, genBtnH);
@@ -6372,14 +6568,34 @@
             ctx.font = 'bold 14px Courier New';
             ctx.fillText('GENERATE', genBtnX + genBtnW / 2, genBtnY + 21);
             
+            // Add generate button to menuButtons for click handling
+            menuButtons.push({
+                x: genBtnX, y: genBtnY, width: genBtnW, height: genBtnH,
+                onClick: () => {
+                    if (canGenerate) {
+                        generateAIMission(missionGeneratorInput.trim(), 'normal');
+                    }
+                }
+            });
+            
             // Cancel button
             const cancelBtnX = centerX + 20;
-            ctx.fillStyle = 'rgba(0, 30, 0, 0.6)';
+            const cancelBtnHovered = hitTest({ x: cancelBtnX, y: genBtnY, width: genBtnW, height: genBtnH }, mouseX, mouseY);
+            ctx.fillStyle = cancelBtnHovered ? 'rgba(0, 50, 0, 0.7)' : 'rgba(0, 30, 0, 0.6)';
             ctx.fillRect(cancelBtnX, genBtnY, genBtnW, genBtnH);
             ctx.strokeStyle = '#0a0';
             ctx.strokeRect(cancelBtnX, genBtnY, genBtnW, genBtnH);
             ctx.fillStyle = '#0a0';
             ctx.fillText('CANCEL', cancelBtnX + genBtnW / 2, genBtnY + 21);
+            
+            // Add cancel button to menuButtons for click handling
+            menuButtons.push({
+                x: cancelBtnX, y: genBtnY, width: genBtnW, height: genBtnH,
+                onClick: () => {
+                    missionGeneratorInput = '';
+                    startTransition(GAME_STATES.MENU, 400);
+                }
+            });
             
             // Status message
             ctx.font = '12px Courier New';
@@ -7516,120 +7732,118 @@
                     const bankOffset = (screenX - screenWidth / 2) * bankTiltFactor;
                     const screenY = (cam.height - ep.z) * scaleY + cam.horizon + bankOffset;
                     
+                    // ALL ENEMY PROJECTILES - BALL-BASED (no tracer lines)
+                    const scale = Math.min(scaleY, 1);
+                    
                     if (ep.type === 'air_cannon') {
-                        const tracerSize = Math.max(1.5, 3 * scaleY);
+                        // Aircraft cannon - small ball
+                        const bulletSize = Math.max(2.5, 2.5 * scale);
                         ctx.fillStyle = '#ffcc66';
                         ctx.beginPath();
-                        ctx.arc(screenX, screenY, tracerSize, 0, Math.PI * 2);
+                        ctx.arc(screenX, screenY, bulletSize, 0, Math.PI * 2);
                         ctx.fill();
-
-                        const trailAngle = Math.atan2(ep.vx || 0, ep.vy || 0);
-                        ctx.strokeStyle = 'rgba(255, 200, 120, 0.7)';
-                        ctx.lineWidth = Math.max(1, 1.4 * scaleY);
-                        ctx.beginPath();
-                        ctx.moveTo(screenX, screenY);
-                        ctx.lineTo(
-                            screenX + Math.sin(trailAngle) * 12 * scaleY,
-                            screenY - Math.cos(trailAngle) * 12 * scaleY
-                        );
-                        ctx.stroke();
                     } else if (ep.type === 'air_rocket') {
+                        // Aircraft rocket - medium ball with smoke trail circles
+                        const rocketSize = Math.max(3.5, 4 * scale);
                         ctx.fillStyle = '#ff8844';
                         ctx.beginPath();
-                        ctx.arc(screenX, screenY, 4 * scaleY, 0, Math.PI * 2);
+                        ctx.arc(screenX, screenY, rocketSize, 0, Math.PI * 2);
                         ctx.fill();
 
+                        // Smoke trail as fading circles
                         const trailAngle = Math.atan2(ep.vx || 0, ep.vy || 0);
-                        const trailX = screenX + Math.sin(trailAngle) * 18 * scaleY;
-                        const trailY = screenY - Math.cos(trailAngle) * 18 * scaleY;
-                        ctx.strokeStyle = 'rgba(180, 180, 180, 0.5)';
-                        ctx.lineWidth = 2.5 * scaleY;
-                        ctx.beginPath();
-                        ctx.moveTo(screenX, screenY);
-                        ctx.lineTo(trailX, trailY);
-                        ctx.stroke();
-
-                        ctx.fillStyle = '#ffaa00';
-                        ctx.beginPath();
-                        ctx.arc(trailX, trailY, 2.5 * scaleY, 0, Math.PI * 2);
-                        ctx.fill();
+                        for (let t = 1; t <= 2; t++) {
+                            const trailDist = t * 7 * scale;
+                            const trailX = screenX + Math.sin(trailAngle) * trailDist;
+                            const trailY = screenY - Math.cos(trailAngle) * trailDist;
+                            const trailSize = (3 - t * 0.6) * scale;
+                            ctx.fillStyle = `rgba(180, 180, 180, ${0.5 - t * 0.15})`;
+                            ctx.beginPath();
+                            ctx.arc(trailX, trailY, Math.max(trailSize, 1), 0, Math.PI * 2);
+                            ctx.fill();
+                        }
                     } else if (ep.type === 'air_missile') {
+                        // Aircraft missile - larger ball with smoke trail circles
+                        const missileSize = Math.max(4, 5 * scale);
                         ctx.fillStyle = '#ff4455';
                         ctx.beginPath();
-                        ctx.arc(screenX, screenY, 5 * scaleY, 0, Math.PI * 2);
+                        ctx.arc(screenX, screenY, missileSize, 0, Math.PI * 2);
                         ctx.fill();
 
+                        // Smoke trail as fading circles
                         const trailAngle = Math.atan2(ep.vx || 0, ep.vy || 0);
-                        const trailX = screenX + Math.sin(trailAngle) * 22 * scaleY;
-                        const trailY = screenY - Math.cos(trailAngle) * 22 * scaleY;
-                        ctx.strokeStyle = 'rgba(220, 220, 220, 0.6)';
-                        ctx.lineWidth = 3 * scaleY;
-                        ctx.beginPath();
-                        ctx.moveTo(screenX, screenY);
-                        ctx.lineTo(trailX, trailY);
-                        ctx.stroke();
-
-                        ctx.fillStyle = '#ffaa00';
-                        ctx.beginPath();
-                        ctx.arc(trailX, trailY, 3 * scaleY, 0, Math.PI * 2);
-                        ctx.fill();
+                        for (let t = 1; t <= 3; t++) {
+                            const trailDist = t * 8 * scale;
+                            const trailX = screenX + Math.sin(trailAngle) * trailDist;
+                            const trailY = screenY - Math.cos(trailAngle) * trailDist;
+                            const trailSize = (3.5 - t * 0.7) * scale;
+                            ctx.fillStyle = `rgba(220, 220, 220, ${0.6 - t * 0.15})`;
+                            ctx.beginPath();
+                            ctx.arc(trailX, trailY, Math.max(trailSize, 1), 0, Math.PI * 2);
+                            ctx.fill();
+                        }
                     } else if (ep.type === 'infantry_bullet') {
-                        const tracerSize = Math.max(1.2, 2.5 * scaleY);
+                        // Infantry bullet - tiny ball
+                        const bulletSize = Math.max(1.5, 1.5 * scale);
                         ctx.fillStyle = '#ffe066';
                         ctx.beginPath();
-                        ctx.arc(screenX, screenY, tracerSize, 0, Math.PI * 2);
+                        ctx.arc(screenX, screenY, bulletSize, 0, Math.PI * 2);
                         ctx.fill();
-
-                        const trailAngle = ep.angle || 0;
-                        ctx.strokeStyle = 'rgba(255, 230, 160, 0.7)';
-                        ctx.lineWidth = Math.max(1, 1.2 * scaleY);
-                        ctx.beginPath();
-                        ctx.moveTo(screenX, screenY);
-                        ctx.lineTo(
-                            screenX + Math.sin(trailAngle) * 10 * scaleY,
-                            screenY - Math.cos(trailAngle) * 10 * scaleY
-                        );
-                        ctx.stroke();
                     } else if (ep.type === 'tank_shell') {
-                        const shellSize = Math.max(2.2, 4.2 * scaleY);
+                        // Tank shell - medium ball
+                        const shellSize = Math.max(3, 4 * scale);
                         ctx.fillStyle = '#d0c8a0';
                         ctx.beginPath();
                         ctx.arc(screenX, screenY, shellSize, 0, Math.PI * 2);
                         ctx.fill();
-
-                        const trailAngle = ep.angle || 0;
-                        ctx.strokeStyle = 'rgba(200, 190, 160, 0.6)';
-                        ctx.lineWidth = Math.max(1, 1.6 * scaleY);
-                        ctx.beginPath();
-                        ctx.moveTo(screenX, screenY);
-                        ctx.lineTo(
-                            screenX + Math.sin(trailAngle) * 12 * scaleY,
-                            screenY - Math.cos(trailAngle) * 12 * scaleY
-                        );
-                        ctx.stroke();
-                    } else {
-                        // Draw missile body
+                    } else if (ep.type === 'sam_missile') {
+                        // SAM missile - medium-large ball with smoke trail
+                        const missileSize = Math.max(4, 5 * scale);
                         ctx.fillStyle = '#ff3300';
                         ctx.beginPath();
-                        ctx.arc(screenX, screenY, 5 * scaleY, 0, Math.PI * 2);
+                        ctx.arc(screenX, screenY, missileSize, 0, Math.PI * 2);
                         ctx.fill();
                         
-                        // Draw smoke trail
-                        ctx.strokeStyle = 'rgba(200, 200, 200, 0.5)';
-                        ctx.lineWidth = 3 * scaleY;
-                        const trailAngle = ep.angle || 0;
-                        const trailX = screenX + Math.sin(trailAngle) * 20 * scaleY;
-                        const trailY = screenY - Math.cos(trailAngle) * 20 * scaleY;
-                        ctx.beginPath();
-                        ctx.moveTo(screenX, screenY);
-                        ctx.lineTo(trailX, trailY);
-                        ctx.stroke();
+                        // Smoke trail as fading circles (different for launch vs track phase)
+                        const trailAngle = ep.phase === 'launch' ? Math.PI : (ep.angle || 0);
+                        for (let t = 1; t <= 3; t++) {
+                            const trailDist = t * 8 * scale;
+                            const trailX = screenX + Math.sin(trailAngle) * trailDist;
+                            const trailY = screenY - Math.cos(trailAngle) * trailDist;
+                            const trailSize = (4 - t * 0.8) * scale;
+                            ctx.fillStyle = `rgba(200, 200, 200, ${0.5 - t * 0.12})`;
+                            ctx.beginPath();
+                            ctx.arc(trailX, trailY, Math.max(trailSize, 1), 0, Math.PI * 2);
+                            ctx.fill();
+                        }
                         
-                        // Draw flame
+                        // Flame at exhaust
+                        const flameX = screenX + Math.sin(trailAngle) * 10 * scale;
+                        const flameY = screenY - Math.cos(trailAngle) * 10 * scale;
                         ctx.fillStyle = '#ffaa00';
                         ctx.beginPath();
-                        ctx.arc(trailX, trailY, 3 * scaleY, 0, Math.PI * 2);
+                        ctx.arc(flameX, flameY, Math.max(2.5 * scale, 1.5), 0, Math.PI * 2);
                         ctx.fill();
+                    } else {
+                        // Generic enemy projectile - ball with smoke trail
+                        const missileSize = Math.max(4, 5 * scale);
+                        ctx.fillStyle = '#ff3300';
+                        ctx.beginPath();
+                        ctx.arc(screenX, screenY, missileSize, 0, Math.PI * 2);
+                        ctx.fill();
+                        
+                        // Smoke trail as fading circles
+                        const trailAngle = ep.angle || 0;
+                        for (let t = 1; t <= 3; t++) {
+                            const trailDist = t * 7 * scale;
+                            const trailX = screenX + Math.sin(trailAngle) * trailDist;
+                            const trailY = screenY - Math.cos(trailAngle) * trailDist;
+                            const trailSize = (3.5 - t * 0.7) * scale;
+                            ctx.fillStyle = `rgba(200, 200, 200, ${0.5 - t * 0.12})`;
+                            ctx.beginPath();
+                            ctx.arc(trailX, trailY, Math.max(trailSize, 1), 0, Math.PI * 2);
+                            ctx.fill();
+                        }
                     }
                 }
             }
@@ -7759,17 +7973,19 @@
                 return true;  // Target is underground
             }
             
-            // Check line-of-sight occlusion
-            // Sample terrain heights along the ray from camera to target
-            const zoomFactor = getDeltaZoomFactor();
-            const baseSamples = Math.floor(ry / 25);
-            const numSamples = Math.min(16, Math.max(3, Math.floor(baseSamples * zoomFactor)));
+            // Check line-of-sight occlusion with denser sampling
+            const numSamples = Math.min(40, Math.max(10, Math.floor(ry / 10)));
             const targetHeight = (typeof target.hitHeight === 'number') ? target.hitHeight : target.size * 0.5;
-            const targetCenterZ = target.z + targetHeight * 0.5;
-            const clearance = Math.max(6, targetHeight * 0.1);
+            
+            // Check occlusion for the BASE of the target (most important)
+            const targetBaseZ = target.z;
+            // Use very tight clearance - terrain must clearly be below line of sight
+            const clearance = 2;
             
             for (let s = 1; s < numSamples; s++) {
-                const t = s / numSamples;
+                // Non-linear sampling: more samples near the target where occlusion matters most
+                const linearT = s / numSamples;
+                const t = linearT;  // Can use linearT * linearT for even more near-target density
                 
                 // Interpolate position along ray
                 let sampleX = cam.x + dx * t;
@@ -7781,12 +7997,35 @@
                 
                 const terrainAtSample = getTerrainHeight(sampleX, sampleY);
                 
-                // Interpolate expected height along line of sight
-                const expectedHeight = cam.height + (targetCenterZ - cam.height) * t;
+                // Check if terrain blocks line of sight to target BASE
+                const expectedHeightToBase = cam.height + (targetBaseZ - cam.height) * t;
                 
-                // If terrain is higher than line of sight, target is occluded
-                if (terrainAtSample > expectedHeight + clearance) {
-                    return true;
+                if (terrainAtSample > expectedHeightToBase + clearance) {
+                    return true;  // Terrain blocks view of target base
+                }
+            }
+            
+            // Additional check: sample terrain in a small area around the target
+            // to catch cases where local terrain should occlude
+            const checkRadius = 5;
+            for (let ox = -checkRadius; ox <= checkRadius; ox += checkRadius) {
+                for (let oy = -checkRadius; oy <= checkRadius; oy += checkRadius) {
+                    let checkX = target.x + ox;
+                    let checkY = target.y + oy;
+                    checkX = ((checkX % CONFIG.MAP_SIZE) + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
+                    checkY = ((checkY % CONFIG.MAP_SIZE) + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
+                    
+                    const nearbyTerrain = getTerrainHeight(checkX, checkY);
+                    if (nearbyTerrain > target.z + targetHeight * 0.3) {
+                        // Nearby terrain is significantly higher than target - likely occluded
+                        // But only if that terrain is between camera and target
+                        const tdx = checkX - cam.x;
+                        const tdy = checkY - cam.y;
+                        const dotProduct = tdx * dx + tdy * dy;
+                        if (dotProduct > 0 && dotProduct < dx * dx + dy * dy) {
+                            return true;
+                        }
+                    }
                 }
             }
             
@@ -10084,80 +10323,68 @@
                     const bankOffset = (screenX - screenWidth / 2) * bankTiltFactor;
                     const screenY = (cam.height - proj.z) * scaleY + cam.horizon + bankOffset;
                     
-                    // Different rendering based on projectile type
+                    // Different rendering based on projectile type - ALL BALL-BASED
+                    const scale = Math.min(scaleY, 1);
+                    
                     if (proj.projectileType === 'missile') {
-                        // Missiles - larger with smoke trail
-                        ctx.fillStyle = proj.color;
+                        // Missiles - larger ball with smoke trail as fading circles
+                        const missileSize = 5 * scale;
+                        ctx.fillStyle = proj.color || '#ff4400';
                         ctx.beginPath();
-                        ctx.arc(screenX, screenY, 6 * Math.min(scaleY, 1), 0, Math.PI * 2);
+                        ctx.arc(screenX, screenY, missileSize, 0, Math.PI * 2);
                         ctx.fill();
                         
-                        // Smoke trail
-                        ctx.strokeStyle = 'rgba(150, 150, 150, 0.6)';
-                        ctx.lineWidth = 4 * Math.min(scaleY, 1);
-                        const trailLen = 25;
-                        const trailX = screenX + Math.sin(proj.angle - cam.angle) * trailLen;
-                        const trailY = screenY + Math.cos(proj.angle - cam.angle) * trailLen;
-                        ctx.beginPath();
-                        ctx.moveTo(screenX, screenY);
-                        ctx.lineTo(trailX, trailY);
-                        ctx.stroke();
+                        // Smoke trail as fading circles behind (not a line)
+                        const trailAngle = proj.angle - cam.angle;
+                        for (let t = 1; t <= 3; t++) {
+                            const trailDist = t * 8 * scale;
+                            const trailX = screenX + Math.sin(trailAngle) * trailDist;
+                            const trailY = screenY + Math.cos(trailAngle) * trailDist;
+                            const trailSize = (4 - t * 0.8) * scale;
+                            const alpha = 0.6 - t * 0.15;
+                            ctx.fillStyle = `rgba(150, 150, 150, ${alpha})`;
+                            ctx.beginPath();
+                            ctx.arc(trailX, trailY, trailSize, 0, Math.PI * 2);
+                            ctx.fill();
+                        }
                         
-                        // Flame
+                        // Flame at exhaust
+                        const flameX = screenX + Math.sin(trailAngle) * 10 * scale;
+                        const flameY = screenY + Math.cos(trailAngle) * 10 * scale;
                         ctx.fillStyle = '#ffaa00';
                         ctx.beginPath();
-                        ctx.arc(trailX, trailY, 4 * Math.min(scaleY, 1), 0, Math.PI * 2);
+                        ctx.arc(flameX, flameY, 3 * scale, 0, Math.PI * 2);
                         ctx.fill();
                         
                     } else if (proj.projectileType === 'rocket') {
-                        // Rockets - medium with fire trail
-                        ctx.fillStyle = proj.color;
+                        // Rockets - medium ball with fire trail as circles
+                        const rocketSize = 4 * scale;
+                        ctx.fillStyle = proj.color || '#ff6600';
                         ctx.beginPath();
-                        ctx.arc(screenX, screenY, 4 * Math.min(scaleY, 1), 0, Math.PI * 2);
+                        ctx.arc(screenX, screenY, rocketSize, 0, Math.PI * 2);
                         ctx.fill();
                         
-                        // Fire trail
-                        ctx.strokeStyle = '#ff4400';
-                        ctx.lineWidth = 3 * Math.min(scaleY, 1);
-                        const trailLen = 15;
-                        const trailX = screenX + Math.sin(proj.angle - cam.angle) * trailLen;
-                        const trailY = screenY + Math.cos(proj.angle - cam.angle) * trailLen;
-                        ctx.beginPath();
-                        ctx.moveTo(screenX, screenY);
-                        ctx.lineTo(trailX, trailY);
-                        ctx.stroke();
-                        
-                    } else {
-                        // Bullets - tracer style
-                        ctx.strokeStyle = proj.color || '#ffaa00';
-                        ctx.lineWidth = 2;
-                        
-                        // Calculate trail end position (where bullet WAS, not where it's going)
-                        // Bullet moves by x -= sin*speed, so previous pos is x + sin*speed
-                        const trailDx = Math.sin(proj.angle) * proj.speed * 2;
-                        const trailDy = Math.cos(proj.angle) * proj.speed * 2;
-                        const trailRx = (dx + trailDx) * cosAngle - (dy + trailDy) * sinAngle;
-                        const trailRy = -(dx + trailDx) * sinAngle - (dy + trailDy) * cosAngle;
-                        
-                        if (trailRy > 5) {
-                            const trailScaleX = (screenWidth / 2) / trailRy;
-                            const trailScaleY = 240.0 / trailRy;
-                            const trailScreenX = screenWidth / 2 + trailRx * trailScaleX;
-                            // Trail Z is behind the projectile head (accounting for pitch)
-                            const trailZ = proj.z - (proj.pitch || 0) * proj.speed * 2;
-                            const trailScreenY = (cam.height - trailZ) * trailScaleY + cam.horizon;
-                            
-                            // Draw tracer
+                        // Fire trail as fading circles
+                        const trailAngle = proj.angle - cam.angle;
+                        for (let t = 1; t <= 2; t++) {
+                            const trailDist = t * 6 * scale;
+                            const trailX = screenX + Math.sin(trailAngle) * trailDist;
+                            const trailY = screenY + Math.cos(trailAngle) * trailDist;
+                            const trailSize = (3 - t * 0.6) * scale;
+                            const alpha = 0.7 - t * 0.2;
+                            ctx.fillStyle = `rgba(255, 100, 0, ${alpha})`;
                             ctx.beginPath();
-                            ctx.moveTo(screenX, screenY);
-                            ctx.lineTo(trailScreenX, trailScreenY);
-                            ctx.stroke();
+                            ctx.arc(trailX, trailY, trailSize, 0, Math.PI * 2);
+                            ctx.fill();
                         }
                         
-                        // Draw projectile head
+                    } else {
+                        // Bullets - just balls, no tracer lines
+                        // Heli cannon = larger, soldier bullets = smaller
+                        const bulletSize = proj.projectileType === 'cannon' ? 3 * scale : 2.5 * scale;
                         ctx.fillStyle = proj.color || '#ffff00';
                         ctx.beginPath();
-                        ctx.arc(screenX, screenY, 3, 0, Math.PI * 2);
+                        ctx.arc(screenX, screenY, Math.max(bulletSize, 1.5), 0, Math.PI * 2);
                         ctx.fill();
                     }
                 }
