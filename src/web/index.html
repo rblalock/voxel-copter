@@ -242,6 +242,7 @@
             FREEPLAY: 'freeplay',
             SETTINGS: 'settings',
             ACHIEVEMENTS: 'achievements',
+            LEADERBOARD: 'leaderboard',
             HOWTO: 'howto',
             BRIEFING: 'briefing',
             PLAYING: 'playing',
@@ -432,6 +433,14 @@
             const hits = hasTelemetry ? telemetry.shotsHit : sessionStats.hits;
             if (!shots) return 0;
             return Math.max(0, Math.min(100, Math.round((hits / shots) * 100)));
+        }
+
+        function trackEvent(name, properties) {
+            try {
+                window.agentuityAnalytics?.track(name, properties);
+            } catch (e) {
+                // Silently ignore analytics errors
+            }
         }
 
         let showOnboardingHints = true;
@@ -824,6 +833,33 @@
                 key: 'Digit3'
             }
         };
+
+        const DAMAGE_MULTIPLIERS = {
+            pistol: { soldier: 1.0, tank: 0.05, building: 0.02, sam: 0.1, aircraft: 0.5 },
+            m4: { soldier: 1.0, tank: 0.1, building: 0.05, sam: 0.2, aircraft: 0.8 },
+            sniper: { soldier: 1.5, tank: 0.15, building: 0.08, sam: 0.3, aircraft: 1.0 },
+            cannon: { soldier: 1.0, tank: 0.5, building: 0.3, sam: 0.8, aircraft: 1.0 },
+            rockets: { soldier: 2.0, tank: 1.0, building: 0.8, sam: 1.0, aircraft: 1.5 },
+            hellfire: { soldier: 3.0, tank: 1.5, building: 1.0, sam: 1.2, aircraft: 2.0 },
+            stinger: { soldier: 1.0, tank: 0.3, building: 0.1, sam: 0.5, aircraft: 2.0 }
+        };
+
+        function getTargetDamageCategory(target) {
+            if (!target) return 'soldier';
+            if (target.type === 'soldier') return 'soldier';
+            if (target.type === 'tank') return 'tank';
+            if (target.type === 'sam') return 'sam';
+            if (target.domain === DOMAINS.AIR) return 'aircraft';
+            if (target.domain === DOMAINS.STRUCTURE) return 'building';
+            return 'soldier';
+        }
+
+        function getDamageMultiplier(weaponType, target) {
+            const table = DAMAGE_MULTIPLIERS[weaponType];
+            if (!table) return 1;
+            const category = getTargetDamageCategory(target);
+            return table[category] ?? 1;
+        }
         
         // Weapon state (ammo tracking)
         const weaponState = {
@@ -862,7 +898,12 @@
                 ai: {
                     type: 'patrol',
                     speed: 0.02,         // Very slow patrol
-                    patrolRadius: 40     // Smaller patrol area
+                    patrolRadius: 40,     // Smaller patrol area
+                    detectRange: 250,
+                    engageRange: 200,
+                    fireRate: 2500,
+                    bulletSpeed: 1.2,
+                    bulletDamage: 25
                 }
             },
             SOLDIER: {
@@ -951,16 +992,17 @@
                 ai: {
                     type: 'aircraft',
                     role: 'fighter',
-                    speed: 0.35,
+                    speed: 0.6,
                     turnRate: 0.015,
                     climbRate: 0.3,
-                    preferredAlt: 120,
+                    preferredAlt: 250,
                     detectRange: 400,
                     engageRange: 250,
-                    fireRate: 150,  // ms between shots
-                    weaponType: 'air_cannon',
-                    bulletSpeed: 1.5,
-                    bulletDamage: 8
+                    fireRate: 1200,
+                    weaponType: 'air_missile',
+                    bulletSpeed: 0.9,
+                    bulletDamage: 45,
+                    attackCooldown: 8000
                 }
             },
             AIR_TRANSPORT: {
@@ -970,10 +1012,10 @@
                 ai: {
                     type: 'aircraft',
                     role: 'transport',
-                    speed: 0.2,
+                    speed: 0.4,
                     turnRate: 0.008,
                     climbRate: 0.15,
-                    preferredAlt: 100,
+                    preferredAlt: 200,
                     detectRange: 200,
                     engageRange: 0,  // Doesn't engage
                     fireRate: 0,
@@ -990,13 +1032,13 @@
                     speed: 0.18,
                     turnRate: 0.02,
                     climbRate: 0.25,
-                    preferredAlt: 60,
+                    preferredAlt: 80,
                     detectRange: 300,
                     engageRange: 200,
-                    fireRate: 800,  // Slower rockets
-                    weaponType: 'air_rocket',
-                    bulletSpeed: 0.8,
-                    bulletDamage: 25
+                    fireRate: 180,
+                    weaponType: 'air_cannon',
+                    bulletSpeed: 1.4,
+                    bulletDamage: 8
                 }
             }
         };
@@ -1609,7 +1651,7 @@
         let comancheTriggerHeld = false;
 
         // Menu navigation state
-        const MAIN_MENU_OPTIONS = ['MODE', 'CAMPAIGN', 'FREE PLAY', 'SETTINGS', 'ACHIEVEMENTS', 'HOW TO PLAY'];
+        const MAIN_MENU_OPTIONS = ['MODE', 'CAMPAIGN', 'FREE PLAY', 'SETTINGS', 'ACHIEVEMENTS', 'LEADERBOARD', 'HOW TO PLAY'];
         const FREEPLAY_OPTIONS = ['LAUNCH FREE PLAY', 'BACK TO MENU'];
         const PAUSE_OPTIONS = ['RESUME [ESC]', 'RESTART MISSION', 'QUIT TO MENU'];
         const SETTINGS_ITEMS = [
@@ -2727,6 +2769,12 @@
                     startTransition(GAME_STATES.MENU, 500);
                     return true;
                 }
+            } else if (gameState === GAME_STATES.LEADERBOARD) {
+                if (e.code === 'Enter' || e.code === 'Escape') {
+                    playMenuConfirmSound();
+                    startTransition(GAME_STATES.MENU, 500);
+                    return true;
+                }
             } else if (gameState === GAME_STATES.HOWTO) {
                 if (e.code === 'Enter' || e.code === 'Escape') {
                     playMenuConfirmSound();
@@ -3102,6 +3150,8 @@
             } else if (index === 4) {
                 startTransition(GAME_STATES.ACHIEVEMENTS, 600);
             } else if (index === 5) {
+                startTransition(GAME_STATES.LEADERBOARD, 600);
+            } else if (index === 6) {
                 startTransition(GAME_STATES.HOWTO, 600);
             }
         }
@@ -3420,7 +3470,7 @@
             const headBobOffset = Math.sin(SOLDIER.headBob) * bobAmplitude;
 
             camera.height = terrainHeight + eyeHeight + headBobOffset;
-            camera.horizon = Math.max(screenHeight * 0.25, Math.min(screenHeight * 0.75, camera.horizon));
+            camera.horizon = Math.max(screenHeight * 0.05, Math.min(screenHeight * 0.95, camera.horizon));
             currentSpeed = moveSpeed;
         }
 
@@ -3641,6 +3691,8 @@
         function exitHeliToSoldier() {
             if (!isHeliLanded(playerState.heli)) return false;
 
+            const previousMode = gameMode;
+
             // Save helicopter state from camera
             playerState.heli.x = camera.x;
             playerState.heli.y = camera.y;
@@ -3680,6 +3732,8 @@
             SOLDIER.isSprinting = false;
             resetSoldierWeapons();
 
+            trackEvent('mode_switch', { from: previousMode, to: gameMode });
+
             return true;
         }
 
@@ -3695,6 +3749,8 @@
 
         function enterHeli() {
             if (!canEnterHeli()) return false;
+
+            const previousMode = gameMode;
 
             // Switch to Comanche mode
             playerState.mode = GAME_MODES.COMANCHE;
@@ -3712,6 +3768,8 @@
             camera.forwardSpeed = 0;
             camera.lateralSpeed = 0;
             camera.verticalSpeed = 0;
+
+            trackEvent('mode_switch', { from: previousMode, to: gameMode });
 
             return true;
         }
@@ -3838,6 +3896,12 @@
                 // Hide loading and start playing
                 loadingEl.style.display = 'none';
                 gameState = GAME_STATES.PLAYING;
+
+                trackEvent('game_start', {
+                    mode: gameMode,
+                    missionId: currentMissionIndex,
+                    difficulty: mission ? mission.difficulty : null
+                });
                 
                 // Start rotor sound
                 startRotorSound();
@@ -3920,6 +3984,12 @@
             missionStartTime = 0;
             missionTime = 0;
             currentMissionIndex = -1;  // Indicate free play mode
+
+            trackEvent('game_start', {
+                mode: gameMode,
+                missionId: currentMissionIndex,
+                difficulty: null
+            });
             
             // Hide loading and start playing immediately
             document.getElementById('loading').style.display = 'none';
@@ -4020,7 +4090,14 @@
                         patrolRadius: targetType.ai.patrolRadius,
                         patrolCenter: { x: x, y: y },
                         patrolAngle: Math.random() * Math.PI * 2,
-                        patrolDirection: Math.random() > 0.5 ? 1 : -1
+                        patrolDirection: Math.random() > 0.5 ? 1 : -1,
+                        detectRange: targetType.ai.detectRange,
+                        engageRange: targetType.ai.engageRange,
+                        fireRate: targetType.ai.fireRate,
+                        bulletSpeed: targetType.ai.bulletSpeed,
+                        bulletDamage: targetType.ai.bulletDamage,
+                        lastFired: 0,
+                        state: 'patrol'
                     };
                 } else if (targetType.ai.type === 'sam') {
                     aiState = {
@@ -4062,7 +4139,9 @@
                         fireRate: targetType.ai.fireRate,
                         weaponType: targetType.ai.weaponType,
                         bulletSpeed: targetType.ai.bulletSpeed,
-                        bulletDamage: targetType.ai.bulletDamage
+                        bulletDamage: targetType.ai.bulletDamage,
+                        attackCooldown: targetType.ai.attackCooldown || 0,
+                        lastAttackTime: 0
                     };
                 }
             }
@@ -4105,7 +4184,14 @@
                         patrolRadius: template.ai.patrolRadius,
                         patrolCenter: { x: x, y: y },
                         patrolAngle: Math.random() * Math.PI * 2,
-                        patrolDirection: Math.random() > 0.5 ? 1 : -1
+                        patrolDirection: Math.random() > 0.5 ? 1 : -1,
+                        detectRange: template.ai.detectRange,
+                        engageRange: template.ai.engageRange,
+                        fireRate: template.ai.fireRate,
+                        bulletSpeed: template.ai.bulletSpeed,
+                        bulletDamage: template.ai.bulletDamage,
+                        lastFired: 0,
+                        state: 'patrol'
                     };
                 } else if (template.ai.type === 'sam') {
                     aiState = {
@@ -4147,7 +4233,9 @@
                         fireRate: template.ai.fireRate,
                         weaponType: template.ai.weaponType,
                         bulletSpeed: template.ai.bulletSpeed,
-                        bulletDamage: template.ai.bulletDamage
+                        bulletDamage: template.ai.bulletDamage,
+                        attackCooldown: template.ai.attackCooldown || 0,
+                        lastAttackTime: 0
                     };
                 }
             }
@@ -4527,11 +4615,15 @@
             const mission = getActiveMission();
             const elapsed = getMissionElapsedSeconds();
             lastMissionElapsed = elapsed;
+            const timeElapsed = telemetry.flightTime + telemetry.groundTime;
+            let finalScore = score;
+            let scoreInfo = null;
             
             if (victory) {
                 missionComplete = true;
                 if (mission) {
-                    const scoreInfo = calculateMissionScore(mission);
+                    scoreInfo = calculateMissionScore(mission);
+                    finalScore = scoreInfo.totalScore;
                     const starsEarned = calculateMissionStars(mission, elapsed);
                     recordMissionCompletion(mission, scoreInfo.totalScore, starsEarned);
                     checkAchievements('score', { score: scoreInfo.totalScore });
@@ -4550,6 +4642,13 @@
             } else {
                 isPlayerDead = true;
                 defeatReason = reason;
+                if (reason && reason !== 'TIME EXPIRED') {
+                    trackEvent('player_death', {
+                        mode: gameMode,
+                        missionId: currentMissionIndex,
+                        cause: reason
+                    });
+                }
                 updateStats('totalDeaths', 1);
                 sessionStats.deaths += 1;
                 postStatsEvent({ type: 'death', count: 1 });
@@ -4561,6 +4660,16 @@
                     }
                 });
             }
+
+            trackEvent('game_end', {
+                mode: gameMode,
+                missionId: currentMissionIndex,
+                victory: victory,
+                score: finalScore,
+                kills: sessionStats.kills,
+                accuracy: calculateAccuracy(),
+                timeElapsed: timeElapsed
+            });
 
             if (currentMissionIndex >= 0 && !isGeneratingDebrief) {
                 isGeneratingDebrief = true;
@@ -4905,9 +5014,11 @@
                             if (proj.projectileType === 'missile') {
                                 telemetry.missilesHit += 1;
                             }
-                            const damageDealt = Math.min(proj.damage, target.health);
+                            const multiplier = getDamageMultiplier(proj.type, target);
+                            const adjustedDamage = proj.damage * multiplier;
+                            const damageDealt = Math.min(adjustedDamage, target.health);
                             telemetry.damageDealt += damageDealt;
-                            target.health -= proj.damage;
+                            target.health -= adjustedDamage;
 
                             // Hit confirmation feedback
                             triggerHitMarker(proj.projectileType === 'bullet' ? 0.8 : 1.0);
@@ -4922,6 +5033,11 @@
                                     score += target.points;
                                     sessionStats.score += target.points;
                                     sessionStats.kills += 1;
+                                    trackEvent('kill', {
+                                        targetType: target.type,
+                                        weapon: gameMode === GAME_MODES.DELTA ? soldierWeapon.current : currentWeapon,
+                                        mode: gameMode
+                                    });
                                     postStatsEvent({ type: 'kill', count: 1 });
                                     updateStats('totalKills', 1);
                                 if (target.type === 'tank') updateStats('tanksDestroyed', 1);
@@ -5030,7 +5146,7 @@
                 if (target.destroyed || !target.ai) continue;
                 
                 if (target.ai.type === 'patrol') {
-                    updateTankAI(target, deltaTime);
+                    updateTankAI(target, deltaTime, currentTime);
                 } else if (target.ai.type === 'sam') {
                     updateSamAI(target, currentTime);
                 } else if (target.ai.type === 'infantry') {
@@ -5041,22 +5157,70 @@
             }
         }
         
-        function updateTankAI(target, deltaTime) {
+        function updateTankAI(target, deltaTime, currentTime) {
+            const ai = target.ai;
+
             // Circular patrol movement
-            target.ai.patrolAngle += target.ai.speed * target.ai.patrolDirection * deltaTime * 0.001;
-            target.x = target.ai.patrolCenter.x + Math.cos(target.ai.patrolAngle) * target.ai.patrolRadius;
-            target.y = target.ai.patrolCenter.y + Math.sin(target.ai.patrolAngle) * target.ai.patrolRadius;
-            
+            ai.patrolAngle += ai.speed * ai.patrolDirection * deltaTime * 0.001;
+            target.x = ai.patrolCenter.x + Math.cos(ai.patrolAngle) * ai.patrolRadius;
+            target.y = ai.patrolCenter.y + Math.sin(ai.patrolAngle) * ai.patrolRadius;
+
             // Wrap around map
             target.x = ((target.x % CONFIG.MAP_SIZE) + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
             target.y = ((target.y % CONFIG.MAP_SIZE) + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
-            
+
             // Update Z position based on terrain
             const terrainHeight = getTerrainHeight(target.x, target.y);
             target.z = terrainHeight + TARGET_TYPES.TANK.heightOffset;
+
+            const canEngage = gameMode === GAME_MODES.DELTA || gameMode === GAME_MODES.COMANCHE;
+            if (!canEngage) {
+                ai.state = 'patrol';
+                return;
+            }
+
+            let dx = camera.x - target.x;
+            let dy = camera.y - target.y;
+            if (dx > CONFIG.MAP_SIZE / 2) dx -= CONFIG.MAP_SIZE;
+            if (dx < -CONFIG.MAP_SIZE / 2) dx += CONFIG.MAP_SIZE;
+            if (dy > CONFIG.MAP_SIZE / 2) dy -= CONFIG.MAP_SIZE;
+            if (dy < -CONFIG.MAP_SIZE / 2) dy += CONFIG.MAP_SIZE;
+
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            const tankOrigin = { x: target.x, y: target.y, height: target.z };
+            const playerTarget = { x: camera.x, y: camera.y, z: camera.height };
+            const hasLineOfSight = !isTargetOccluded(playerTarget, tankOrigin, dx, dy, dist);
+
+            if (dist <= ai.detectRange && hasLineOfSight) {
+                ai.state = 'engage';
+            } else if (ai.state === 'engage' && (!hasLineOfSight || dist > ai.detectRange * 1.2)) {
+                ai.state = 'patrol';
+            }
+
+            if (ai.state === 'engage' && dist <= ai.engageRange && currentTime - ai.lastFired > ai.fireRate) {
+                const aimAngle = Math.atan2(dx, dy);
+                const dz = camera.height - (target.z + 6);
+                let pitch = dist > 0 ? dz / dist : 0;
+                pitch += (Math.random() - 0.5) * 0.02;
+
+                enemyProjectiles.push({
+                    x: target.x,
+                    y: target.y,
+                    z: target.z + 6,
+                    angle: aimAngle,
+                    pitch: pitch,
+                    speed: ai.bulletSpeed,
+                    damage: ai.bulletDamage,
+                    type: 'tank_shell',
+                    lifetime: 200
+                });
+
+                ai.lastFired = currentTime;
+            }
         }
         
         function updateSamAI(target, currentTime) {
+            if (gameMode !== GAME_MODES.COMANCHE) return;
             // Calculate distance to player with map wrapping
             let dx = target.x - camera.x;
             let dy = target.y - camera.y;
@@ -5170,6 +5334,7 @@
                 ai.patrolAngle = Math.random() * Math.PI * 2;
                 ai.heading = ai.patrolAngle;
                 ai.lastFireTime = 0;
+                ai.lastAttackTime = ai.lastAttackTime || 0;
                 ai.targetId = null;
             }
 
@@ -5223,16 +5388,31 @@
                     airHoldAltitude(entity, playerZ + 10, ai.climbRate * 0.5, dt);
 
                     // Fire weapons
-                    if (ai.weaponType && currentTime - ai.lastFireTime > ai.fireRate) {
-                        fireAircraftWeapon(entity, playerX, playerY, playerZ);
-                        ai.lastFireTime = currentTime;
+                    if (ai.weaponType) {
+                        if (ai.role === 'fighter') {
+                            const cooldown = ai.attackCooldown || 8000;
+                            if (currentTime - ai.lastAttackTime >= cooldown) {
+                                fireAircraftWeapon(entity, playerX, playerY, playerZ);
+                                ai.lastAttackTime = currentTime;
+                                ai.lastFireTime = currentTime;
+                                ai.state = 'extend';
+                                ai.extendTime = currentTime;
+                            }
+                        } else if (currentTime - ai.lastFireTime > ai.fireRate) {
+                            fireAircraftWeapon(entity, playerX, playerY, playerZ);
+                            ai.lastFireTime = currentTime;
+                        }
                     }
 
                     // After attack run, extend and re-engage
-                    if (playerDist < 50) {
-                        ai.state = 'extend';
-                        ai.extendTime = currentTime;
-                    } else if (playerDist > ai.engageRange * 1.5) {
+                    if (ai.role !== 'fighter') {
+                        if (playerDist < 50) {
+                            ai.state = 'extend';
+                            ai.extendTime = currentTime;
+                        } else if (playerDist > ai.engageRange * 1.5) {
+                            ai.state = 'intercept';
+                        }
+                    } else if (ai.state === 'attack_run' && playerDist > ai.engageRange * 1.5) {
                         ai.state = 'intercept';
                     }
 
@@ -5251,7 +5431,8 @@
                     airSteerToward(entity, extendX, extendY, ai.turnRate, dt);
                     airHoldAltitude(entity, ai.preferredAlt + 30, ai.climbRate, dt);
 
-                    if (currentTime - ai.extendTime > 3000) {
+                    const extendDuration = ai.role === 'fighter' ? (ai.attackCooldown || 8000) : 3000;
+                    if (currentTime - ai.extendTime > extendDuration) {
                         ai.state = 'intercept';
                     }
                     break;
@@ -5318,7 +5499,7 @@
             const dirZ = dz / dist;
 
             // Add some spread
-            const spread = ai.weaponType === 'air_cannon' ? 0.05 : 0.02;
+            const spread = ai.weaponType === 'air_cannon' ? 0.05 : ai.weaponType === 'air_missile' ? 0.01 : 0.02;
             const spreadX = (Math.random() - 0.5) * spread;
             const spreadY = (Math.random() - 0.5) * spread;
 
@@ -5347,11 +5528,11 @@
             for (let i = enemyProjectiles.length - 1; i >= 0; i--) {
                 const ep = enemyProjectiles[i];
                 
-                if (ep.type === 'air_cannon' || ep.type === 'air_rocket') {
+                if (ep.type === 'air_cannon' || ep.type === 'air_rocket' || ep.type === 'air_missile') {
                     ep.x += ep.vx;
                     ep.y += ep.vy;
                     ep.z += ep.vz;
-                } else if (ep.type === 'infantry_bullet') {
+                } else if (ep.type === 'infantry_bullet' || ep.type === 'tank_shell') {
                     ep.x += Math.sin(ep.angle) * ep.speed;
                     ep.y += Math.cos(ep.angle) * ep.speed;
                     ep.z += ep.pitch * ep.speed;
@@ -5397,14 +5578,15 @@
                 }
                 
                 // Check hit player
-                if (ep.type === 'air_cannon' || ep.type === 'air_rocket') {
+                if (ep.type === 'air_cannon' || ep.type === 'air_rocket' || ep.type === 'air_missile') {
                     if (gameMode === GAME_MODES.COMANCHE) {
                         const dx = ep.x - camera.x;
                         const dy = ep.y - camera.y;
                         const dz = ep.z - camera.height;
                         const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
 
-                        if (dist < 15) {
+                        const hitRadius = ep.type === 'air_missile' ? 22 : 15;
+                        if (dist < hitRadius) {
                             if (!godMode) {
                                 playerHealth -= ep.damage;
                                 telemetry.damageTaken += ep.damage;
@@ -5419,7 +5601,7 @@
                     }
                 } else {
                     const playerDist = distance3D(ep.x, ep.y, ep.z, camera.x, camera.y, camera.height);
-                    const hitRadius = ep.type === 'infantry_bullet' ? 12 : 30;
+                    const hitRadius = ep.type === 'infantry_bullet' ? 12 : ep.type === 'tank_shell' ? 22 : 30;
                     if (playerDist < hitRadius) {
                         damagePlayer(ep.damage);
                         enemyProjectiles.splice(i, 1);
@@ -5431,7 +5613,10 @@
                 // Check terrain collision
                 const terrainHeight = getTerrainHeight(ep.x, ep.y);
                 if (ep.z <= terrainHeight) {
-                    createExplosion(ep.x, ep.y, terrainHeight, 'small');
+                    const explosionSize = (ep.type === 'sam_missile' || ep.type === 'tank_shell' || ep.type === 'air_missile' || ep.type === 'air_rocket')
+                        ? 'medium'
+                        : 'small';
+                    createExplosion(ep.x, ep.y, terrainHeight, explosionSize);
                     if (ep.type === 'sam_missile') {
                         telemetry.missilesDodged += 1;
                     }
@@ -5882,6 +6067,7 @@
             ctx.textAlign = 'center';
             ctx.fillText('VOXELCOPTER', centerX, boxY - 20);
 
+            const menuSpacing = MAIN_MENU_OPTIONS.length > 6 ? 44 : 52;
             let y = boxY + 80;
             for (let i = 0; i < MAIN_MENU_OPTIONS.length; i++) {
                 const rect = { x: boxX + 60, y: y - 18, width: boxWidth - 120, height: 36 };
@@ -5892,7 +6078,7 @@
                     drawMenuButton(MAIN_MENU_OPTIONS[i], rect, i === menuSelectionIndex, hovered);
                 }
                 menuButtons.push({ ...rect, onClick: () => handleMainMenuSelection(i) });
-                y += 52;
+                y += menuSpacing;
             }
 
             ctx.font = '14px Courier New';
@@ -6195,6 +6381,64 @@
             }
 
             const backRect = { x: boxX + 240, y: boxY + boxHeight - 50, width: boxWidth - 480, height: 32 };
+            const backHover = hitTest(backRect, mouseX, mouseY);
+            drawMenuButton('BACK TO MENU', backRect, false, backHover);
+            menuButtons.push({ ...backRect, onClick: () => startTransition(GAME_STATES.MENU, 500) });
+        }
+
+        function renderLeaderboardOverlay() {
+            menuButtons = [];
+            const centerX = screenWidth / 2;
+            const centerY = screenHeight / 2;
+            const boxWidth = 520;
+            const boxHeight = 460;
+            const boxX = centerX - boxWidth / 2;
+            const boxY = centerY - boxHeight / 2;
+            drawMenuPanel(boxX, boxY, boxWidth, boxHeight, 'GLOBAL LEADERBOARD');
+
+            const stats = cachedGlobalStats;
+            ctx.textAlign = 'center';
+            if (!stats || !stats.leaderboard || !stats.totals) {
+                ctx.font = '14px Courier New';
+                ctx.fillStyle = '#0a0';
+                ctx.fillText('Fetching latest scores...', centerX, boxY + 90);
+            } else {
+                ctx.font = '12px Courier New';
+                ctx.fillStyle = '#0a0';
+                ctx.fillText(`Total Kills: ${stats.totals.kills}  •  Deaths: ${stats.totals.deaths}  •  Missions: ${stats.totals.missionsCompleted}`, centerX, boxY + 70);
+
+                ctx.font = 'bold 14px Courier New';
+                ctx.fillStyle = '#0f0';
+                ctx.fillText('TOP PILOTS', centerX, boxY + 95);
+
+                ctx.font = '12px Courier New';
+                ctx.textAlign = 'left';
+                let y = boxY + 125;
+                const listX = boxX + 40;
+                const scoreX = boxX + boxWidth - 40;
+
+                for (let i = 0; i < Math.min(10, stats.leaderboard.length); i++) {
+                    const entry = stats.leaderboard[i];
+                    const rank = i + 1;
+                    ctx.fillStyle = rank <= 3 ? '#ff0' : '#0f0';
+                    ctx.fillText(`${rank}.`, listX, y);
+                    ctx.fillStyle = '#0f0';
+                    ctx.fillText(entry.name.substring(0, 18), listX + 30, y);
+                    ctx.textAlign = 'right';
+                    ctx.fillStyle = '#0c0';
+                    ctx.fillText(entry.score.toLocaleString(), scoreX, y);
+                    ctx.textAlign = 'left';
+                    y += 24;
+                }
+
+                if (stats.leaderboard.length === 0) {
+                    ctx.textAlign = 'center';
+                    ctx.fillStyle = '#0a0';
+                    ctx.fillText('No scores yet - be the first!', centerX, boxY + 150);
+                }
+            }
+
+            const backRect = { x: boxX + 160, y: boxY + boxHeight - 50, width: boxWidth - 320, height: 34 };
             const backHover = hitTest(backRect, mouseX, mouseY);
             drawMenuButton('BACK TO MENU', backRect, false, backHover);
             menuButtons.push({ ...backRect, onClick: () => startTransition(GAME_STATES.MENU, 500) });
@@ -6919,10 +7163,6 @@
                 renderTitleOverlay();
             } else if (gameState === GAME_STATES.MENU) {
                 renderMainMenuOverlay();
-                refreshGlobalStatsIfNeeded();
-                if (cachedGlobalStats) {
-                    renderLeaderboard(cachedGlobalStats);
-                }
             } else if (gameState === GAME_STATES.CAMPAIGN) {
                 renderCampaignOverlay();
             } else if (gameState === GAME_STATES.FREEPLAY) {
@@ -6931,6 +7171,9 @@
                 renderSettingsOverlay();
             } else if (gameState === GAME_STATES.ACHIEVEMENTS) {
                 renderAchievementsOverlay();
+            } else if (gameState === GAME_STATES.LEADERBOARD) {
+                refreshGlobalStatsIfNeeded();
+                renderLeaderboardOverlay();
             } else if (gameState === GAME_STATES.HOWTO) {
                 renderHowToOverlay();
             } else if (gameState === GAME_STATES.BRIEFING) {
@@ -7038,6 +7281,26 @@
                         ctx.beginPath();
                         ctx.arc(trailX, trailY, 2.5 * scaleY, 0, Math.PI * 2);
                         ctx.fill();
+                    } else if (ep.type === 'air_missile') {
+                        ctx.fillStyle = '#ff4455';
+                        ctx.beginPath();
+                        ctx.arc(screenX, screenY, 5 * scaleY, 0, Math.PI * 2);
+                        ctx.fill();
+
+                        const trailAngle = Math.atan2(ep.vx || 0, ep.vy || 0);
+                        const trailX = screenX - Math.sin(trailAngle) * 22 * scaleY;
+                        const trailY = screenY + Math.cos(trailAngle) * 22 * scaleY;
+                        ctx.strokeStyle = 'rgba(220, 220, 220, 0.6)';
+                        ctx.lineWidth = 3 * scaleY;
+                        ctx.beginPath();
+                        ctx.moveTo(screenX, screenY);
+                        ctx.lineTo(trailX, trailY);
+                        ctx.stroke();
+
+                        ctx.fillStyle = '#ffaa00';
+                        ctx.beginPath();
+                        ctx.arc(trailX, trailY, 3 * scaleY, 0, Math.PI * 2);
+                        ctx.fill();
                     } else if (ep.type === 'infantry_bullet') {
                         const tracerSize = Math.max(1.2, 2.5 * scaleY);
                         ctx.fillStyle = '#ffe066';
@@ -7053,6 +7316,23 @@
                         ctx.lineTo(
                             screenX - Math.sin(trailAngle) * 10 * scaleY,
                             screenY + Math.cos(trailAngle) * 10 * scaleY
+                        );
+                        ctx.stroke();
+                    } else if (ep.type === 'tank_shell') {
+                        const shellSize = Math.max(2.2, 4.2 * scaleY);
+                        ctx.fillStyle = '#d0c8a0';
+                        ctx.beginPath();
+                        ctx.arc(screenX, screenY, shellSize, 0, Math.PI * 2);
+                        ctx.fill();
+
+                        const trailAngle = ep.angle || 0;
+                        ctx.strokeStyle = 'rgba(200, 190, 160, 0.6)';
+                        ctx.lineWidth = Math.max(1, 1.6 * scaleY);
+                        ctx.beginPath();
+                        ctx.moveTo(screenX, screenY);
+                        ctx.lineTo(
+                            screenX - Math.sin(trailAngle) * 12 * scaleY,
+                            screenY + Math.cos(trailAngle) * 12 * scaleY
                         );
                         ctx.stroke();
                     } else {
@@ -7210,8 +7490,11 @@
             // Check line-of-sight occlusion
             // Sample terrain heights along the ray from camera to target
             const zoomFactor = getDeltaZoomFactor();
-            const baseSamples = Math.floor(ry / 30);
-            const numSamples = Math.min(12, Math.max(2, Math.floor(baseSamples * zoomFactor)));
+            const baseSamples = Math.floor(ry / 25);
+            const numSamples = Math.min(16, Math.max(3, Math.floor(baseSamples * zoomFactor)));
+            const targetHeight = (typeof target.hitHeight === 'number') ? target.hitHeight : target.size * 0.5;
+            const targetCenterZ = target.z + targetHeight * 0.5;
+            const clearance = Math.max(6, targetHeight * 0.1);
             
             for (let s = 1; s < numSamples; s++) {
                 const t = s / numSamples;
@@ -7227,15 +7510,31 @@
                 const terrainAtSample = getTerrainHeight(sampleX, sampleY);
                 
                 // Interpolate expected height along line of sight
-                const expectedHeight = cam.height + (target.z - cam.height) * t;
+                const expectedHeight = cam.height + (targetCenterZ - cam.height) * t;
                 
                 // If terrain is higher than line of sight, target is occluded
-                if (terrainAtSample > expectedHeight + 10) {
+                if (terrainAtSample > expectedHeight + clearance) {
                     return true;
                 }
             }
             
             return false;  // Target is visible
+        }
+
+        const SHADOW_SUN_ANGLE = Math.PI * 0.35;
+
+        function drawAircraftShadow(screenX, groundScreenY, size, alpha, camAngle = 0) {
+            if (alpha <= 0 || size <= 0) return;
+            const sunAngle = SHADOW_SUN_ANGLE - camAngle;
+            const offsetX = Math.cos(sunAngle) * size * 0.6;
+            const offsetY = Math.sin(sunAngle) * size * 0.35;
+            ctx.save();
+            ctx.globalAlpha = alpha;
+            ctx.fillStyle = '#000';
+            ctx.beginPath();
+            ctx.ellipse(screenX + offsetX, groundScreenY + offsetY, size * 0.9, size * 0.35, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
         }
 
         // ============================================
@@ -7309,6 +7608,14 @@
                     }
                     
                     const size = target.size * scaleY;
+                    const isAircraft = target.domain === DOMAINS.AIR;
+                    let groundScreenY = 0;
+                    let altitude = 0;
+                    if (isAircraft) {
+                        const terrainHeight = getTerrainHeight(target.x, target.y);
+                        altitude = target.z - terrainHeight;
+                        groundScreenY = (cam.height - terrainHeight) * scaleY + cam.horizon + bankOffset;
+                    }
                     
                     // Check if on screen
                     if (screenX > -size && screenX < screenWidth + size &&
@@ -7339,6 +7646,25 @@
                             drawTransportPlane(screenX, screenY, size, target.color, target.ai?.heading || 0, fogFactor, weather.ambient, weather.skyColor);
                         } else if (target.type === 'air_attack_heli') {
                             drawAttackHelicopter(screenX, screenY, size, target.color, target.ai?.heading || 0, fogFactor, weather.ambient, weather.skyColor);
+                        }
+
+                        if (isAircraft) {
+                            const altitudeFactor = Math.min(1, Math.max(0, altitude / 250));
+                            const shadowAlpha = Math.max(0, 0.22 * (1 - fogFactor) * (1 - altitudeFactor * 0.7));
+                            const shadowSize = Math.max(2, size * (0.85 - altitudeFactor * 0.3));
+                            if (groundScreenY > -size && groundScreenY < screenHeight + size) {
+                                drawAircraftShadow(screenX, groundScreenY, shadowSize, shadowAlpha, cam.angle);
+                            }
+
+                            if (ry < 400) {
+                                const lineAlpha = Math.max(0, Math.min(0.35, (1 - fogFactor) * 0.35));
+                                ctx.strokeStyle = `rgba(200, 255, 200, ${lineAlpha})`;
+                                ctx.lineWidth = 1;
+                                ctx.beginPath();
+                                ctx.moveTo(screenX, groundScreenY);
+                                ctx.lineTo(screenX, screenY);
+                                ctx.stroke();
+                            }
                         }
                         
                         // Health bar
@@ -7525,44 +7851,64 @@
             const glassColor = getSpriteColorWithFog('#2a6a8a', fogFactor, ambient, skyColor);
             const rotorColor = getSpriteColorWithFog('#444444', fogFactor, ambient, skyColor);
 
-            // Main body (elongated rectangle)
-            ctx.fillStyle = bodyColor;
-            const bodyW = s * 0.6;
-            const bodyL = s * 1.2;
-            ctx.fillRect(ix - bodyW / 2, iy - bodyL / 2, bodyW, bodyL);
+            const relAngle = normalizeAngle(heading - camera.angle);
+            const facingRight = Math.cos(relAngle) >= 0;
+            const dir = facingRight ? 1 : -1;
 
-            // Cockpit (front)
+            ctx.save();
+            ctx.translate(ix, iy);
+            ctx.scale(dir, 1);
+
+            const bodyLength = s * 1.25;
+            const bodyHeight = s * 0.38;
+            const tailLength = s * 0.75;
+            const tailHeight = s * 0.12;
+            const skidHeight = Math.max(1, Math.floor(s * 0.06));
+
+            // Main body (horizontal fuselage)
+            ctx.fillStyle = bodyColor;
+            ctx.fillRect(-bodyLength * 0.5, -bodyHeight * 0.5, bodyLength, bodyHeight);
+
+            // Cockpit bubble (front)
             ctx.fillStyle = glassColor;
-            ctx.fillRect(ix - bodyW / 3, iy - bodyL / 2, bodyW * 0.66, s * 0.3);
+            ctx.beginPath();
+            ctx.ellipse(bodyLength * 0.25, -bodyHeight * 0.05, bodyLength * 0.18, bodyHeight * 0.55, 0, 0, Math.PI * 2);
+            ctx.fill();
 
             // Tail boom
             ctx.fillStyle = darkColor;
-            ctx.fillRect(ix - s * 0.1, iy + bodyL / 2 - 2, s * 0.2, s * 0.6);
+            ctx.fillRect(-bodyLength * 0.5 - tailLength, -tailHeight * 0.5, tailLength, tailHeight);
 
-            // Tail rotor housing
-            ctx.fillRect(ix - s * 0.15, iy + bodyL / 2 + s * 0.4, s * 0.3, s * 0.15);
+            // Tail rotor
+            ctx.fillRect(-bodyLength * 0.5 - tailLength - s * 0.05, -tailHeight * 1.2, s * 0.12, tailHeight * 2.4);
 
-            // Main rotor (spinning effect - use time for animation)
-            const rotorTime = performance.now() / 50;
+            // Skids
+            ctx.fillRect(-bodyLength * 0.35, bodyHeight * 0.55, bodyLength * 0.7, skidHeight);
+            ctx.fillRect(-bodyLength * 0.35, bodyHeight * 0.72, bodyLength * 0.7, skidHeight);
+            ctx.fillRect(-bodyLength * 0.25, bodyHeight * 0.25, skidHeight, bodyHeight * 0.4);
+            ctx.fillRect(bodyLength * 0.15, bodyHeight * 0.25, skidHeight, bodyHeight * 0.4);
+
+            // Main rotor (disc + blades)
+            const rotorTime = performance.now() / 45;
             ctx.fillStyle = rotorColor;
+            ctx.globalAlpha = 0.35;
+            ctx.beginPath();
+            ctx.ellipse(0, -bodyHeight * 0.75, bodyLength * 0.6, bodyLength * 0.18, 0, 0, Math.PI * 2);
+            ctx.fill();
             ctx.globalAlpha = 0.6;
-            const rotorRadius = s * 0.9;
             for (let i = 0; i < 4; i++) {
                 const angle = rotorTime + (i * Math.PI / 2);
-                const rx = Math.cos(angle) * rotorRadius;
-                const ry = Math.sin(angle) * rotorRadius * 0.3; // Flattened perspective
-                ctx.fillRect(ix + rx - 2, iy + ry - 1, 4, 2);
+                const rx = Math.cos(angle) * bodyLength * 0.6;
+                const ry = Math.sin(angle) * bodyLength * 0.18;
+                ctx.fillRect(rx - 2, -bodyHeight * 0.75 + ry - 1, 4, 2);
             }
             ctx.globalAlpha = 1.0;
 
             // Rotor hub
             ctx.fillStyle = darkColor;
-            ctx.fillRect(ix - 3, iy - 3, 6, 6);
+            ctx.fillRect(-3, -bodyHeight * 0.82, 6, 6);
 
-            // Skids
-            ctx.fillStyle = darkColor;
-            ctx.fillRect(ix - bodyW / 2 - 2, iy - bodyL / 3, 3, bodyL * 0.6);
-            ctx.fillRect(ix + bodyW / 2 - 1, iy - bodyL / 3, 3, bodyL * 0.6);
+            ctx.restore();
         }
 
         function drawFighterJet(x, y, size, color, heading, fogFactor = 0, ambient = 1, skyColor = CONFIG.SKY_COLOR) {
@@ -7575,41 +7921,65 @@
             const dark = getSpriteColorWithFog(darkenColor(color, 25), fogFactor, ambient, skyColor);
             const cockpit = getSpriteColorWithFog('#3a5a7a', fogFactor, ambient, skyColor);
 
-            // Calculate relative heading for sprite orientation
             const relAngle = normalizeAngle(heading - camera.angle);
             const showSide = Math.abs(Math.sin(relAngle)) > 0.5;
+            const facingRight = Math.cos(relAngle) >= 0;
+            const dir = facingRight ? 1 : -1;
 
             if (showSide) {
-                // Side view - elongated fuselage
+                ctx.save();
+                ctx.translate(ix, iy);
+                ctx.scale(dir, 1);
+
+                // Sleek fuselage with pointed nose
                 ctx.fillStyle = body;
-                ctx.fillRect(ix - s * 0.8, iy - s * 0.15, s * 1.6, s * 0.3);
+                ctx.fillRect(-s * 0.6, -s * 0.14, s * 1.1, s * 0.28);
+                ctx.beginPath();
+                ctx.moveTo(s * 0.5, 0);
+                ctx.lineTo(s * 0.72, -s * 0.1);
+                ctx.lineTo(s * 0.72, s * 0.1);
+                ctx.closePath();
+                ctx.fill();
+
+                // Delta wing hint
+                ctx.fillStyle = dark;
+                ctx.beginPath();
+                ctx.moveTo(-s * 0.15, -s * 0.05);
+                ctx.lineTo(s * 0.15, 0);
+                ctx.lineTo(-s * 0.2, s * 0.12);
+                ctx.closePath();
+                ctx.fill();
 
                 // Tail fin
                 ctx.fillStyle = dark;
-                ctx.fillRect(ix - s * 0.7, iy - s * 0.4, s * 0.15, s * 0.3);
+                ctx.fillRect(-s * 0.65, -s * 0.32, s * 0.12, s * 0.28);
 
-                // Wing (top view hint)
-                ctx.fillRect(ix - s * 0.2, iy - s * 0.08, s * 0.5, s * 0.16);
-
-                // Cockpit
+                // Cockpit bubble
                 ctx.fillStyle = cockpit;
-                ctx.fillRect(ix + s * 0.3, iy - s * 0.12, s * 0.3, s * 0.12);
+                ctx.fillRect(s * 0.2, -s * 0.12, s * 0.2, s * 0.12);
+
+                ctx.restore();
             } else {
-                // Front/back view - show wings
+                // Front/back view - delta wing silhouette
                 ctx.fillStyle = body;
-                // Fuselage
-                ctx.fillRect(ix - s * 0.15, iy - s * 0.5, s * 0.3, s);
+                ctx.beginPath();
+                ctx.moveTo(ix, iy - s * 0.55);
+                ctx.lineTo(ix - s * 0.8, iy + s * 0.2);
+                ctx.lineTo(ix, iy + s * 0.5);
+                ctx.lineTo(ix + s * 0.8, iy + s * 0.2);
+                ctx.closePath();
+                ctx.fill();
 
-                // Wings
-                ctx.fillRect(ix - s * 0.7, iy - s * 0.1, s * 1.4, s * 0.2);
-
-                // Tail
+                // Fuselage spine
                 ctx.fillStyle = dark;
-                ctx.fillRect(ix - s * 0.25, iy + s * 0.3, s * 0.5, s * 0.15);
+                ctx.fillRect(ix - s * 0.1, iy - s * 0.4, s * 0.2, s * 0.75);
+
+                // Single tail
+                ctx.fillRect(ix - s * 0.12, iy + s * 0.3, s * 0.24, s * 0.18);
 
                 // Cockpit
                 ctx.fillStyle = cockpit;
-                ctx.fillRect(ix - s * 0.1, iy - s * 0.35, s * 0.2, s * 0.15);
+                ctx.fillRect(ix - s * 0.08, iy - s * 0.32, s * 0.16, s * 0.14);
             }
         }
 
@@ -7625,41 +7995,70 @@
 
             const relAngle = normalizeAngle(heading - camera.angle);
             const showSide = Math.abs(Math.sin(relAngle)) > 0.5;
+            const facingRight = Math.cos(relAngle) >= 0;
+            const dir = facingRight ? 1 : -1;
 
             if (showSide) {
-                // Side view - large fuselage
-                ctx.fillStyle = body;
-                ctx.fillRect(ix - s * 0.9, iy - s * 0.2, s * 1.8, s * 0.4);
+                ctx.save();
+                ctx.translate(ix, iy);
+                ctx.scale(dir, 1);
 
-                // Tail
+                // Large fuselage
+                ctx.fillStyle = body;
+                ctx.fillRect(-s * 0.95, -s * 0.22, s * 1.9, s * 0.44);
+
+                // Nose
+                ctx.beginPath();
+                ctx.moveTo(s * 0.95, -s * 0.18);
+                ctx.lineTo(s * 1.1, 0);
+                ctx.lineTo(s * 0.95, s * 0.18);
+                ctx.closePath();
+                ctx.fill();
+
+                // High wing
                 ctx.fillStyle = dark;
-                ctx.fillRect(ix - s * 0.8, iy - s * 0.5, s * 0.2, s * 0.35);
+                ctx.fillRect(-s * 0.2, -s * 0.38, s * 0.8, s * 0.12);
+
+                // Tail + fin
+                ctx.fillStyle = dark;
+                ctx.fillRect(-s * 1.05, -s * 0.5, s * 0.2, s * 0.35);
+                ctx.fillRect(-s * 1.05, -s * 0.35, s * 0.45, s * 0.12);
 
                 // Windows
                 ctx.fillStyle = window;
-                for (let i = 0; i < 4; i++) {
-                    ctx.fillRect(ix - s * 0.4 + i * s * 0.25, iy - s * 0.12, s * 0.1, s * 0.08);
+                for (let i = 0; i < 5; i++) {
+                    ctx.fillRect(-s * 0.5 + i * s * 0.22, -s * 0.12, s * 0.1, s * 0.08);
                 }
 
                 // Engines
                 ctx.fillStyle = dark;
-                ctx.fillRect(ix - s * 0.3, iy + s * 0.15, s * 0.15, s * 0.1);
-                ctx.fillRect(ix + s * 0.15, iy + s * 0.15, s * 0.15, s * 0.1);
+                ctx.fillRect(-s * 0.05, -s * 0.1, s * 0.16, s * 0.12);
+                ctx.fillRect(s * 0.18, -s * 0.1, s * 0.16, s * 0.12);
+                ctx.fillRect(s * 0.41, -s * 0.1, s * 0.16, s * 0.12);
+
+                ctx.restore();
             } else {
                 // Front/back view
                 ctx.fillStyle = body;
-                ctx.fillRect(ix - s * 0.2, iy - s * 0.5, s * 0.4, s);
+                ctx.fillRect(ix - s * 0.25, iy - s * 0.55, s * 0.5, s * 1.1);
 
-                // Wide wings
-                ctx.fillRect(ix - s * 0.9, iy - s * 0.1, s * 1.8, s * 0.2);
+                // Wide high wings
+                ctx.fillStyle = dark;
+                ctx.fillRect(ix - s * 1.0, iy - s * 0.25, s * 2.0, s * 0.16);
 
                 // Tail
                 ctx.fillStyle = dark;
-                ctx.fillRect(ix - s * 0.3, iy + s * 0.35, s * 0.6, s * 0.12);
+                ctx.fillRect(ix - s * 0.35, iy + s * 0.35, s * 0.7, s * 0.14);
 
                 // Engines on wings
-                ctx.fillRect(ix - s * 0.5, iy + s * 0.05, s * 0.12, s * 0.15);
-                ctx.fillRect(ix + s * 0.38, iy + s * 0.05, s * 0.12, s * 0.15);
+                ctx.fillRect(ix - s * 0.6, iy - s * 0.2, s * 0.16, s * 0.2);
+                ctx.fillRect(ix - s * 0.2, iy - s * 0.2, s * 0.16, s * 0.2);
+                ctx.fillRect(ix + s * 0.2, iy - s * 0.2, s * 0.16, s * 0.2);
+                ctx.fillRect(ix + s * 0.6, iy - s * 0.2, s * 0.16, s * 0.2);
+
+                // Cockpit windows
+                ctx.fillStyle = window;
+                ctx.fillRect(ix - s * 0.1, iy - s * 0.35, s * 0.2, s * 0.12);
             }
         }
 
@@ -7674,49 +8073,74 @@
             const cockpit = getSpriteColorWithFog('#3a6a5a', fogFactor, ambient, skyColor);
             const rotor = getSpriteColorWithFog('#444444', fogFactor, ambient, skyColor);
 
-            // Body (angular attack helicopter shape)
-            ctx.fillStyle = body;
-            ctx.fillRect(ix - s * 0.3, iy - s * 0.2, s * 0.6, s * 0.5);
+            const relAngle = normalizeAngle(heading - camera.angle);
+            const facingRight = Math.cos(relAngle) >= 0;
+            const dir = facingRight ? 1 : -1;
 
-            // Nose (angled cockpit)
+            ctx.save();
+            ctx.translate(ix, iy);
+            ctx.scale(dir, 1);
+
+            const bodyLength = s * 1.35;
+            const bodyHeight = s * 0.42;
+            const tailLength = s * 0.85;
+            const tailHeight = s * 0.14;
+
+            // Armored fuselage
+            ctx.fillStyle = body;
+            ctx.fillRect(-bodyLength * 0.45, -bodyHeight * 0.5, bodyLength * 0.9, bodyHeight);
+
+            // Nose / cockpit bubble
             ctx.fillStyle = cockpit;
             ctx.beginPath();
-            ctx.moveTo(ix - s * 0.15, iy - s * 0.2);
-            ctx.lineTo(ix + s * 0.15, iy - s * 0.2);
-            ctx.lineTo(ix + s * 0.1, iy - s * 0.4);
-            ctx.lineTo(ix - s * 0.1, iy - s * 0.4);
-            ctx.closePath();
+            ctx.ellipse(bodyLength * 0.25, -bodyHeight * 0.05, bodyLength * 0.18, bodyHeight * 0.55, 0, 0, Math.PI * 2);
             ctx.fill();
+
+            // Chin gun
+            ctx.fillStyle = dark;
+            ctx.fillRect(bodyLength * 0.35, bodyHeight * 0.1, s * 0.18, s * 0.08);
 
             // Tail boom
             ctx.fillStyle = dark;
-            ctx.fillRect(ix - s * 0.08, iy + s * 0.25, s * 0.16, s * 0.5);
+            ctx.fillRect(-bodyLength * 0.45 - tailLength, -tailHeight * 0.5, tailLength, tailHeight);
+            ctx.fillRect(-bodyLength * 0.45 - tailLength - s * 0.08, -tailHeight * 1.3, s * 0.12, tailHeight * 2.6);
 
-            // Tail rotor
-            ctx.fillRect(ix - s * 0.15, iy + s * 0.65, s * 0.3, s * 0.1);
-
-            // Stub wings with weapons
+            // Stub wings
             ctx.fillStyle = body;
-            ctx.fillRect(ix - s * 0.5, iy, s * 0.2, s * 0.1);
-            ctx.fillRect(ix + s * 0.3, iy, s * 0.2, s * 0.1);
+            ctx.fillRect(-bodyLength * 0.1, -bodyHeight * 0.05, bodyLength * 0.25, bodyHeight * 0.15);
+            ctx.fillRect(-bodyLength * 0.1, bodyHeight * 0.1, bodyLength * 0.25, bodyHeight * 0.15);
 
             // Weapon pods
             ctx.fillStyle = dark;
-            ctx.fillRect(ix - s * 0.55, iy + s * 0.05, s * 0.1, s * 0.15);
-            ctx.fillRect(ix + s * 0.45, iy + s * 0.05, s * 0.1, s * 0.15);
+            ctx.fillRect(-bodyLength * 0.02, -bodyHeight * 0.05, bodyLength * 0.12, bodyHeight * 0.18);
+            ctx.fillRect(-bodyLength * 0.02, bodyHeight * 0.12, bodyLength * 0.12, bodyHeight * 0.18);
 
-            // Main rotor (animated)
+            // Skids
+            ctx.fillRect(-bodyLength * 0.3, bodyHeight * 0.55, bodyLength * 0.6, Math.max(1, Math.floor(s * 0.06)));
+            ctx.fillRect(-bodyLength * 0.22, bodyHeight * 0.25, Math.max(1, Math.floor(s * 0.06)), bodyHeight * 0.4);
+            ctx.fillRect(bodyLength * 0.1, bodyHeight * 0.25, Math.max(1, Math.floor(s * 0.06)), bodyHeight * 0.4);
+
+            // Main rotor (disc + blades)
             const rotorTime = performance.now() / 40;
             ctx.fillStyle = rotor;
-            ctx.globalAlpha = 0.5;
-            const rotorRadius = s * 0.7;
+            ctx.globalAlpha = 0.35;
+            ctx.beginPath();
+            ctx.ellipse(0, -bodyHeight * 0.8, bodyLength * 0.6, bodyLength * 0.2, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.globalAlpha = 0.6;
             for (let i = 0; i < 4; i++) {
                 const angle = rotorTime + (i * Math.PI / 2);
-                const rx = Math.cos(angle) * rotorRadius;
-                const ry = Math.sin(angle) * rotorRadius * 0.25;
-                ctx.fillRect(ix + rx - 2, iy - s * 0.1 + ry - 1, 4, 2);
+                const rx = Math.cos(angle) * bodyLength * 0.6;
+                const ry = Math.sin(angle) * bodyLength * 0.2;
+                ctx.fillRect(rx - 2, -bodyHeight * 0.8 + ry - 1, 4, 2);
             }
             ctx.globalAlpha = 1.0;
+
+            // Rotor hub
+            ctx.fillStyle = dark;
+            ctx.fillRect(-3, -bodyHeight * 0.88, 6, 6);
+
+            ctx.restore();
         }
         
         function drawTank(x, y, size, color, fogFactor = 0, ambient = 1, skyColor = CONFIG.SKY_COLOR) {
@@ -7932,22 +8356,40 @@
 
             const base = getSpriteColorWithFog(color, fogFactor, ambient, skyColor);
             const marking = getSpriteColorWithFog('#8a8a2a', fogFactor, ambient, skyColor);
+            const darkEdge = getSpriteColorWithFog(darkenColor(color, 20), fogFactor, ambient, skyColor);
 
-            // Pad surface
+            const padW = s * 0.95;
+            const padH = s * 0.35;
+
+            // Pad surface (flattened ellipse to read as horizontal)
             ctx.fillStyle = base;
-            ctx.fillRect(ix - s * 0.5, iy - s * 0.5, s, s);
-
-            // H marking
-            ctx.fillStyle = marking;
-            ctx.fillRect(ix - s * 0.3, iy - s * 0.35, s * 0.1, s * 0.7);  // Left vertical
-            ctx.fillRect(ix + s * 0.2, iy - s * 0.35, s * 0.1, s * 0.7);  // Right vertical
-            ctx.fillRect(ix - s * 0.2, iy - s * 0.05, s * 0.4, s * 0.1);  // Horizontal
-
-            // Circle outline
-            ctx.strokeStyle = marking;
-            ctx.lineWidth = 2;
             ctx.beginPath();
-            ctx.arc(ix, iy, s * 0.45, 0, Math.PI * 2);
+            ctx.ellipse(ix, iy, padW * 0.5, padH * 0.5, 0, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Edge ring
+            ctx.strokeStyle = darkEdge;
+            ctx.lineWidth = Math.max(1, Math.floor(s * 0.05));
+            ctx.beginPath();
+            ctx.ellipse(ix, iy, padW * 0.48, padH * 0.48, 0, 0, Math.PI * 2);
+            ctx.stroke();
+
+            // H marking (compressed vertically for perspective)
+            const hHeight = padH * 0.65;
+            const hWidth = Math.max(1, Math.floor(padW * 0.08));
+            const hGap = padW * 0.18;
+            const hBarH = Math.max(1, Math.floor(padH * 0.18));
+
+            ctx.fillStyle = marking;
+            ctx.fillRect(ix - hGap - hWidth / 2, iy - hHeight / 2, hWidth, hHeight);
+            ctx.fillRect(ix + hGap - hWidth / 2, iy - hHeight / 2, hWidth, hHeight);
+            ctx.fillRect(ix - hGap, iy - hBarH / 2, hGap * 2, hBarH);
+
+            // Outer outline
+            ctx.strokeStyle = marking;
+            ctx.lineWidth = Math.max(1, Math.floor(s * 0.04));
+            ctx.beginPath();
+            ctx.ellipse(ix, iy, padW * 0.43, padH * 0.43, 0, 0, Math.PI * 2);
             ctx.stroke();
         }
         
@@ -9774,6 +10216,7 @@
                 state === GAME_STATES.FREEPLAY ||
                 state === GAME_STATES.SETTINGS ||
                 state === GAME_STATES.ACHIEVEMENTS ||
+                state === GAME_STATES.LEADERBOARD ||
                 state === GAME_STATES.HOWTO ||
                 state === GAME_STATES.BRIEFING;
         }

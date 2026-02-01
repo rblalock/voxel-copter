@@ -96,7 +96,6 @@ Create an engaging mission with appropriate enemies, objectives, and a dramatic 
 					{ role: 'user', content: userPrompt },
 				],
 				response_format: { type: 'json_object' },
-				temperature: 0.8,
 			});
 
 			const content = completion.choices[0]?.message?.content ?? '{}';
