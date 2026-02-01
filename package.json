@@ -13,13 +13,9 @@
 		"typecheck": "bunx tsc --noEmit"
 	},
 	"dependencies": {
-		"@agentuity/frontend": "latest",
-		"@agentuity/react": "latest",
 		"@agentuity/runtime": "latest",
 		"@agentuity/schema": "latest",
 		"@agentuity/workbench": "latest",
-		"react": "^19.2.0",
-		"react-dom": "^19.2.0",
 		"@agentuity/evals": "latest",
 		"openai": "latest",
 		"groq-sdk": "latest"
@@ -27,10 +23,6 @@
 	"devDependencies": {
 		"@agentuity/cli": "latest",
 		"@types/bun": "latest",
-		"@types/react": "^19.2.0",
-		"@types/react-dom": "^19.2.0",
-		"typescript": "^5",
-		"@tailwindcss/vite": "^4.1.18",
-		"tailwindcss": "^4.1.18"
+		"typescript": "^5"
 	}
 }

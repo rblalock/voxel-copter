@@ -4,7 +4,6 @@
  */
 
 import type { AgentuityConfig } from '@agentuity/cli';
-import tailwindcss from '@tailwindcss/vite';
 
 export default {
 	/**
@@ -17,19 +16,4 @@ export default {
 		route: '/workbench',
 		headers: {},
 	},
-
-	/**
-	 * Vite Plugins
-	 *
-	 * Custom Vite plugins for the client build (src/web/).
-	 * Added after built-in plugins: React, browserEnvPlugin, patchPlugin
-	 *
-	 * Example (Tailwind CSS):
-	 *   bun add -d tailwindcss @tailwindcss/vite
-	 *   import tailwindcss from '@tailwindcss/vite';
-	 *   plugins: [tailwindcss()]
-	 *
-	 * @see https://vitejs.dev/plugins/
-	 */
-	plugins: [tailwindcss()],
 } satisfies AgentuityConfig;
