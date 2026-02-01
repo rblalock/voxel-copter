@@ -101,8 +101,25 @@ Create an engaging mission with appropriate enemies, objectives, and a dramatic 
 			const content = completion.choices[0]?.message?.content ?? '{}';
 			const generated = JSON.parse(content) as Record<string, unknown>;
 
-			const entities = Array.isArray(generated.entities) ? generated.entities : [];
-			const objectives = Array.isArray(generated.objectives) ? generated.objectives : [];
+			const rawEntities = Array.isArray(generated.entities) ? generated.entities : [];
+			const rawObjectives = Array.isArray(generated.objectives) ? generated.objectives : [];
+
+			// Normalize entities - ensure count is always a number
+			const entities = rawEntities.slice(0, 20).map((e: Record<string, unknown>) => ({
+				type: typeof e.type === 'string' ? e.type : 'SOLDIER',
+				count: typeof e.count === 'number' ? e.count : (typeof e.quantity === 'number' ? e.quantity : 1),
+				area: typeof e.area === 'string' ? e.area : 'scattered',
+			}));
+
+			// Normalize objectives - ensure required fields exist
+			const objectives = rawObjectives.length > 0
+				? rawObjectives.slice(0, 5).map((o: Record<string, unknown>) => ({
+					type: typeof o.type === 'string' ? o.type : 'destroy_all',
+					description: typeof o.description === 'string' ? o.description : 'Complete the objective',
+					targetType: typeof o.targetType === 'string' ? o.targetType : undefined,
+					count: typeof o.count === 'number' ? o.count : undefined,
+				}))
+				: [{ type: 'destroy_all', description: 'Destroy all enemy forces' }];
 
 			const result = {
 				seed: typeof generated.seed === 'number' ? generated.seed : Math.floor(Math.random() * 1000000),
@@ -110,11 +127,8 @@ Create an engaging mission with appropriate enemies, objectives, and a dramatic 
 					? (generated.weather as (typeof WEATHER_OPTIONS)[number])
 					: 'clear',
 				timeLimit: Math.max(60, Math.min(600, typeof generated.timeLimit === 'number' ? generated.timeLimit : 300)),
-				entities: entities.slice(0, 20),
-				objectives:
-					objectives.length > 0
-						? objectives.slice(0, 5)
-						: [{ type: 'destroy_all', description: 'Destroy all enemy forces' }],
+				entities,
+				objectives,
 				briefing: typeof generated.briefing === 'string'
 					? generated.briefing
 					: 'Engage and destroy enemy forces in the area.',

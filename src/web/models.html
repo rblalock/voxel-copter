@@ -1,0 +1,1053 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VoxelCopter - Sprite Model Viewer</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            background: #1a1a2e;
+            color: #00ff00;
+            font-family: 'Courier New', monospace;
+            padding: 20px;
+        }
+        h1 {
+            text-align: center;
+            margin-bottom: 20px;
+            text-shadow: 0 0 10px #00ff00;
+        }
+        .controls {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            justify-content: center;
+            padding: 15px;
+            background: rgba(0, 255, 0, 0.1);
+            border: 1px solid #00ff00;
+            border-radius: 5px;
+        }
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        label {
+            font-size: 12px;
+            color: #88ff88;
+        }
+        input[type="range"] {
+            width: 150px;
+            accent-color: #00ff00;
+        }
+        input[type="color"] {
+            width: 60px;
+            height: 30px;
+            border: 1px solid #00ff00;
+            background: transparent;
+        }
+        select {
+            background: #1a1a2e;
+            color: #00ff00;
+            border: 1px solid #00ff00;
+            padding: 5px;
+        }
+        .sprite-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 20px;
+        }
+        .sprite-card {
+            background: rgba(0, 50, 0, 0.3);
+            border: 1px solid #00ff00;
+            border-radius: 5px;
+            padding: 10px;
+        }
+        .sprite-card h3 {
+            text-align: center;
+            margin-bottom: 10px;
+            font-size: 14px;
+            color: #88ff88;
+        }
+        .sprite-canvas {
+            display: block;
+            margin: 0 auto;
+            background: #2a2a4e;
+            border: 1px solid #444;
+            image-rendering: pixelated;
+        }
+        .sprite-info {
+            margin-top: 10px;
+            font-size: 11px;
+            color: #66aa66;
+            text-align: center;
+        }
+        .angle-strip {
+            display: flex;
+            justify-content: center;
+            gap: 5px;
+            margin-top: 10px;
+            flex-wrap: wrap;
+        }
+        .angle-strip canvas {
+            border: 1px solid #333;
+            image-rendering: pixelated;
+        }
+        .section {
+            margin-bottom: 30px;
+        }
+        .section h2 {
+            border-bottom: 1px solid #00ff00;
+            padding-bottom: 5px;
+            margin-bottom: 15px;
+        }
+        .reference-images {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+            justify-content: center;
+            margin-top: 20px;
+            padding: 15px;
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px dashed #444;
+        }
+        .reference-images img {
+            max-width: 200px;
+            border: 1px solid #444;
+        }
+        .comparison {
+            display: flex;
+            gap: 20px;
+            align-items: center;
+            justify-content: center;
+            margin: 20px 0;
+        }
+        .comparison-label {
+            font-size: 12px;
+            text-align: center;
+            margin-top: 5px;
+        }
+        #animationCanvas {
+            display: block;
+            margin: 20px auto;
+            background: #2a2a4e;
+            border: 2px solid #00ff00;
+        }
+    </style>
+</head>
+<body>
+    <h1>VoxelCopter Sprite Model Viewer</h1>
+    
+    <div class="controls">
+        <div class="control-group">
+            <label>Sprite Size: <span id="sizeValue">48</span>px</label>
+            <input type="range" id="sizeSlider" min="12" max="120" value="48">
+        </div>
+        <div class="control-group">
+            <label>Heading Angle: <span id="angleValue">0</span>°</label>
+            <input type="range" id="angleSlider" min="0" max="360" value="0">
+        </div>
+        <div class="control-group">
+            <label>Camera Angle: <span id="camAngleValue">0</span>°</label>
+            <input type="range" id="camAngleSlider" min="0" max="360" value="0">
+        </div>
+        <div class="control-group">
+            <label>Fog Factor: <span id="fogValue">0</span></label>
+            <input type="range" id="fogSlider" min="0" max="100" value="0">
+        </div>
+        <div class="control-group">
+            <label>Ambient Light: <span id="ambientValue">1.0</span></label>
+            <input type="range" id="ambientSlider" min="20" max="100" value="100">
+        </div>
+        <div class="control-group">
+            <label>Base Color</label>
+            <input type="color" id="colorPicker" value="#4a5a4a">
+        </div>
+        <div class="control-group">
+            <label>Background</label>
+            <select id="bgSelect">
+                <option value="#2a2a4e">Night</option>
+                <option value="#87ceeb">Day Sky</option>
+                <option value="#d4a574">Desert</option>
+                <option value="#228b22">Forest</option>
+                <option value="#4a4a4a">Gray</option>
+            </select>
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>Animation Preview</h2>
+        <canvas id="animationCanvas" width="800" height="200"></canvas>
+    </div>
+
+    <div class="section">
+        <h2>Aircraft</h2>
+        <div class="sprite-grid" id="aircraftGrid"></div>
+    </div>
+
+    <div class="section">
+        <h2>Ground Units</h2>
+        <div class="sprite-grid" id="groundGrid"></div>
+    </div>
+
+    <div class="section">
+        <h2>Buildings & Structures</h2>
+        <div class="sprite-grid" id="buildingGrid"></div>
+    </div>
+
+    <div class="section">
+        <h2>All Angles (8 directions)</h2>
+        <div id="angleStrips"></div>
+    </div>
+
+    <script>
+        // Canvas context for drawing
+        let ctx;
+        
+        // Global settings
+        let settings = {
+            size: 48,
+            heading: 0,
+            camAngle: 0,
+            fogFactor: 0,
+            ambient: 1.0,
+            baseColor: '#4a5a4a',
+            bgColor: '#2a2a4e',
+            skyColor: 0xFFD4A088
+        };
+
+        // Camera object (simulated)
+        const camera = { angle: 0 };
+
+        // ============== UTILITY FUNCTIONS ==============
+        
+        function hexToRgb(hex) {
+            const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+            return result ? {
+                r: parseInt(result[1], 16),
+                g: parseInt(result[2], 16),
+                b: parseInt(result[3], 16)
+            } : { r: 0, g: 0, b: 0 };
+        }
+
+        function rgbToHex(r, g, b) {
+            return '#' + [r, g, b].map(x => {
+                const hex = Math.max(0, Math.min(255, Math.round(x))).toString(16);
+                return hex.length === 1 ? '0' + hex : hex;
+            }).join('');
+        }
+
+        function darkenColor(hex, percent) {
+            const rgb = hexToRgb(hex);
+            const factor = 1 - percent / 100;
+            return rgbToHex(rgb.r * factor, rgb.g * factor, rgb.b * factor);
+        }
+
+        function lightenColor(hex, percent) {
+            const rgb = hexToRgb(hex);
+            const factor = percent / 100;
+            return rgbToHex(
+                rgb.r + (255 - rgb.r) * factor,
+                rgb.g + (255 - rgb.g) * factor,
+                rgb.b + (255 - rgb.b) * factor
+            );
+        }
+
+        function normalizeAngle(angle) {
+            while (angle < 0) angle += Math.PI * 2;
+            while (angle >= Math.PI * 2) angle -= Math.PI * 2;
+            return angle;
+        }
+
+        function applyAmbientToHex(hex, ambient) {
+            const rgb = hexToRgb(hex);
+            return {
+                r: Math.round(rgb.r * ambient),
+                g: Math.round(rgb.g * ambient),
+                b: Math.round(rgb.b * ambient)
+            };
+        }
+
+        function rgbToCss(rgb) {
+            return `rgb(${rgb.r}, ${rgb.g}, ${rgb.b})`;
+        }
+
+        function blendColorWithFog(rgb, fogFactor, skyColor) {
+            const skyRgb = {
+                r: (skyColor >> 16) & 0xFF,
+                g: (skyColor >> 8) & 0xFF,
+                b: skyColor & 0xFF
+            };
+            return {
+                r: Math.round(rgb.r * (1 - fogFactor) + skyRgb.r * fogFactor),
+                g: Math.round(rgb.g * (1 - fogFactor) + skyRgb.g * fogFactor),
+                b: Math.round(rgb.b * (1 - fogFactor) + skyRgb.b * fogFactor)
+            };
+        }
+
+        function getSpriteColorWithFog(baseColor, fogFactor, ambient, skyColor) {
+            let color = applyAmbientToHex(baseColor, ambient);
+            if (fogFactor > 0) {
+                color = blendColorWithFog(color, fogFactor, skyColor);
+            }
+            return rgbToCss(color);
+        }
+
+        // ============== SPRITE DRAWING FUNCTIONS ==============
+
+        function drawSoldier(ctx, x, y, size, color, pose = 'stand', fogFactor = 0, ambient = 1, skyColor = 0xFFD4A088) {
+            ctx.imageSmoothingEnabled = false;
+            const s = Math.max(Math.floor(size), 6);
+            const ix = Math.floor(x);
+            const iy = Math.floor(y);
+            const headSize = Math.max(2, Math.floor(s * 0.22));
+            const torsoWidth = Math.max(2, Math.floor(s * 0.28));
+            const torsoHeight = Math.max(4, Math.floor(s * 0.5));
+            const legWidth = Math.max(2, Math.floor(s * 0.14));
+            const legHeight = Math.max(3, Math.floor(s * 0.35));
+            const armWidth = Math.max(2, Math.floor(s * 0.12));
+            const armHeight = Math.max(2, Math.floor(s * 0.18));
+
+            const headY = Math.floor(iy - s * 0.6);
+            const torsoY = Math.floor(iy - torsoHeight * 0.5);
+            const legsY = Math.floor(iy + s * 0.05);
+            const armY = Math.floor(iy - s * 0.2);
+
+            const base = getSpriteColorWithFog(color, fogFactor, ambient, skyColor);
+            const dark = getSpriteColorWithFog(darkenColor(color, 20), fogFactor, ambient, skyColor);
+            const darker = getSpriteColorWithFog(darkenColor(color, 35), fogFactor, ambient, skyColor);
+            const gear = getSpriteColorWithFog('#2a2a2a', fogFactor, ambient, skyColor);
+
+            // Head (blocky)
+            ctx.fillStyle = dark;
+            ctx.fillRect(ix - Math.floor(headSize / 2), headY, headSize, headSize);
+
+            // Torso
+            ctx.fillStyle = base;
+            ctx.fillRect(ix - Math.floor(torsoWidth / 2), torsoY, torsoWidth, torsoHeight);
+
+            // Legs
+            ctx.fillStyle = dark;
+            ctx.fillRect(ix - legWidth - Math.floor(s * 0.04), legsY, legWidth, legHeight);
+            ctx.fillRect(ix + Math.floor(s * 0.04), legsY, legWidth, legHeight);
+
+            // Arms and weapon
+            const weaponY = pose === 'shoot' ? armY - Math.floor(s * 0.05) : armY + Math.floor(s * 0.02);
+            const weaponX = pose === 'shoot' ? ix + Math.floor(torsoWidth * 0.4) : ix + Math.floor(torsoWidth * 0.2);
+            ctx.fillStyle = darker;
+            ctx.fillRect(ix - torsoWidth, armY, armWidth, armHeight);
+            ctx.fillRect(ix + torsoWidth - armWidth, armY, armWidth, armHeight);
+
+            ctx.fillStyle = gear;
+            ctx.fillRect(weaponX, weaponY, Math.max(2, Math.floor(s * 0.35)), Math.max(1, Math.floor(s * 0.08)));
+        }
+
+        function drawHelicopter(ctx, x, y, size, color, heading, fogFactor = 0, ambient = 1, skyColor = 0xFFD4A088) {
+            ctx.imageSmoothingEnabled = false;
+            const s = Math.max(Math.floor(size), 12);
+            const ix = Math.floor(x);
+            const iy = Math.floor(y);
+
+            const bodyColor = getSpriteColorWithFog(color, fogFactor, ambient, skyColor);
+            const darkColor = getSpriteColorWithFog(darkenColor(color, 30), fogFactor, ambient, skyColor);
+            const glassColor = getSpriteColorWithFog('#2a6a8a', fogFactor, ambient, skyColor);
+            const rotorColor = getSpriteColorWithFog('#444444', fogFactor, ambient, skyColor);
+
+            const relAngle = normalizeAngle(heading - camera.angle);
+            const facingRight = Math.cos(relAngle) >= 0;
+            const dir = facingRight ? 1 : -1;
+
+            ctx.save();
+            ctx.translate(ix, iy);
+            ctx.scale(dir, 1);
+
+            const bodyLength = s * 1.25;
+            const bodyHeight = s * 0.38;
+            const tailLength = s * 0.75;
+            const tailHeight = s * 0.12;
+            const skidHeight = Math.max(1, Math.floor(s * 0.06));
+
+            // Main body (horizontal fuselage)
+            ctx.fillStyle = bodyColor;
+            ctx.fillRect(-bodyLength * 0.5, -bodyHeight * 0.5, bodyLength, bodyHeight);
+
+            // Cockpit bubble (front)
+            ctx.fillStyle = glassColor;
+            ctx.beginPath();
+            ctx.ellipse(bodyLength * 0.25, -bodyHeight * 0.05, bodyLength * 0.18, bodyHeight * 0.55, 0, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Tail boom
+            ctx.fillStyle = darkColor;
+            ctx.fillRect(-bodyLength * 0.5 - tailLength, -tailHeight * 0.5, tailLength, tailHeight);
+
+            // Tail rotor
+            ctx.fillRect(-bodyLength * 0.5 - tailLength - s * 0.05, -tailHeight * 1.2, s * 0.12, tailHeight * 2.4);
+
+            // Skids
+            ctx.fillRect(-bodyLength * 0.35, bodyHeight * 0.55, bodyLength * 0.7, skidHeight);
+            ctx.fillRect(-bodyLength * 0.35, bodyHeight * 0.72, bodyLength * 0.7, skidHeight);
+            ctx.fillRect(-bodyLength * 0.25, bodyHeight * 0.25, skidHeight, bodyHeight * 0.4);
+            ctx.fillRect(bodyLength * 0.15, bodyHeight * 0.25, skidHeight, bodyHeight * 0.4);
+
+            // Main rotor (disc + blades)
+            const rotorTime = performance.now() / 45;
+            ctx.fillStyle = rotorColor;
+            ctx.globalAlpha = 0.35;
+            ctx.beginPath();
+            ctx.ellipse(0, -bodyHeight * 0.75, bodyLength * 0.6, bodyLength * 0.18, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.globalAlpha = 0.6;
+            for (let i = 0; i < 4; i++) {
+                const angle = rotorTime + (i * Math.PI / 2);
+                const rx = Math.cos(angle) * bodyLength * 0.6;
+                const ry = Math.sin(angle) * bodyLength * 0.18;
+                ctx.fillRect(rx - 2, -bodyHeight * 0.75 + ry - 1, 4, 2);
+            }
+            ctx.globalAlpha = 1.0;
+
+            // Rotor hub
+            ctx.fillStyle = darkColor;
+            ctx.fillRect(-3, -bodyHeight * 0.82, 6, 6);
+
+            ctx.restore();
+        }
+
+        function drawAttackHelicopter(ctx, x, y, size, color, heading, fogFactor = 0, ambient = 1, skyColor = 0xFFD4A088) {
+            ctx.imageSmoothingEnabled = false;
+            const s = Math.max(Math.floor(size), 14);
+            const ix = Math.floor(x);
+            const iy = Math.floor(y);
+
+            const body = getSpriteColorWithFog(color, fogFactor, ambient, skyColor);
+            const dark = getSpriteColorWithFog(darkenColor(color, 25), fogFactor, ambient, skyColor);
+            const cockpit = getSpriteColorWithFog('#3a6a5a', fogFactor, ambient, skyColor);
+            const rotor = getSpriteColorWithFog('#444444', fogFactor, ambient, skyColor);
+
+            const relAngle = normalizeAngle(heading - camera.angle);
+            const facingRight = Math.cos(relAngle) >= 0;
+            const dir = facingRight ? 1 : -1;
+
+            ctx.save();
+            ctx.translate(ix, iy);
+            ctx.scale(dir, 1);
+
+            const bodyLength = s * 1.35;
+            const bodyHeight = s * 0.42;
+            const tailLength = s * 0.85;
+            const tailHeight = s * 0.14;
+
+            // Armored fuselage
+            ctx.fillStyle = body;
+            ctx.fillRect(-bodyLength * 0.45, -bodyHeight * 0.5, bodyLength * 0.9, bodyHeight);
+
+            // Nose / cockpit bubble
+            ctx.fillStyle = cockpit;
+            ctx.beginPath();
+            ctx.ellipse(bodyLength * 0.25, -bodyHeight * 0.05, bodyLength * 0.18, bodyHeight * 0.55, 0, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Chin gun
+            ctx.fillStyle = dark;
+            ctx.fillRect(bodyLength * 0.35, bodyHeight * 0.1, s * 0.18, s * 0.08);
+
+            // Tail boom
+            ctx.fillStyle = dark;
+            ctx.fillRect(-bodyLength * 0.45 - tailLength, -tailHeight * 0.5, tailLength, tailHeight);
+            ctx.fillRect(-bodyLength * 0.45 - tailLength - s * 0.08, -tailHeight * 1.3, s * 0.12, tailHeight * 2.6);
+
+            // Stub wings
+            ctx.fillStyle = body;
+            ctx.fillRect(-bodyLength * 0.1, -bodyHeight * 0.05, bodyLength * 0.25, bodyHeight * 0.15);
+            ctx.fillRect(-bodyLength * 0.1, bodyHeight * 0.1, bodyLength * 0.25, bodyHeight * 0.15);
+
+            // Weapon pods
+            ctx.fillStyle = dark;
+            ctx.fillRect(-bodyLength * 0.02, -bodyHeight * 0.05, bodyLength * 0.12, bodyHeight * 0.18);
+            ctx.fillRect(-bodyLength * 0.02, bodyHeight * 0.12, bodyLength * 0.12, bodyHeight * 0.18);
+
+            // Skids
+            ctx.fillRect(-bodyLength * 0.3, bodyHeight * 0.55, bodyLength * 0.6, Math.max(1, Math.floor(s * 0.06)));
+            ctx.fillRect(-bodyLength * 0.22, bodyHeight * 0.25, Math.max(1, Math.floor(s * 0.06)), bodyHeight * 0.4);
+            ctx.fillRect(bodyLength * 0.1, bodyHeight * 0.25, Math.max(1, Math.floor(s * 0.06)), bodyHeight * 0.4);
+
+            // Main rotor
+            const rotorTime = performance.now() / 40;
+            ctx.fillStyle = rotor;
+            ctx.globalAlpha = 0.35;
+            ctx.beginPath();
+            ctx.ellipse(0, -bodyHeight * 0.8, bodyLength * 0.6, bodyLength * 0.2, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.globalAlpha = 0.6;
+            for (let i = 0; i < 4; i++) {
+                const angle = rotorTime + (i * Math.PI / 2);
+                const rx = Math.cos(angle) * bodyLength * 0.6;
+                const ry = Math.sin(angle) * bodyLength * 0.2;
+                ctx.fillRect(rx - 2, -bodyHeight * 0.8 + ry - 1, 4, 2);
+            }
+            ctx.globalAlpha = 1.0;
+
+            // Rotor hub
+            ctx.fillStyle = dark;
+            ctx.fillRect(-3, -bodyHeight * 0.88, 6, 6);
+
+            ctx.restore();
+        }
+
+        function drawFighterJet(ctx, x, y, size, color, heading, fogFactor = 0, ambient = 1, skyColor = 0xFFD4A088) {
+            ctx.imageSmoothingEnabled = false;
+            const s = Math.max(Math.floor(size), 12);
+            const ix = Math.floor(x);
+            const iy = Math.floor(y);
+
+            const body = getSpriteColorWithFog(color, fogFactor, ambient, skyColor);
+            const dark = getSpriteColorWithFog(darkenColor(color, 25), fogFactor, ambient, skyColor);
+            const cockpitColor = getSpriteColorWithFog('#3a5a7a', fogFactor, ambient, skyColor);
+
+            const relAngle = normalizeAngle(heading - camera.angle);
+            const showSide = Math.abs(Math.sin(relAngle)) > 0.5;
+            const facingRight = Math.cos(relAngle) >= 0;
+            const dir = facingRight ? 1 : -1;
+
+            if (showSide) {
+                ctx.save();
+                ctx.translate(ix, iy);
+                ctx.scale(dir, 1);
+
+                // Sleek fuselage with pointed nose
+                ctx.fillStyle = body;
+                ctx.fillRect(-s * 0.6, -s * 0.14, s * 1.1, s * 0.28);
+                ctx.beginPath();
+                ctx.moveTo(s * 0.5, 0);
+                ctx.lineTo(s * 0.72, -s * 0.1);
+                ctx.lineTo(s * 0.72, s * 0.1);
+                ctx.closePath();
+                ctx.fill();
+
+                // Delta wing hint
+                ctx.fillStyle = dark;
+                ctx.beginPath();
+                ctx.moveTo(-s * 0.15, -s * 0.05);
+                ctx.lineTo(s * 0.15, 0);
+                ctx.lineTo(-s * 0.2, s * 0.12);
+                ctx.closePath();
+                ctx.fill();
+
+                // Tail fin
+                ctx.fillStyle = dark;
+                ctx.fillRect(-s * 0.65, -s * 0.32, s * 0.12, s * 0.28);
+
+                // Cockpit bubble
+                ctx.fillStyle = cockpitColor;
+                ctx.fillRect(s * 0.2, -s * 0.12, s * 0.2, s * 0.12);
+
+                ctx.restore();
+            } else {
+                // Front/back view - delta wing silhouette
+                ctx.fillStyle = body;
+                ctx.beginPath();
+                ctx.moveTo(ix, iy - s * 0.55);
+                ctx.lineTo(ix - s * 0.8, iy + s * 0.2);
+                ctx.lineTo(ix, iy + s * 0.5);
+                ctx.lineTo(ix + s * 0.8, iy + s * 0.2);
+                ctx.closePath();
+                ctx.fill();
+
+                // Fuselage spine
+                ctx.fillStyle = dark;
+                ctx.fillRect(ix - s * 0.1, iy - s * 0.4, s * 0.2, s * 0.75);
+
+                // Single tail
+                ctx.fillRect(ix - s * 0.12, iy + s * 0.3, s * 0.24, s * 0.18);
+
+                // Cockpit
+                ctx.fillStyle = cockpitColor;
+                ctx.fillRect(ix - s * 0.08, iy - s * 0.32, s * 0.16, s * 0.14);
+            }
+        }
+
+        function drawTransportPlane(ctx, x, y, size, color, heading, fogFactor = 0, ambient = 1, skyColor = 0xFFD4A088) {
+            ctx.imageSmoothingEnabled = false;
+            const s = Math.max(Math.floor(size), 18);
+            const ix = Math.floor(x);
+            const iy = Math.floor(y);
+
+            const body = getSpriteColorWithFog(color, fogFactor, ambient, skyColor);
+            const dark = getSpriteColorWithFog(darkenColor(color, 20), fogFactor, ambient, skyColor);
+            const windowColor = getSpriteColorWithFog('#4a6a8a', fogFactor, ambient, skyColor);
+
+            const relAngle = normalizeAngle(heading - camera.angle);
+            const showSide = Math.abs(Math.sin(relAngle)) > 0.5;
+            const facingRight = Math.cos(relAngle) >= 0;
+            const dir = facingRight ? 1 : -1;
+
+            if (showSide) {
+                ctx.save();
+                ctx.translate(ix, iy);
+                ctx.scale(dir, 1);
+
+                // Large fuselage
+                ctx.fillStyle = body;
+                ctx.fillRect(-s * 0.95, -s * 0.22, s * 1.9, s * 0.44);
+
+                // Nose
+                ctx.beginPath();
+                ctx.moveTo(s * 0.95, -s * 0.18);
+                ctx.lineTo(s * 1.1, 0);
+                ctx.lineTo(s * 0.95, s * 0.18);
+                ctx.closePath();
+                ctx.fill();
+
+                // High wing
+                ctx.fillStyle = dark;
+                ctx.fillRect(-s * 0.2, -s * 0.38, s * 0.8, s * 0.12);
+
+                // Tail + fin
+                ctx.fillStyle = dark;
+                ctx.fillRect(-s * 1.05, -s * 0.5, s * 0.2, s * 0.35);
+                ctx.fillRect(-s * 1.05, -s * 0.35, s * 0.45, s * 0.12);
+
+                // Windows
+                ctx.fillStyle = windowColor;
+                for (let i = 0; i < 5; i++) {
+                    ctx.fillRect(-s * 0.5 + i * s * 0.22, -s * 0.12, s * 0.1, s * 0.08);
+                }
+
+                // Engines
+                ctx.fillStyle = dark;
+                ctx.fillRect(-s * 0.05, -s * 0.1, s * 0.16, s * 0.12);
+                ctx.fillRect(s * 0.18, -s * 0.1, s * 0.16, s * 0.12);
+                ctx.fillRect(s * 0.41, -s * 0.1, s * 0.16, s * 0.12);
+
+                ctx.restore();
+            } else {
+                // Front/back view
+                ctx.fillStyle = body;
+                ctx.fillRect(ix - s * 0.25, iy - s * 0.55, s * 0.5, s * 1.1);
+
+                // Wide high wings
+                ctx.fillStyle = dark;
+                ctx.fillRect(ix - s * 1.0, iy - s * 0.25, s * 2.0, s * 0.16);
+
+                // Tail
+                ctx.fillStyle = dark;
+                ctx.fillRect(ix - s * 0.35, iy + s * 0.35, s * 0.7, s * 0.14);
+
+                // Engines on wings
+                ctx.fillRect(ix - s * 0.6, iy - s * 0.2, s * 0.16, s * 0.2);
+                ctx.fillRect(ix - s * 0.2, iy - s * 0.2, s * 0.16, s * 0.2);
+                ctx.fillRect(ix + s * 0.2, iy - s * 0.2, s * 0.16, s * 0.2);
+                ctx.fillRect(ix + s * 0.6, iy - s * 0.2, s * 0.16, s * 0.2);
+
+                // Cockpit windows
+                ctx.fillStyle = windowColor;
+                ctx.fillRect(ix - s * 0.1, iy - s * 0.35, s * 0.2, s * 0.12);
+            }
+        }
+
+        function drawTank(ctx, x, y, size, color, fogFactor = 0, ambient = 1, skyColor = 0xFFD4A088) {
+            ctx.imageSmoothingEnabled = false;
+            const s = Math.max(Math.floor(size), 14);
+            const ix = Math.floor(x);
+            const iy = Math.floor(y);
+
+            const base = getSpriteColorWithFog(color, fogFactor, ambient, skyColor);
+            const dark = getSpriteColorWithFog(darkenColor(color, 20), fogFactor, ambient, skyColor);
+            const darker = getSpriteColorWithFog(darkenColor(color, 35), fogFactor, ambient, skyColor);
+            const track = getSpriteColorWithFog('#1a1a1a', fogFactor, ambient, skyColor);
+            const trackHighlight = getSpriteColorWithFog('#3a3a3a', fogFactor, ambient, skyColor);
+            const metal = getSpriteColorWithFog('#2a2a2a', fogFactor, ambient, skyColor);
+
+            const trackY = iy - Math.floor(s * 0.05);
+            const trackH = Math.max(2, Math.floor(s * 0.22));
+            const hullH = Math.max(3, Math.floor(s * 0.22));
+            const hullY = iy - Math.floor(s * 0.22);
+            const turretH = Math.max(2, Math.floor(s * 0.18));
+            const turretY = iy - Math.floor(s * 0.38);
+
+            // Tracks
+            ctx.fillStyle = track;
+            ctx.fillRect(ix - Math.floor(s * 0.55), trackY, Math.floor(s * 1.1), trackH);
+            ctx.fillStyle = trackHighlight;
+            ctx.fillRect(ix - Math.floor(s * 0.55), trackY, Math.floor(s * 1.1), Math.max(1, Math.floor(trackH * 0.25)));
+
+            // Hull
+            ctx.fillStyle = dark;
+            ctx.fillRect(ix - Math.floor(s * 0.45), hullY, Math.floor(s * 0.9), hullH);
+
+            // Turret
+            ctx.fillStyle = base;
+            ctx.fillRect(ix - Math.floor(s * 0.25), turretY, Math.floor(s * 0.5), turretH);
+
+            // Turret cap
+            ctx.fillStyle = darker;
+            ctx.fillRect(ix - Math.floor(s * 0.1), turretY - Math.max(2, Math.floor(s * 0.08)), Math.floor(s * 0.2), Math.max(2, Math.floor(s * 0.08)));
+
+            // Main gun
+            ctx.fillStyle = metal;
+            ctx.fillRect(ix + Math.floor(s * 0.15), turretY + Math.max(1, Math.floor(turretH * 0.3)), Math.floor(s * 0.45), Math.max(2, Math.floor(s * 0.06)));
+        }
+
+        function drawBuilding(ctx, x, y, size, color, fogFactor = 0, ambient = 1, skyColor = 0xFFD4A088) {
+            ctx.imageSmoothingEnabled = false;
+            const s = Math.max(Math.floor(size), 16);
+            const ix = Math.floor(x);
+            const iy = Math.floor(y);
+            const height = Math.floor(s * 1.6);
+
+            const base = getSpriteColorWithFog(color, fogFactor, ambient, skyColor);
+            const shadow = getSpriteColorWithFog(darkenColor(color, 30), fogFactor, ambient, skyColor);
+            const highlight = getSpriteColorWithFog(lightenColor(color, 10), fogFactor, ambient, skyColor);
+            const roof = getSpriteColorWithFog(darkenColor(color, 45), fogFactor, ambient, skyColor);
+            const trim = getSpriteColorWithFog('#444444', fogFactor, ambient, skyColor);
+            const windowDark = getSpriteColorWithFog('#223344', fogFactor, ambient, skyColor);
+            const windowLit = getSpriteColorWithFog('#c9b46a', fogFactor, ambient, skyColor);
+
+            // Base/ground plate
+            ctx.fillStyle = trim;
+            ctx.fillRect(ix - Math.floor(s * 0.48), iy - Math.floor(s * 0.08), Math.floor(s * 0.96), Math.floor(s * 0.12));
+
+            // Main block
+            ctx.fillStyle = shadow;
+            ctx.fillRect(ix - Math.floor(s * 0.45), iy - height, Math.floor(s * 0.32), height - Math.floor(s * 0.08));
+            ctx.fillStyle = base;
+            ctx.fillRect(ix - Math.floor(s * 0.1), iy - height, Math.floor(s * 0.55), height - Math.floor(s * 0.08));
+            ctx.fillStyle = highlight;
+            ctx.fillRect(ix + Math.floor(s * 0.42), iy - height, Math.floor(s * 0.05), height - Math.floor(s * 0.08));
+
+            // Roof slab
+            ctx.fillStyle = roof;
+            ctx.fillRect(ix - Math.floor(s * 0.5), iy - height - Math.floor(s * 0.08), Math.floor(s * 1.0), Math.floor(s * 0.12));
+
+            // Windows
+            const rows = 3;
+            const cols = 2;
+            for (let row = 0; row < rows; row++) {
+                for (let col = 0; col < cols; col++) {
+                    const wx = ix - Math.floor(s * 0.02) + col * Math.floor(s * 0.2);
+                    const wy = iy - height + Math.floor(s * 0.18) + row * Math.floor(s * 0.4);
+                    ctx.fillStyle = (row + col) % 2 === 0 ? windowLit : windowDark;
+                    ctx.fillRect(wx, wy, Math.floor(s * 0.14), Math.floor(s * 0.18));
+                }
+            }
+
+            // Door
+            ctx.fillStyle = trim;
+            ctx.fillRect(ix + Math.floor(s * 0.08), iy - Math.floor(s * 0.34), Math.floor(s * 0.2), Math.floor(s * 0.26));
+        }
+
+        function drawHangar(ctx, x, y, size, color, fogFactor = 0, ambient = 1, skyColor = 0xFFD4A088) {
+            ctx.imageSmoothingEnabled = false;
+            const s = Math.max(Math.floor(size), 20);
+            const ix = Math.floor(x);
+            const iy = Math.floor(y);
+
+            const base = getSpriteColorWithFog(color, fogFactor, ambient, skyColor);
+            const dark = getSpriteColorWithFog(darkenColor(color, 25), fogFactor, ambient, skyColor);
+            const roof = getSpriteColorWithFog(darkenColor(color, 10), fogFactor, ambient, skyColor);
+
+            // Main structure
+            ctx.fillStyle = base;
+            ctx.fillRect(ix - s * 0.7, iy - s * 0.4, s * 1.4, s * 0.8);
+
+            // Curved roof
+            ctx.fillStyle = roof;
+            ctx.fillRect(ix - s * 0.7, iy - s * 0.5, s * 1.4, s * 0.15);
+
+            // Large door opening
+            ctx.fillStyle = dark;
+            ctx.fillRect(ix - s * 0.4, iy - s * 0.1, s * 0.8, s * 0.5);
+
+            // Door frame
+            ctx.fillStyle = getSpriteColorWithFog(darkenColor(color, 15), fogFactor, ambient, skyColor);
+            ctx.fillRect(ix - s * 0.45, iy - s * 0.15, s * 0.05, s * 0.55);
+            ctx.fillRect(ix + s * 0.4, iy - s * 0.15, s * 0.05, s * 0.55);
+        }
+
+        function drawControlTower(ctx, x, y, size, color, fogFactor = 0, ambient = 1, skyColor = 0xFFD4A088) {
+            ctx.imageSmoothingEnabled = false;
+            const s = Math.max(Math.floor(size), 15);
+            const ix = Math.floor(x);
+            const iy = Math.floor(y);
+
+            const base = getSpriteColorWithFog(color, fogFactor, ambient, skyColor);
+            const dark = getSpriteColorWithFog(darkenColor(color, 20), fogFactor, ambient, skyColor);
+            const glass = getSpriteColorWithFog('#4a8aaa', fogFactor, ambient, skyColor);
+
+            // Tower base
+            ctx.fillStyle = base;
+            ctx.fillRect(ix - s * 0.3, iy, s * 0.6, s * 0.4);
+
+            // Tower shaft
+            ctx.fillRect(ix - s * 0.2, iy - s * 0.8, s * 0.4, s * 0.8);
+
+            // Control room
+            ctx.fillStyle = dark;
+            ctx.fillRect(ix - s * 0.4, iy - s * 1.2, s * 0.8, s * 0.4);
+
+            // Windows
+            ctx.fillStyle = glass;
+            ctx.fillRect(ix - s * 0.35, iy - s * 1.1, s * 0.7, s * 0.2);
+        }
+
+        function drawSAMSite(ctx, x, y, size, color, fogFactor = 0, ambient = 1, skyColor = 0xFFD4A088) {
+            ctx.imageSmoothingEnabled = false;
+            const s = Math.max(Math.floor(size), 14);
+            const ix = Math.floor(x);
+            const iy = Math.floor(y);
+
+            const base = getSpriteColorWithFog(color, fogFactor, ambient, skyColor);
+            const dark = getSpriteColorWithFog(darkenColor(color, 25), fogFactor, ambient, skyColor);
+            const missile = getSpriteColorWithFog('#888888', fogFactor, ambient, skyColor);
+
+            // Base platform
+            ctx.fillStyle = dark;
+            ctx.fillRect(ix - s * 0.4, iy - s * 0.1, s * 0.8, s * 0.2);
+
+            // Launcher body
+            ctx.fillStyle = base;
+            ctx.fillRect(ix - s * 0.25, iy - s * 0.35, s * 0.5, s * 0.25);
+
+            // Missiles (angled up)
+            ctx.fillStyle = missile;
+            for (let i = 0; i < 4; i++) {
+                const mx = ix - s * 0.2 + i * s * 0.12;
+                ctx.fillRect(mx, iy - s * 0.6, s * 0.06, s * 0.3);
+            }
+
+            // Radar dish
+            ctx.fillStyle = dark;
+            ctx.beginPath();
+            ctx.ellipse(ix, iy - s * 0.7, s * 0.15, s * 0.08, 0, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        function drawHelipad(ctx, x, y, size, color, fogFactor = 0, ambient = 1, skyColor = 0xFFD4A088) {
+            ctx.imageSmoothingEnabled = false;
+            const s = Math.max(Math.floor(size), 20);
+            const ix = Math.floor(x);
+            const iy = Math.floor(y);
+
+            const pad = getSpriteColorWithFog('#333333', fogFactor, ambient, skyColor);
+            const marking = getSpriteColorWithFog('#ffff00', fogFactor, ambient, skyColor);
+
+            // Pad surface (ellipse for perspective)
+            ctx.fillStyle = pad;
+            ctx.beginPath();
+            ctx.ellipse(ix, iy, s * 0.5, s * 0.25, 0, 0, Math.PI * 2);
+            ctx.fill();
+
+            // H marking
+            ctx.fillStyle = marking;
+            ctx.fillRect(ix - s * 0.2, iy - s * 0.12, s * 0.08, s * 0.24);
+            ctx.fillRect(ix + s * 0.12, iy - s * 0.12, s * 0.08, s * 0.24);
+            ctx.fillRect(ix - s * 0.12, iy - s * 0.03, s * 0.24, s * 0.06);
+        }
+
+        // ============== SPRITE DEFINITIONS ==============
+
+        const sprites = {
+            aircraft: [
+                { name: 'Helicopter (Player)', draw: drawHelicopter, hasHeading: true, color: '#4a5a4a' },
+                { name: 'Attack Helicopter', draw: drawAttackHelicopter, hasHeading: true, color: '#3a4a3a' },
+                { name: 'Fighter Jet', draw: drawFighterJet, hasHeading: true, color: '#5a5a6a' },
+                { name: 'Transport Plane', draw: drawTransportPlane, hasHeading: true, color: '#6a6a7a' }
+            ],
+            ground: [
+                { name: 'Soldier (Stand)', draw: (ctx, x, y, s, c, h, f, a, sk) => drawSoldier(ctx, x, y, s, c, 'stand', f, a, sk), hasHeading: false, color: '#5a6a4a' },
+                { name: 'Soldier (Shoot)', draw: (ctx, x, y, s, c, h, f, a, sk) => drawSoldier(ctx, x, y, s, c, 'shoot', f, a, sk), hasHeading: false, color: '#5a6a4a' },
+                { name: 'Tank', draw: (ctx, x, y, s, c, h, f, a, sk) => drawTank(ctx, x, y, s, c, f, a, sk), hasHeading: false, color: '#4a5a3a' }
+            ],
+            buildings: [
+                { name: 'Building', draw: (ctx, x, y, s, c, h, f, a, sk) => drawBuilding(ctx, x, y, s, c, f, a, sk), hasHeading: false, color: '#6a6a6a' },
+                { name: 'Hangar', draw: (ctx, x, y, s, c, h, f, a, sk) => drawHangar(ctx, x, y, s, c, f, a, sk), hasHeading: false, color: '#5a5a5a' },
+                { name: 'Control Tower', draw: (ctx, x, y, s, c, h, f, a, sk) => drawControlTower(ctx, x, y, s, c, f, a, sk), hasHeading: false, color: '#7a7a7a' },
+                { name: 'SAM Site', draw: (ctx, x, y, s, c, h, f, a, sk) => drawSAMSite(ctx, x, y, s, c, f, a, sk), hasHeading: false, color: '#4a5a4a' },
+                { name: 'Helipad', draw: (ctx, x, y, s, c, h, f, a, sk) => drawHelipad(ctx, x, y, s, c, f, a, sk), hasHeading: false, color: '#333333' }
+            ]
+        };
+
+        // ============== RENDERING ==============
+
+        function createSpriteCard(sprite, containerId) {
+            const container = document.getElementById(containerId);
+            const card = document.createElement('div');
+            card.className = 'sprite-card';
+            
+            const canvas = document.createElement('canvas');
+            canvas.className = 'sprite-canvas';
+            canvas.width = 150;
+            canvas.height = 150;
+            canvas.dataset.spriteName = sprite.name;
+            canvas.dataset.hasHeading = sprite.hasHeading;
+            
+            card.innerHTML = `<h3>${sprite.name}</h3>`;
+            card.appendChild(canvas);
+            card.innerHTML += `<div class="sprite-info">Size: ${settings.size}px</div>`;
+            
+            container.appendChild(card);
+            
+            return canvas;
+        }
+
+        function renderSprite(canvas, sprite) {
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = settings.bgColor;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            const x = canvas.width / 2;
+            const y = canvas.height / 2 + 20;
+            
+            camera.angle = settings.camAngle * Math.PI / 180;
+            const heading = settings.heading * Math.PI / 180;
+            
+            sprite.draw(
+                ctx, x, y, 
+                settings.size, 
+                sprite.color || settings.baseColor,
+                heading,
+                settings.fogFactor,
+                settings.ambient,
+                settings.skyColor
+            );
+        }
+
+        function renderAllSprites() {
+            document.querySelectorAll('.sprite-canvas').forEach(canvas => {
+                const spriteName = canvas.dataset.spriteName;
+                const allSprites = [...sprites.aircraft, ...sprites.ground, ...sprites.buildings];
+                const sprite = allSprites.find(s => s.name === spriteName);
+                if (sprite) {
+                    renderSprite(canvas, sprite);
+                }
+            });
+        }
+
+        function renderAngleStrips() {
+            const container = document.getElementById('angleStrips');
+            container.innerHTML = '';
+            
+            const headingSprites = sprites.aircraft;
+            
+            headingSprites.forEach(sprite => {
+                const stripDiv = document.createElement('div');
+                stripDiv.className = 'sprite-card';
+                stripDiv.innerHTML = `<h3>${sprite.name} - 8 Directions</h3>`;
+                
+                const strip = document.createElement('div');
+                strip.className = 'angle-strip';
+                
+                for (let i = 0; i < 8; i++) {
+                    const angle = i * 45;
+                    const canvas = document.createElement('canvas');
+                    canvas.width = 80;
+                    canvas.height = 80;
+                    
+                    const ctx = canvas.getContext('2d');
+                    ctx.fillStyle = settings.bgColor;
+                    ctx.fillRect(0, 0, 80, 80);
+                    
+                    camera.angle = 0;
+                    sprite.draw(ctx, 40, 45, 36, sprite.color || settings.baseColor, angle * Math.PI / 180, 0, 1, settings.skyColor);
+                    
+                    const label = document.createElement('div');
+                    label.style.textAlign = 'center';
+                    label.style.fontSize = '10px';
+                    label.innerHTML = `${angle}°`;
+                    
+                    const wrapper = document.createElement('div');
+                    wrapper.appendChild(canvas);
+                    wrapper.appendChild(label);
+                    strip.appendChild(wrapper);
+                }
+                
+                stripDiv.appendChild(strip);
+                container.appendChild(stripDiv);
+            });
+        }
+
+        function renderAnimationPreview() {
+            const canvas = document.getElementById('animationCanvas');
+            const ctx = canvas.getContext('2d');
+            
+            ctx.fillStyle = settings.bgColor;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            const time = performance.now();
+            camera.angle = 0;
+            
+            // Draw all aircraft types flying across
+            const aircraftSprites = sprites.aircraft;
+            aircraftSprites.forEach((sprite, i) => {
+                const x = ((time / 20 + i * 200) % (canvas.width + 200)) - 100;
+                const y = 50 + i * 40;
+                sprite.draw(ctx, x, y, 40, sprite.color, Math.PI / 2, 0, 1, settings.skyColor);
+            });
+            
+            requestAnimationFrame(renderAnimationPreview);
+        }
+
+        function init() {
+            // Create sprite cards
+            sprites.aircraft.forEach(s => createSpriteCard(s, 'aircraftGrid'));
+            sprites.ground.forEach(s => createSpriteCard(s, 'groundGrid'));
+            sprites.buildings.forEach(s => createSpriteCard(s, 'buildingGrid'));
+            
+            // Initial render
+            renderAllSprites();
+            renderAngleStrips();
+            renderAnimationPreview();
+            
+            // Event listeners
+            document.getElementById('sizeSlider').addEventListener('input', (e) => {
+                settings.size = parseInt(e.target.value);
+                document.getElementById('sizeValue').textContent = settings.size;
+                renderAllSprites();
+            });
+            
+            document.getElementById('angleSlider').addEventListener('input', (e) => {
+                settings.heading = parseInt(e.target.value);
+                document.getElementById('angleValue').textContent = settings.heading;
+                renderAllSprites();
+            });
+            
+            document.getElementById('camAngleSlider').addEventListener('input', (e) => {
+                settings.camAngle = parseInt(e.target.value);
+                document.getElementById('camAngleValue').textContent = settings.camAngle;
+                renderAllSprites();
+            });
+            
+            document.getElementById('fogSlider').addEventListener('input', (e) => {
+                settings.fogFactor = parseInt(e.target.value) / 100;
+                document.getElementById('fogValue').textContent = settings.fogFactor.toFixed(2);
+                renderAllSprites();
+            });
+            
+            document.getElementById('ambientSlider').addEventListener('input', (e) => {
+                settings.ambient = parseInt(e.target.value) / 100;
+                document.getElementById('ambientValue').textContent = settings.ambient.toFixed(2);
+                renderAllSprites();
+            });
+            
+            document.getElementById('colorPicker').addEventListener('input', (e) => {
+                settings.baseColor = e.target.value;
+                renderAllSprites();
+            });
+            
+            document.getElementById('bgSelect').addEventListener('change', (e) => {
+                settings.bgColor = e.target.value;
+                renderAllSprites();
+                renderAngleStrips();
+            });
+        }
+        
+        // Start
+        init();
+    </script>
+</body>
+</html>

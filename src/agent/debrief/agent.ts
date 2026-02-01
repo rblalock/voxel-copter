@@ -62,7 +62,6 @@ Provide a brief debrief with performance rating, 2-3 strengths, 2-3 areas for im
 					{ role: 'user', content: userPrompt },
 				],
 				response_format: { type: 'json_object' },
-				temperature: 0.7,
 			});
 
 			const content = completion.choices[0]?.message?.content ?? '{}';

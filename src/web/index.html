@@ -248,7 +248,8 @@
             PLAYING: 'playing',
             PAUSED: 'paused',
             VICTORY: 'victory',
-            DEFEAT: 'defeat'
+            DEFEAT: 'defeat',
+            MISSION_GENERATOR: 'mission_generator'
         };
 
         const GAME_MODES = { COMANCHE: 'comanche', DELTA: 'delta' };
@@ -271,6 +272,9 @@
         let isGeneratingMission = false;
         let aiDebrief = null;
         let isGeneratingDebrief = false;
+        let missionGeneratorInput = '';
+        let missionGeneratorCursor = true;
+        let missionGeneratorCursorTime = 0;
         
         const SETTINGS_KEY = 'voxelcopter_settings';
         const PROFILE_KEY = 'voxelcopter_profile';
@@ -338,7 +342,7 @@
 
         let cachedGlobalStats = null;
         let lastStatsFetch = 0;
-        let lastLeaderboardName = 'Pilot';
+        let lastLeaderboardName = localStorage.getItem('voxelcopter_playerName') || 'Pilot';
 
         function refreshGlobalStatsIfNeeded() {
             const now = performance.now();
@@ -418,12 +422,14 @@
         }
 
         function submitSessionScore(finalScore) {
+            if (godMode) return;  // Don't allow god mode scores
             if (sessionStats.submitted || !finalScore || finalScore <= 0) return;
             sessionStats.submitted = true;
             const defaultName = lastLeaderboardName || 'Pilot';
             const nameInput = prompt('Enter your name for the leaderboard:', defaultName);
             const playerName = (nameInput && nameInput.trim()) ? nameInput.trim() : 'Anonymous';
             lastLeaderboardName = playerName;
+            localStorage.setItem('voxelcopter_playerName', playerName);
             postStatsEvent({ type: 'high_score', score: finalScore, name: playerName });
         }
 
@@ -565,6 +571,10 @@
                     if (data.success) {
                         aiMission = data.mission;
                         aiMissionBaseIndex = currentMissionIndex;
+                        // If we're in the mission generator menu, return to main menu
+                        if (gameState === GAME_STATES.MISSION_GENERATOR) {
+                            startTransition(GAME_STATES.MENU, 400);
+                        }
                         return aiMission;
                     }
                 }
@@ -1038,7 +1048,9 @@
                     fireRate: 180,
                     weaponType: 'air_cannon',
                     bulletSpeed: 1.4,
-                    bulletDamage: 8
+                    bulletDamage: 8,
+                    burstCount: 5,       // Fire 5 shots per burst
+                    burstCooldown: 2000  // 2 second cooldown between bursts
                 }
             }
         };
@@ -2633,10 +2645,10 @@
             if (gameState === GAME_STATES.MENU) {
                 if (e.code === 'KeyG' && !e.repeat) {
                     if (isGeneratingMission) return true;
-                    const promptText = window.prompt('Describe your mission:', 'Destroy enemy base under cover of darkness');
-                    if (promptText) {
-                        generateAIMission(promptText, 'normal');
-                    }
+                    // Open mission generator menu instead of using prompt()
+                    missionGeneratorInput = '';
+                    playMenuConfirmSound();
+                    startTransition(GAME_STATES.MISSION_GENERATOR, 400);
                     return true;
                 }
                 if (e.code === 'Enter' && aiMission && !isGeneratingMission) {
@@ -2781,6 +2793,31 @@
                     startTransition(GAME_STATES.MENU, 500);
                     return true;
                 }
+            } else if (gameState === GAME_STATES.MISSION_GENERATOR) {
+                // Handle text input for mission description
+                if (e.code === 'Escape') {
+                    playMenuConfirmSound();
+                    missionGeneratorInput = '';
+                    startTransition(GAME_STATES.MENU, 400);
+                    return true;
+                }
+                if (e.code === 'Enter' && !isGeneratingMission) {
+                    if (missionGeneratorInput.trim().length > 0) {
+                        playMenuConfirmSound();
+                        generateAIMission(missionGeneratorInput.trim(), 'normal');
+                    }
+                    return true;
+                }
+                if (e.code === 'Backspace') {
+                    missionGeneratorInput = missionGeneratorInput.slice(0, -1);
+                    return true;
+                }
+                // Handle regular character input
+                if (e.key.length === 1 && missionGeneratorInput.length < 100) {
+                    missionGeneratorInput += e.key;
+                    return true;
+                }
+                return true;  // Consume all keys in this state
             } else if (gameState === GAME_STATES.BRIEFING) {
                 if (e.code === 'Enter') {
                     playMenuConfirmSound();
@@ -4071,12 +4108,13 @@
             const targetType = TARGET_TYPES[typeKey];
             
             // Random position on map (avoid edges and player start)
+            // Increased minimum distance from player spawn (512, 512) from 150 to 300 units
             let x, y, attempts = 0;
             do {
                 x = 100 + Math.random() * (CONFIG.MAP_SIZE - 200);
                 y = 100 + Math.random() * (CONFIG.MAP_SIZE - 200);
                 attempts++;
-            } while (Math.abs(x - 512) < 150 && Math.abs(y - 512) < 150 && attempts < 20);
+            } while (Math.abs(x - 512) < 300 && Math.abs(y - 512) < 300 && attempts < 30);
             
             const terrainHeight = getTerrainHeight(x, y);
             
@@ -4166,11 +4204,12 @@
             enforceEntityBudget();
         }
 
-        function spawnTargetAt(typeKey, x, y, faction = FACTIONS.ENEMY) {
+        function spawnTargetAt(typeKey, x, y, faction = FACTIONS.ENEMY, baseHeight = null) {
             const template = TARGET_TYPES[typeKey];
             if (!template) return null;
 
-            const terrainHeight = getTerrainHeight(x, y);
+            // Use provided baseHeight (for airport buildings on flattened terrain) or get from terrain
+            const terrainHeight = baseHeight !== null ? baseHeight : getTerrainHeight(x, y);
             const heightOffset = (typeof template.heightOffset === 'number')
                 ? template.heightOffset
                 : (template.type === 'helipad' ? 0.5 : template.size * 0.3);
@@ -4295,17 +4334,22 @@
             const id = 'airport_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
             const runwayLength = 180;
             const runwayWidth = 20;
+            
+            // Get the flattened runway height for building placement
+            // All airport buildings should sit at this height
+            const runwayHeight = getTerrainHeight(x, y);
 
             const airport = {
                 id, x, y, heading, faction,
                 length: runwayLength,
                 width: runwayWidth,
-                entities: []
+                entities: [],
+                baseHeight: runwayHeight  // Store for reference
             };
 
             // Create stamps for runway
             const stamps = [
-                { type: 'flatten', x, y, width: runwayWidth + 10, length: runwayLength + 20, heading, height: getTerrainHeight(x, y), feather: 5 },
+                { type: 'flatten', x, y, width: runwayWidth + 10, length: runwayLength + 20, heading, height: runwayHeight, feather: 5 },
                 { type: 'color', x, y, width: runwayWidth, length: runwayLength, heading, color: 0xFF2a2a2a, alpha: 1 },
                 // Center line
                 { type: 'color', x, y, width: 2, length: runwayLength - 20, heading, color: 0xFF4a4a4a, alpha: 1 }
@@ -4319,19 +4363,19 @@
             // Hangar
             const hangarX = x + cos * 40 + sin * sideOffset;
             const hangarY = y - sin * 40 + cos * sideOffset;
-            const hangar = spawnTargetAt('HANGAR', hangarX, hangarY, faction);
+            const hangar = spawnTargetAt('HANGAR', hangarX, hangarY, faction, runwayHeight);
             airport.entities.push(hangar);
 
             // Control tower
             const towerX = x - cos * 30 + sin * sideOffset;
             const towerY = y + sin * 30 + cos * sideOffset;
-            const tower = spawnTargetAt('CONTROL_TOWER', towerX, towerY, faction);
+            const tower = spawnTargetAt('CONTROL_TOWER', towerX, towerY, faction, runwayHeight);
             airport.entities.push(tower);
 
             // Fuel depot
             const fuelX = x + cos * 70 + sin * sideOffset;
             const fuelY = y - sin * 70 + cos * sideOffset;
-            const fuel = spawnTargetAt('FUEL_DEPOT', fuelX, fuelY, faction);
+            const fuel = spawnTargetAt('FUEL_DEPOT', fuelX, fuelY, faction, runwayHeight);
             airport.entities.push(fuel);
 
             // SAM site for defense
@@ -5008,7 +5052,12 @@
                         const zInRange = proj.z >= targetBottom && proj.z <= targetTop;
                         
                         // Must be within both horizontal AND vertical range to hit
-                        if (dist2D < target.size && zInRange) {
+                        // Reduce hitbox for buildings/structures (they're visually large but shouldn't be easy to hit)
+                        const isBuilding = target.type && (target.type === 'building' || target.type === 'hangar' || 
+                            target.type === 'control_tower' || target.type === 'fuel_depot' || 
+                            target.type === 'barracks' || target.type === 'radar');
+                        const hitboxSize = isBuilding ? target.size * 0.5 : target.size;
+                        if (dist2D < hitboxSize && zInRange) {
                             sessionStats.hits += 1;
                             telemetry.shotsHit += 1;
                             if (proj.projectileType === 'missile') {
@@ -5173,7 +5222,7 @@
             const terrainHeight = getTerrainHeight(target.x, target.y);
             target.z = terrainHeight + TARGET_TYPES.TANK.heightOffset;
 
-            const canEngage = gameMode === GAME_MODES.DELTA || gameMode === GAME_MODES.COMANCHE;
+            const canEngage = gameMode === GAME_MODES.DELTA;
             if (!canEngage) {
                 ai.state = 'patrol';
                 return;
@@ -5336,6 +5385,10 @@
                 ai.lastFireTime = 0;
                 ai.lastAttackTime = ai.lastAttackTime || 0;
                 ai.targetId = null;
+                // Burst fire state for attack helicopters
+                ai.burstShotsFired = 0;
+                ai.burstCooldownStart = 0;
+                ai.inBurstCooldown = false;
             }
 
             // Get player position (in Comanche mode, player is a target)
@@ -5397,6 +5450,26 @@
                                 ai.lastFireTime = currentTime;
                                 ai.state = 'extend';
                                 ai.extendTime = currentTime;
+                            }
+                        } else if (ai.role === 'attack_heli' && ai.burstCount && ai.burstCooldown) {
+                            // Attack helicopter burst fire logic
+                            if (ai.inBurstCooldown) {
+                                // Check if cooldown is over
+                                if (currentTime - ai.burstCooldownStart >= ai.burstCooldown) {
+                                    ai.inBurstCooldown = false;
+                                    ai.burstShotsFired = 0;
+                                }
+                            } else if (currentTime - ai.lastFireTime > ai.fireRate) {
+                                // Fire a shot in the burst
+                                fireAircraftWeapon(entity, playerX, playerY, playerZ);
+                                ai.lastFireTime = currentTime;
+                                ai.burstShotsFired = (ai.burstShotsFired || 0) + 1;
+                                
+                                // Check if burst is complete
+                                if (ai.burstShotsFired >= ai.burstCount) {
+                                    ai.inBurstCooldown = true;
+                                    ai.burstCooldownStart = currentTime;
+                                }
                             }
                         } else if (currentTime - ai.lastFireTime > ai.fireRate) {
                             fireAircraftWeapon(entity, playerX, playerY, playerZ);
@@ -5974,10 +6047,11 @@
         function renderLeaderboard(stats) {
             if (!stats || !stats.leaderboard || !stats.totals) return;
 
-            const panelX = screenWidth / 2 - 150;
-            const panelY = 200;
+            // Position in top-right corner
             const panelW = 300;
             const panelH = 300;
+            const panelX = screenWidth - panelW - 20;  // Right side with margin
+            const panelY = 10;                          // Top with small margin
 
             ctx.fillStyle = 'rgba(0, 20, 0, 0.9)';
             ctx.fillRect(panelX, panelY, panelW, panelH);
@@ -6125,6 +6199,102 @@
             } else if (aiMission) {
                 ctx.fillStyle = '#0f0';
                 ctx.fillText('Mission ready! Press ENTER to start', panelX + 15, panelY + 135);
+            }
+        }
+
+        function renderMissionGeneratorOverlay() {
+            const centerX = screenWidth / 2;
+            const centerY = screenHeight / 2;
+            const boxWidth = 500;
+            const boxHeight = 320;
+            const boxX = centerX - boxWidth / 2;
+            const boxY = centerY - boxHeight / 2;
+            
+            drawMenuPanel(boxX, boxY, boxWidth, boxHeight, 'AI MISSION GENERATOR');
+            
+            // Instructions
+            ctx.font = '14px Courier New';
+            ctx.fillStyle = '#0f0';
+            ctx.textAlign = 'center';
+            ctx.fillText('Describe your custom mission scenario', centerX, boxY + 60);
+            
+            ctx.font = '12px Courier New';
+            ctx.fillStyle = '#0a0';
+            ctx.fillText('The AI will generate enemies, objectives, and conditions', centerX, boxY + 85);
+            
+            // Examples
+            ctx.textAlign = 'left';
+            ctx.fillStyle = '#0a0';
+            ctx.fillText('Examples:', boxX + 30, boxY + 115);
+            ctx.font = '11px Courier New';
+            ctx.fillText('• "Night raid on enemy base with heavy defenses"', boxX + 30, boxY + 135);
+            ctx.fillText('• "Defend against incoming air attack"', boxX + 30, boxY + 150);
+            ctx.fillText('• "Stealth mission, minimal enemies, fog"', boxX + 30, boxY + 165);
+            
+            // Input field
+            const inputX = boxX + 30;
+            const inputY = boxY + 195;
+            const inputW = boxWidth - 60;
+            const inputH = 30;
+            
+            ctx.fillStyle = 'rgba(0, 40, 0, 0.8)';
+            ctx.fillRect(inputX, inputY, inputW, inputH);
+            ctx.strokeStyle = '#0f0';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(inputX, inputY, inputW, inputH);
+            
+            // Blinking cursor
+            missionGeneratorCursorTime += 16;
+            if (missionGeneratorCursorTime > 500) {
+                missionGeneratorCursor = !missionGeneratorCursor;
+                missionGeneratorCursorTime = 0;
+            }
+            
+            ctx.font = '14px Courier New';
+            ctx.fillStyle = '#0f0';
+            ctx.textAlign = 'left';
+            const displayText = missionGeneratorInput + (missionGeneratorCursor ? '_' : '');
+            ctx.fillText(displayText, inputX + 8, inputY + 20);
+            
+            // Buttons
+            ctx.textAlign = 'center';
+            
+            // Generate button
+            const genBtnX = centerX - 120;
+            const genBtnY = boxY + 245;
+            const genBtnW = 100;
+            const genBtnH = 32;
+            
+            const canGenerate = missionGeneratorInput.trim().length > 0 && !isGeneratingMission;
+            ctx.fillStyle = canGenerate ? 'rgba(0, 80, 0, 0.7)' : 'rgba(0, 30, 0, 0.5)';
+            ctx.fillRect(genBtnX, genBtnY, genBtnW, genBtnH);
+            ctx.strokeStyle = canGenerate ? '#0f0' : '#050';
+            ctx.strokeRect(genBtnX, genBtnY, genBtnW, genBtnH);
+            ctx.fillStyle = canGenerate ? '#0f0' : '#050';
+            ctx.font = 'bold 14px Courier New';
+            ctx.fillText('GENERATE', genBtnX + genBtnW / 2, genBtnY + 21);
+            
+            // Cancel button
+            const cancelBtnX = centerX + 20;
+            ctx.fillStyle = 'rgba(0, 30, 0, 0.6)';
+            ctx.fillRect(cancelBtnX, genBtnY, genBtnW, genBtnH);
+            ctx.strokeStyle = '#0a0';
+            ctx.strokeRect(cancelBtnX, genBtnY, genBtnW, genBtnH);
+            ctx.fillStyle = '#0a0';
+            ctx.fillText('CANCEL', cancelBtnX + genBtnW / 2, genBtnY + 21);
+            
+            // Status message
+            ctx.font = '12px Courier New';
+            ctx.textAlign = 'center';
+            if (isGeneratingMission) {
+                ctx.fillStyle = '#ff0';
+                ctx.fillText('Generating mission... please wait', centerX, boxY + boxHeight - 25);
+            } else if (aiMission) {
+                ctx.fillStyle = '#0f0';
+                ctx.fillText('Mission ready! Return to menu and press ENTER to start', centerX, boxY + boxHeight - 25);
+            } else {
+                ctx.fillStyle = '#0a0';
+                ctx.fillText('Press ENTER to generate, ESC to cancel', centerX, boxY + boxHeight - 25);
             }
         }
 
@@ -7176,6 +7346,8 @@
                 renderLeaderboardOverlay();
             } else if (gameState === GAME_STATES.HOWTO) {
                 renderHowToOverlay();
+            } else if (gameState === GAME_STATES.MISSION_GENERATOR) {
+                renderMissionGeneratorOverlay();
             } else if (gameState === GAME_STATES.BRIEFING) {
                 renderBriefingOverlay();
             } else if (gameState === GAME_STATES.PAUSED) {
@@ -7257,8 +7429,8 @@
                         ctx.beginPath();
                         ctx.moveTo(screenX, screenY);
                         ctx.lineTo(
-                            screenX - Math.sin(trailAngle) * 12 * scaleY,
-                            screenY + Math.cos(trailAngle) * 12 * scaleY
+                            screenX + Math.sin(trailAngle) * 12 * scaleY,
+                            screenY - Math.cos(trailAngle) * 12 * scaleY
                         );
                         ctx.stroke();
                     } else if (ep.type === 'air_rocket') {
@@ -7268,8 +7440,8 @@
                         ctx.fill();
 
                         const trailAngle = Math.atan2(ep.vx || 0, ep.vy || 0);
-                        const trailX = screenX - Math.sin(trailAngle) * 18 * scaleY;
-                        const trailY = screenY + Math.cos(trailAngle) * 18 * scaleY;
+                        const trailX = screenX + Math.sin(trailAngle) * 18 * scaleY;
+                        const trailY = screenY - Math.cos(trailAngle) * 18 * scaleY;
                         ctx.strokeStyle = 'rgba(180, 180, 180, 0.5)';
                         ctx.lineWidth = 2.5 * scaleY;
                         ctx.beginPath();
@@ -7288,8 +7460,8 @@
                         ctx.fill();
 
                         const trailAngle = Math.atan2(ep.vx || 0, ep.vy || 0);
-                        const trailX = screenX - Math.sin(trailAngle) * 22 * scaleY;
-                        const trailY = screenY + Math.cos(trailAngle) * 22 * scaleY;
+                        const trailX = screenX + Math.sin(trailAngle) * 22 * scaleY;
+                        const trailY = screenY - Math.cos(trailAngle) * 22 * scaleY;
                         ctx.strokeStyle = 'rgba(220, 220, 220, 0.6)';
                         ctx.lineWidth = 3 * scaleY;
                         ctx.beginPath();
@@ -7314,8 +7486,8 @@
                         ctx.beginPath();
                         ctx.moveTo(screenX, screenY);
                         ctx.lineTo(
-                            screenX - Math.sin(trailAngle) * 10 * scaleY,
-                            screenY + Math.cos(trailAngle) * 10 * scaleY
+                            screenX + Math.sin(trailAngle) * 10 * scaleY,
+                            screenY - Math.cos(trailAngle) * 10 * scaleY
                         );
                         ctx.stroke();
                     } else if (ep.type === 'tank_shell') {
@@ -7331,8 +7503,8 @@
                         ctx.beginPath();
                         ctx.moveTo(screenX, screenY);
                         ctx.lineTo(
-                            screenX - Math.sin(trailAngle) * 12 * scaleY,
-                            screenY + Math.cos(trailAngle) * 12 * scaleY
+                            screenX + Math.sin(trailAngle) * 12 * scaleY,
+                            screenY - Math.cos(trailAngle) * 12 * scaleY
                         );
                         ctx.stroke();
                     } else {
@@ -7346,8 +7518,8 @@
                         ctx.strokeStyle = 'rgba(200, 200, 200, 0.5)';
                         ctx.lineWidth = 3 * scaleY;
                         const trailAngle = ep.angle || 0;
-                        const trailX = screenX - Math.sin(trailAngle) * 20 * scaleY;
-                        const trailY = screenY + Math.cos(trailAngle) * 20 * scaleY;
+                        const trailX = screenX + Math.sin(trailAngle) * 20 * scaleY;
+                        const trailY = screenY - Math.cos(trailAngle) * 20 * scaleY;
                         ctx.beginPath();
                         ctx.moveTo(screenX, screenY);
                         ctx.lineTo(trailX, trailY);
@@ -8516,7 +8688,7 @@
                         ctx.lineWidth = 4 * Math.min(scaleY, 1);
                         const trailLen = 25;
                         const trailX = screenX + Math.sin(proj.angle - cam.angle) * trailLen;
-                        const trailY = screenY + Math.cos(proj.angle - cam.angle) * trailLen;
+                        const trailY = screenY - Math.cos(proj.angle - cam.angle) * trailLen;
                         ctx.beginPath();
                         ctx.moveTo(screenX, screenY);
                         ctx.lineTo(trailX, trailY);
@@ -8540,7 +8712,7 @@
                         ctx.lineWidth = 3 * Math.min(scaleY, 1);
                         const trailLen = 15;
                         const trailX = screenX + Math.sin(proj.angle - cam.angle) * trailLen;
-                        const trailY = screenY + Math.cos(proj.angle - cam.angle) * trailLen;
+                        const trailY = screenY - Math.cos(proj.angle - cam.angle) * trailLen;
                         ctx.beginPath();
                         ctx.moveTo(screenX, screenY);
                         ctx.lineTo(trailX, trailY);
@@ -9496,15 +9668,15 @@
             
             ctx.restore();
             
-            // Current altitude indicator (center reference)
-            ctx.strokeStyle = '#ff0';
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.moveTo(ladderX - 5, centerY);
-            ctx.lineTo(ladderX + 5, centerY - 5);
-            ctx.lineTo(ladderX + 5, centerY + 5);
-            ctx.closePath();
-            ctx.stroke();
+            // Current altitude indicator (center reference) - REMOVED: caused floating line artifact
+            // ctx.strokeStyle = '#ff0';
+            // ctx.lineWidth = 2;
+            // ctx.beginPath();
+            // ctx.moveTo(ladderX - 5, centerY);
+            // ctx.lineTo(ladderX + 5, centerY - 5);
+            // ctx.lineTo(ladderX + 5, centerY + 5);
+            // ctx.closePath();
+            // ctx.stroke();
             
             // Digital altitude readout
             ctx.fillStyle = '#0f0';
@@ -10218,7 +10390,8 @@
                 state === GAME_STATES.ACHIEVEMENTS ||
                 state === GAME_STATES.LEADERBOARD ||
                 state === GAME_STATES.HOWTO ||
-                state === GAME_STATES.BRIEFING;
+                state === GAME_STATES.BRIEFING ||
+                state === GAME_STATES.MISSION_GENERATOR;
         }
         
         // ============================================
