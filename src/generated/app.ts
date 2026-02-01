@@ -332,6 +332,10 @@ if (isDevelopment() && process.env.VITE_PORT) {
 // Mount API routes
 const { default: router_0 } = await import('../api/index.js');
 app.route('/api', router_0);
+const { default: router_1 } = await import('../api/mission/route.js');
+app.route('/api/mission', router_1);
+const { default: router_2 } = await import('../api/stats/route.js');
+app.route('/api/stats', router_2);
 
 const hasWorkbenchConfig = true;
 const hasWorkbench = isDevelopment() && hasWorkbenchConfig;

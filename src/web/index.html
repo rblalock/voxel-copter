@@ -261,6 +261,15 @@
         let missionNoDamage = true;
         let playtimeAccumulator = 0;
         let lastMissionElapsed = 0;
+        let activeMission = null;
+        let activeAIMission = null;
+        let aiMission = null;
+        let pendingAIMission = null;
+        let aiMissionBaseIndex = 0;
+        let aiMissionMapIndex = null;
+        let isGeneratingMission = false;
+        let aiDebrief = null;
+        let isGeneratingDebrief = false;
         
         const SETTINGS_KEY = 'voxelcopter_settings';
         const PROFILE_KEY = 'voxelcopter_profile';
@@ -298,6 +307,302 @@
         let fogEnabled = true;
         let mouseSensitivity = 1.0;
         let invertY = false;
+
+        // ============================================
+        // GLOBAL STATS + LEADERBOARD
+        // ============================================
+        async function postStatsEvent(event) {
+            try {
+                await fetch('/api/stats/event', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(event)
+                });
+            } catch (e) {
+                console.warn('Failed to post stats event:', e);
+            }
+        }
+
+        async function fetchGlobalStats() {
+            try {
+                const response = await fetch('/api/stats');
+                if (response.ok) {
+                    return await response.json();
+                }
+            } catch (e) {
+                console.warn('Failed to fetch global stats:', e);
+            }
+            return null;
+        }
+
+        let cachedGlobalStats = null;
+        let lastStatsFetch = 0;
+        let lastLeaderboardName = 'Pilot';
+
+        function refreshGlobalStatsIfNeeded() {
+            const now = performance.now();
+            if (now - lastStatsFetch > 30000 || !cachedGlobalStats) {
+                fetchGlobalStats().then((stats) => {
+                    if (stats) cachedGlobalStats = stats;
+                });
+                lastStatsFetch = now;
+            }
+        }
+
+        let sessionStats = {
+            kills: 0,
+            deaths: 0,
+            score: 0,
+            shotsFired: 0,
+            hits: 0,
+            submitted: false
+        };
+
+        // Session telemetry
+        let telemetry = {
+            shotsFired: 0,
+            shotsHit: 0,
+            missilesFired: 0,
+            missilesHit: 0,
+            missilesDodged: 0,
+            damageDealt: 0,
+            damageTaken: 0,
+            distanceTraveled: 0,
+            flightTime: 0,
+            groundTime: 0,
+            lastPosition: { x: 512, y: 512 }
+        };
+
+        function resetSessionStats() {
+            sessionStats = {
+                kills: 0,
+                deaths: 0,
+                score: 0,
+                shotsFired: 0,
+                hits: 0,
+                submitted: false
+            };
+        }
+
+        function resetTelemetry() {
+            telemetry = {
+                shotsFired: 0,
+                shotsHit: 0,
+                missilesFired: 0,
+                missilesHit: 0,
+                missilesDodged: 0,
+                damageDealt: 0,
+                damageTaken: 0,
+                distanceTraveled: 0,
+                flightTime: 0,
+                groundTime: 0,
+                lastPosition: { x: camera.x, y: camera.y }
+            };
+        }
+
+        function updateTelemetry(deltaTime) {
+            const dx = camera.x - telemetry.lastPosition.x;
+            const dy = camera.y - telemetry.lastPosition.y;
+            telemetry.distanceTraveled += Math.sqrt(dx * dx + dy * dy);
+            telemetry.lastPosition = { x: camera.x, y: camera.y };
+
+            if (gameMode === GAME_MODES.COMANCHE) {
+                telemetry.flightTime += deltaTime / 1000;
+                if (isHeliLanded(playerState.heli)) {
+                    telemetry.groundTime += deltaTime / 1000;
+                }
+            } else {
+                telemetry.groundTime += deltaTime / 1000;
+            }
+        }
+
+        function submitSessionScore(finalScore) {
+            if (sessionStats.submitted || !finalScore || finalScore <= 0) return;
+            sessionStats.submitted = true;
+            const defaultName = lastLeaderboardName || 'Pilot';
+            const nameInput = prompt('Enter your name for the leaderboard:', defaultName);
+            const playerName = (nameInput && nameInput.trim()) ? nameInput.trim() : 'Anonymous';
+            lastLeaderboardName = playerName;
+            postStatsEvent({ type: 'high_score', score: finalScore, name: playerName });
+        }
+
+        function calculateAccuracy() {
+            const hasTelemetry = telemetry.shotsFired > 0 || telemetry.shotsHit > 0;
+            const shots = hasTelemetry ? telemetry.shotsFired : sessionStats.shotsFired;
+            const hits = hasTelemetry ? telemetry.shotsHit : sessionStats.hits;
+            if (!shots) return 0;
+            return Math.max(0, Math.min(100, Math.round((hits / shots) * 100)));
+        }
+
+        let showOnboardingHints = true;
+        let onboardingStep = 0;
+        const ONBOARDING_HINTS = [
+            {
+                condition: () => gameMode === GAME_MODES.COMANCHE && telemetry.flightTime < 10,
+                text: 'Use ARROW KEYS to fly, SPACE to climb, SHIFT to descend'
+            },
+            {
+                condition: () => gameMode === GAME_MODES.COMANCHE && telemetry.shotsFired === 0 && telemetry.flightTime > 5,
+                text: 'Press MOUSE BUTTON to fire weapons'
+            },
+            {
+                condition: () => gameMode === GAME_MODES.COMANCHE && isHeliLanded(playerState.heli) && telemetry.groundTime < 5,
+                text: 'You\'re landed! Press E to exit and fight on foot'
+            },
+            {
+                condition: () => gameMode === GAME_MODES.DELTA && canEnterHeli() && telemetry.groundTime > 10,
+                text: 'Press E to re-enter your helicopter'
+            },
+            {
+                condition: () => missileWarning && telemetry.missilesDodged === 0,
+                text: 'MISSILE! Press ; for CHAFF or \' for FLARES!'
+            }
+        ];
+
+        function getActiveMission() {
+            if (currentMissionIndex < 0) return null;
+            return activeMission || MISSIONS[currentMissionIndex];
+        }
+
+        function normalizeDifficulty(difficulty) {
+            if (difficulty === 'normal') return 'medium';
+            if (difficulty === 'easy' || difficulty === 'medium' || difficulty === 'hard' || difficulty === 'extreme') {
+                return difficulty;
+            }
+            return 'medium';
+        }
+
+        function deriveTargetCounts(aiConfig) {
+            const counts = { tanks: 0, soldiers: 0, buildings: 0, sams: 0 };
+            if (!aiConfig || !Array.isArray(aiConfig.entities)) return counts;
+            for (const spec of aiConfig.entities) {
+                const typeKey = String(spec.type || '').toUpperCase();
+                const rawCount = Number(spec.count || 0);
+                const count = Number.isFinite(rawCount) ? rawCount : 0;
+                if (typeKey === 'TANK') counts.tanks += count;
+                if (typeKey === 'SOLDIER') counts.soldiers += count;
+                if (typeKey === 'BUILDING') counts.buildings += count;
+                if (typeKey === 'SAM_SITE') counts.sams += count;
+            }
+            return counts;
+        }
+
+        function buildMissionFromAI(aiConfig, baseMission) {
+            const counts = deriveTargetCounts(aiConfig);
+            const base = baseMission || MISSIONS[0];
+            return {
+                ...base,
+                name: 'AI OPERATION',
+                briefing: aiConfig.briefing || base.briefing,
+                briefingDelta: aiConfig.briefingDelta || base.briefingDelta,
+                objectives: Array.isArray(aiConfig.objectives) && aiConfig.objectives.length > 0 ? aiConfig.objectives : base.objectives,
+                difficulty: normalizeDifficulty(aiConfig.difficulty || base.difficulty),
+                timeLimit: typeof aiConfig.timeLimit === 'number' ? aiConfig.timeLimit : base.timeLimit,
+                targets: {
+                    tanks: counts.tanks,
+                    buildings: counts.buildings,
+                    sams: counts.sams
+                },
+                targetsDelta: {
+                    soldiers: counts.soldiers,
+                    buildings: counts.buildings,
+                    sams: counts.sams
+                },
+                rewards: base.rewards
+            };
+        }
+
+        function getBriefingMission() {
+            const baseMission = MISSIONS[currentMissionIndex] || MISSIONS[0];
+            if (pendingAIMission) {
+                return buildMissionFromAI(pendingAIMission, baseMission);
+            }
+            return baseMission;
+        }
+
+        function getCompletedObjectives() {
+            const mission = getActiveMission();
+            if (!mission || !Array.isArray(mission.objectives)) return 0;
+            return missionComplete ? mission.objectives.length : 0;
+        }
+
+        function getTotalObjectives() {
+            const mission = getActiveMission();
+            if (!mission || !Array.isArray(mission.objectives)) return 0;
+            return mission.objectives.length;
+        }
+
+        async function generateAIMission(prompt, difficulty = 'normal') {
+            if (isGeneratingMission) return null;
+
+            isGeneratingMission = true;
+            const mapIndex = MISSIONS[currentMissionIndex]?.map ?? 0;
+            aiMissionMapIndex = mapIndex;
+
+            try {
+                const response = await fetch('/api/mission/generate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        prompt,
+                        mode: gameMode,
+                        difficulty,
+                        mapIndex
+                    })
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.success) {
+                        aiMission = data.mission;
+                        aiMissionBaseIndex = currentMissionIndex;
+                        return aiMission;
+                    }
+                }
+            } catch (e) {
+                console.warn('Failed to generate AI mission.');
+            } finally {
+                isGeneratingMission = false;
+            }
+            return null;
+        }
+
+        async function requestDebrief(victory) {
+            const mission = getActiveMission();
+            if (!mission) return null;
+
+            const debriefData = {
+                missionBriefing: mission.briefing || 'Standard combat mission',
+                kills: sessionStats.kills,
+                deaths: sessionStats.deaths,
+                accuracy: calculateAccuracy(),
+                timeElapsed: (performance.now() - missionStartTime) / 1000,
+                timeLimit: mission.timeLimit || 0,
+                objectivesCompleted: getCompletedObjectives(),
+                objectivesTotal: getTotalObjectives(),
+                damageTaken: Math.round((1 - playerHealth / maxPlayerHealth) * 100),
+                victory,
+                difficulty: mission.difficulty || 'normal'
+            };
+
+            try {
+                const response = await fetch('/api/mission/debrief', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(debriefData)
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.success) {
+                        return data.debrief;
+                    }
+                }
+            } catch (e) {
+                console.warn('Failed to get debrief.');
+            }
+            return null;
+        }
         
         // ============================================
         // MISSION DEFINITIONS
@@ -541,6 +846,8 @@
         // ============================================
         // TARGET TYPE DEFINITIONS
         // ============================================
+        const FACTIONS = { ENEMY: 'enemy', FRIENDLY: 'friendly', NEUTRAL: 'neutral' };
+        const DOMAINS = { GROUND: 'ground', AIR: 'air', STRUCTURE: 'structure', PLAYER: 'player' };
         const TARGET_TYPES = {
             TANK: {
                 type: 'tank',
@@ -548,6 +855,9 @@
                 points: 100,
                 size: 20,
                 color: '#4a5c4a',  // Olive drab
+                domain: DOMAINS.GROUND,
+                faction: FACTIONS.ENEMY,
+                hitHeight: 8,
                 heightOffset: 0,      // Sits directly on terrain
                 ai: {
                     type: 'patrol',
@@ -562,6 +872,9 @@
                 points: 100,
                 size: 12,
                 color: '#5a6b4a',  // Army green
+                domain: DOMAINS.GROUND,
+                faction: FACTIONS.ENEMY,
+                hitHeight: 12,
                 heightOffset: 7,   // Center mass height
                 canShoot: true,
                 ai: {
@@ -582,8 +895,36 @@
                 points: 200,
                 size: 40,
                 color: '#6b5a4a',  // Desert tan/brown
+                domain: DOMAINS.STRUCTURE,
+                faction: FACTIONS.ENEMY,
+                hitHeight: 40,
                 heightOffset: 0,      // Sits directly on terrain
                 ai: null  // Buildings don't move
+            },
+            HANGAR: {
+                type: 'hangar', domain: DOMAINS.STRUCTURE, faction: FACTIONS.ENEMY,
+                health: 300, size: 50, hitHeight: 35, points: 250,
+                color: '#5a5a5a', ai: null
+            },
+            CONTROL_TOWER: {
+                type: 'control_tower', domain: DOMAINS.STRUCTURE, faction: FACTIONS.ENEMY,
+                health: 150, size: 20, hitHeight: 50, points: 300,
+                color: '#6a6a6a', ai: null
+            },
+            BARRACKS: {
+                type: 'barracks', domain: DOMAINS.STRUCTURE, faction: FACTIONS.ENEMY,
+                health: 180, size: 35, hitHeight: 20, points: 150,
+                color: '#5a6a4a', ai: null
+            },
+            FUEL_DEPOT: {
+                type: 'fuel_depot', domain: DOMAINS.STRUCTURE, faction: FACTIONS.ENEMY,
+                health: 100, size: 25, hitHeight: 15, points: 200,
+                color: '#4a4a4a', ai: null  // Explodes spectacularly when destroyed
+            },
+            HELIPAD: {
+                type: 'helipad', domain: DOMAINS.STRUCTURE, faction: FACTIONS.ENEMY,
+                health: 50, size: 30, hitHeight: 2, points: 50,
+                color: '#3a3a3a', ai: null
             },
             SAM_SITE: {
                 type: 'sam',
@@ -591,6 +932,9 @@
                 points: 150,
                 size: 25,
                 color: '#3a4a3a',  // Dark military green
+                domain: DOMAINS.STRUCTURE,
+                faction: FACTIONS.ENEMY,
+                hitHeight: 20,
                 heightOffset: 0,      // Sits directly on terrain
                 ai: {
                     type: 'sam',
@@ -598,6 +942,61 @@
                     range: 350,          // Detection range
                     missileSpeed: 1.5,   // Slower missile (was 8) - gives time to evade
                     missileDamage: 30
+                }
+            },
+            AIR_FIGHTER: {
+                type: 'air_fighter', domain: DOMAINS.AIR, faction: FACTIONS.ENEMY,
+                health: 80, size: 18, hitHeight: 8, points: 400,
+                color: '#5a5a6a',
+                ai: {
+                    type: 'aircraft',
+                    role: 'fighter',
+                    speed: 0.35,
+                    turnRate: 0.015,
+                    climbRate: 0.3,
+                    preferredAlt: 120,
+                    detectRange: 400,
+                    engageRange: 250,
+                    fireRate: 150,  // ms between shots
+                    weaponType: 'air_cannon',
+                    bulletSpeed: 1.5,
+                    bulletDamage: 8
+                }
+            },
+            AIR_TRANSPORT: {
+                type: 'air_transport', domain: DOMAINS.AIR, faction: FACTIONS.ENEMY,
+                health: 150, size: 30, hitHeight: 12, points: 300,
+                color: '#6a6a5a',
+                ai: {
+                    type: 'aircraft',
+                    role: 'transport',
+                    speed: 0.2,
+                    turnRate: 0.008,
+                    climbRate: 0.15,
+                    preferredAlt: 100,
+                    detectRange: 200,
+                    engageRange: 0,  // Doesn't engage
+                    fireRate: 0,
+                    weaponType: null
+                }
+            },
+            AIR_ATTACK_HELI: {
+                type: 'air_attack_heli', domain: DOMAINS.AIR, faction: FACTIONS.ENEMY,
+                health: 120, size: 22, hitHeight: 10, points: 350,
+                color: '#4a5a4a',
+                ai: {
+                    type: 'aircraft',
+                    role: 'attack_heli',
+                    speed: 0.18,
+                    turnRate: 0.02,
+                    climbRate: 0.25,
+                    preferredAlt: 60,
+                    detectRange: 300,
+                    engageRange: 200,
+                    fireRate: 800,  // Slower rockets
+                    weaponType: 'air_rocket',
+                    bulletSpeed: 0.8,
+                    bulletDamage: 25
                 }
             }
         };
@@ -663,6 +1062,31 @@
             forwardSpeed: 0,      // Current forward velocity
             lateralSpeed: 0,      // Sideslip velocity
             verticalSpeed: 0      // Climb/descent rate
+        };
+
+        let playerState = {
+            mode: GAME_MODES.COMANCHE,
+            heli: {
+                x: 512,
+                y: 512,
+                z: 80,
+                angle: 0,
+                bank: 0,
+                forwardSpeed: 0,
+                lateralSpeed: 0,
+                verticalSpeed: 0,
+                health: 200,
+                maxHealth: 200,
+                destroyed: false,
+                visible: true // Whether to render in world
+            },
+            soldier: {
+                x: 512,
+                y: 512,
+                stance: 'stand',
+                health: 100
+            },
+            activeVehicle: 'heli' // 'heli' or 'soldier'
         };
 
         const SOLDIER = {
@@ -732,6 +1156,22 @@
         let maxPlayerHealth = 100;
         let isPlayerDead = false;
         let missionComplete = false;
+
+        let world = {
+            stamps: [],
+            airports: [],  // { id, x, y, heading, length, width, faction, entities: [] }
+            bases: [],     // { id, x, y, faction, buildings: [], defenses: [] }
+            helipads: []   // { id, x, y, faction }
+        };
+
+        const ENTITY_BUDGET = {
+            maxGround: 50,
+            maxAir: 8,
+            maxStructures: 30,
+            maxTotal: 80
+        };
+
+        let airportSpawnTimers = {};
         
         // Missile warning system
         let missileWarning = false;
@@ -1171,7 +1611,7 @@
         // Menu navigation state
         const MAIN_MENU_OPTIONS = ['MODE', 'CAMPAIGN', 'FREE PLAY', 'SETTINGS', 'ACHIEVEMENTS', 'HOW TO PLAY'];
         const FREEPLAY_OPTIONS = ['LAUNCH FREE PLAY', 'BACK TO MENU'];
-        const PAUSE_OPTIONS = ['RESUME', 'RESTART', 'RETURN TO MENU'];
+        const PAUSE_OPTIONS = ['RESUME [ESC]', 'RESTART MISSION', 'QUIT TO MENU'];
         const SETTINGS_ITEMS = [
             { key: 'masterVolume', label: 'MASTER VOLUME', type: 'slider', min: 0, max: 1, step: 0.01 },
             { key: 'sfxVolume', label: 'SFX VOLUME', type: 'slider', min: 0, max: 1, step: 0.01 },
@@ -2041,6 +2481,12 @@
                     e.preventDefault();
                     return;
                 }
+
+                if (e.code === 'F1') {
+                    showOnboardingHints = !showOnboardingHints;
+                    e.preventDefault();
+                    return;
+                }
                 
                 keys[e.code] = true;
                 // Prevent scrolling
@@ -2095,6 +2541,15 @@
                         weatherCondition = conditions[(currentIndex + 1) % conditions.length];
                         console.log('Weather:', WEATHER_SETTINGS[weatherCondition].name);
                     }
+
+                    // Exit/Enter helicopter
+                    if (e.code === 'KeyE') {
+                        if (gameMode === GAME_MODES.COMANCHE && isHeliLanded(playerState.heli)) {
+                            exitHeliToSoldier();
+                        } else if (gameMode === GAME_MODES.DELTA && canEnterHeli()) {
+                            enterHeli();
+                        }
+                    }
                 }
             });
             
@@ -2134,6 +2589,22 @@
             }
             
             if (gameState === GAME_STATES.MENU) {
+                if (e.code === 'KeyG' && !e.repeat) {
+                    if (isGeneratingMission) return true;
+                    const promptText = window.prompt('Describe your mission:', 'Destroy enemy base under cover of darkness');
+                    if (promptText) {
+                        generateAIMission(promptText, 'normal');
+                    }
+                    return true;
+                }
+                if (e.code === 'Enter' && aiMission && !isGeneratingMission) {
+                    pendingAIMission = aiMission;
+                    aiMission = null;
+                    currentMissionIndex = aiMissionBaseIndex;
+                    playMenuConfirmSound();
+                    startTransition(GAME_STATES.BRIEFING, 600);
+                    return true;
+                }
                 if (e.code === 'ArrowUp') {
                     menuSelectionIndex = (menuSelectionIndex - 1 + MAIN_MENU_OPTIONS.length) % MAIN_MENU_OPTIONS.length;
                     playMenuNavigateSound();
@@ -2273,7 +2744,13 @@
                 }
                 if (e.code === 'Escape') {
                     playMenuConfirmSound();
-                    startTransition(GAME_STATES.CAMPAIGN, 500);
+                    if (pendingAIMission) {
+                        aiMission = pendingAIMission;
+                        pendingAIMission = null;
+                        startTransition(GAME_STATES.MENU, 500);
+                    } else {
+                        startTransition(GAME_STATES.CAMPAIGN, 500);
+                    }
                     return true;
                 }
             } else if (gameState === GAME_STATES.PLAYING) {
@@ -2337,7 +2814,9 @@
             } else if (gameState === GAME_STATES.VICTORY) {
                 if (e.code === 'Enter') {
                     playMenuConfirmSound();
-                    if (currentMissionIndex < MISSIONS.length - 1) {
+                    if (activeAIMission) {
+                        startTransition(GAME_STATES.MENU, 700);
+                    } else if (currentMissionIndex < MISSIONS.length - 1) {
                         currentMissionIndex++;
                         campaignSelectionIndex = currentMissionIndex;
                         startTransition(GAME_STATES.BRIEFING, 700);
@@ -2354,6 +2833,9 @@
             } else if (gameState === GAME_STATES.DEFEAT) {
                 if (e.code === 'Enter') {
                     playMenuConfirmSound();
+                    if (activeAIMission) {
+                        pendingAIMission = activeAIMission;
+                    }
                     startTransition(GAME_STATES.PLAYING, 900, {
                         hold: true,
                         onSwitch: () => startMission(currentMissionIndex, { onReady: releaseTransition })
@@ -2627,8 +3109,11 @@
         function resumeFromPause() {
             gameState = GAME_STATES.PLAYING;
             if (currentMissionIndex >= 0) {
-                const remaining = (MISSIONS[currentMissionIndex].timeLimit || 0) - missionTime;
-                missionStartTime = performance.now() - remaining * 1000;
+                const mission = getActiveMission();
+                if (mission && mission.timeLimit) {
+                    const remaining = mission.timeLimit - missionTime;
+                    missionStartTime = performance.now() - remaining * 1000;
+                }
             }
             startRotorSound();
             startWindSound();
@@ -2636,6 +3121,9 @@
 
         function restartCurrentMode() {
             if (currentMissionIndex >= 0) {
+                if (activeAIMission) {
+                    pendingAIMission = activeAIMission;
+                }
                 startMission(currentMissionIndex, { onReady: releaseTransition });
             } else {
                 startFreePlay({ onReady: releaseTransition });
@@ -2648,6 +3136,8 @@
             stopWindSound();
             gameState = GAME_STATES.MENU;
             menuSelectionIndex = 0;
+            activeMission = null;
+            activeAIMission = null;
         }
         
         function resizeCanvas() {
@@ -2719,11 +3209,11 @@
              heightImg.src = mapData.height;
         }
         
-         function processMapImages(colorImg, heightImg) {
-             // Create temporary canvas to read pixel data
-             const tempCanvas = document.createElement('canvas');
-             tempCanvas.width = CONFIG.MAP_SIZE;
-             tempCanvas.height = CONFIG.MAP_SIZE;
+        function processMapImages(colorImg, heightImg) {
+            // Create temporary canvas to read pixel data
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = CONFIG.MAP_SIZE;
+            tempCanvas.height = CONFIG.MAP_SIZE;
              const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
             
             // Process color map
@@ -2759,6 +3249,99 @@
             if (!lastTime) {
                 lastTime = performance.now();
                 requestAnimationFrame(gameLoop);
+            }
+
+            snapshotBaseMap();
+        }
+
+        let baseMap = { altitude: null, color: null };
+
+        function snapshotBaseMap() {
+            if (currentMap.altitude && currentMap.color) {
+                baseMap.altitude = new Uint16Array(currentMap.altitude);
+                baseMap.color = new Uint32Array(currentMap.color);
+            }
+        }
+
+        function restoreBaseMap() {
+            if (baseMap.altitude && baseMap.color) {
+                currentMap.altitude.set(baseMap.altitude);
+                currentMap.color.set(baseMap.color);
+            }
+        }
+
+        function stampFlattenRect(cx, cy, width, length, heading, heightValue, feather = 2) {
+            // Flatten terrain in a rotated rectangle
+            const cos = Math.cos(heading);
+            const sin = Math.sin(heading);
+            const hw = width / 2;
+            const hl = length / 2;
+            
+            for (let dy = -hl - feather; dy <= hl + feather; dy++) {
+                for (let dx = -hw - feather; dx <= hw + feather; dx++) {
+                    const rx = cx + dx * cos - dy * sin;
+                    const ry = cy + dx * sin + dy * cos;
+                    const ix = Math.floor(rx) & (CONFIG.MAP_SIZE - 1);
+                    const iy = Math.floor(ry) & (CONFIG.MAP_SIZE - 1);
+                    const idx = iy * CONFIG.MAP_SIZE + ix;
+                    
+                    // Calculate feather blend
+                    const distFromEdgeX = Math.max(0, Math.abs(dx) - hw);
+                    const distFromEdgeY = Math.max(0, Math.abs(dy) - hl);
+                    const distFromEdge = Math.sqrt(distFromEdgeX * distFromEdgeX + distFromEdgeY * distFromEdgeY);
+                    
+                    if (distFromEdge <= feather) {
+                        const blend = distFromEdge / feather;
+                        const currentHeight = currentMap.altitude[idx];
+                        currentMap.altitude[idx] = Math.round(currentHeight * blend + heightValue * (1 - blend));
+                    }
+                }
+            }
+        }
+
+        function stampColorRect(cx, cy, width, length, heading, abgrColor, alpha = 1) {
+            // Paint color in a rotated rectangle
+            const cos = Math.cos(heading);
+            const sin = Math.sin(heading);
+            const hw = width / 2;
+            const hl = length / 2;
+            
+            for (let dy = -hl; dy <= hl; dy++) {
+                for (let dx = -hw; dx <= hw; dx++) {
+                    const rx = cx + dx * cos - dy * sin;
+                    const ry = cy + dx * sin + dy * cos;
+                    const ix = Math.floor(rx) & (CONFIG.MAP_SIZE - 1);
+                    const iy = Math.floor(ry) & (CONFIG.MAP_SIZE - 1);
+                    const idx = iy * CONFIG.MAP_SIZE + ix;
+                    
+                    if (alpha >= 1) {
+                        currentMap.color[idx] = abgrColor;
+                    } else {
+                        // Blend colors
+                        const existing = currentMap.color[idx];
+                        const eR = existing & 0xFF;
+                        const eG = (existing >> 8) & 0xFF;
+                        const eB = (existing >> 16) & 0xFF;
+                        const nR = abgrColor & 0xFF;
+                        const nG = (abgrColor >> 8) & 0xFF;
+                        const nB = (abgrColor >> 16) & 0xFF;
+                        const r = Math.round(eR * (1 - alpha) + nR * alpha);
+                        const g = Math.round(eG * (1 - alpha) + nG * alpha);
+                        const b = Math.round(eB * (1 - alpha) + nB * alpha);
+                        currentMap.color[idx] = 0xFF000000 | (b << 16) | (g << 8) | r;
+                    }
+                }
+            }
+        }
+
+        function applyMissionStamps(stamps) {
+            restoreBaseMap();
+            for (const stamp of stamps) {
+                if (stamp.type === 'flatten') {
+                    stampFlattenRect(stamp.x, stamp.y, stamp.width, stamp.length, stamp.heading || 0, stamp.height, stamp.feather || 2);
+                } else if (stamp.type === 'color') {
+                    stampColorRect(stamp.x, stamp.y, stamp.width, stamp.length, stamp.heading || 0, stamp.color, stamp.alpha || 1);
+                }
             }
         }
         
@@ -3003,6 +3586,135 @@
             const iy = Math.floor(y) & (CONFIG.MAP_SIZE - 1);
             return currentMap.altitude[(iy << CONFIG.MAP_SHIFT) + ix];
         }
+
+        function estimateSlope(x, y, radius = 8) {
+            let maxDiff = 0;
+            const centerHeight = getTerrainHeight(x, y);
+
+            for (let angle = 0; angle < Math.PI * 2; angle += Math.PI / 4) {
+                const sx = x + Math.cos(angle) * radius;
+                const sy = y + Math.sin(angle) * radius;
+                const h = getTerrainHeight(sx, sy);
+                maxDiff = Math.max(maxDiff, Math.abs(h - centerHeight));
+            }
+
+            return maxDiff;
+        }
+
+        function findFlatSpot(tries = 100, minHeight = 20, maxSlope = 8, avoidX = 512, avoidY = 512, minDist = 200) {
+            for (let i = 0; i < tries; i++) {
+                const x = Math.random() * CONFIG.MAP_SIZE;
+                const y = Math.random() * CONFIG.MAP_SIZE;
+                const height = getTerrainHeight(x, y);
+
+                // Check height range
+                if (height < minHeight || height > 180) continue;
+
+                // Check slope
+                const slope = estimateSlope(x, y, 15);
+                if (slope > maxSlope) continue;
+
+                // Check distance from avoid point (player start)
+                const dx = x - avoidX;
+                const dy = y - avoidY;
+                if (Math.sqrt(dx * dx + dy * dy) < minDist) continue;
+
+                return { x, y, height };
+            }
+
+            // Fallback - return a random spot
+            return { x: Math.random() * CONFIG.MAP_SIZE, y: Math.random() * CONFIG.MAP_SIZE, height: 50 };
+        }
+
+        function getHeliAGL(heli) {
+            return heli.z - getTerrainHeight(heli.x, heli.y);
+        }
+
+        function isHeliLanded(heli) {
+            const agl = getHeliAGL(heli);
+            const slow = Math.abs(heli.forwardSpeed) < 0.03 &&
+                Math.abs(heli.lateralSpeed) < 0.03 &&
+                Math.abs(heli.verticalSpeed) < 0.3;
+            return agl <= 6 && slow && !heli.destroyed;
+        }
+
+        function exitHeliToSoldier() {
+            if (!isHeliLanded(playerState.heli)) return false;
+
+            // Save helicopter state from camera
+            playerState.heli.x = camera.x;
+            playerState.heli.y = camera.y;
+            playerState.heli.z = camera.height;
+            playerState.heli.angle = camera.angle;
+            playerState.heli.bank = camera.bank;
+            playerState.heli.forwardSpeed = camera.forwardSpeed;
+            playerState.heli.lateralSpeed = camera.lateralSpeed;
+            playerState.heli.verticalSpeed = camera.verticalSpeed;
+            playerState.heli.visible = true;
+
+            // Place soldier next to helicopter (offset to right side)
+            const exitOffset = 15;
+            playerState.soldier.x = camera.x + Math.cos(camera.angle + Math.PI / 2) * exitOffset;
+            playerState.soldier.y = camera.y - Math.sin(camera.angle + Math.PI / 2) * exitOffset;
+
+            // Switch to Delta mode
+            playerState.mode = GAME_MODES.DELTA;
+            playerState.activeVehicle = 'soldier';
+            gameMode = GAME_MODES.DELTA;
+
+            // Set camera for soldier view
+            const terrainHeight = getTerrainHeight(playerState.soldier.x, playerState.soldier.y);
+            camera.x = playerState.soldier.x;
+            camera.y = playerState.soldier.y;
+            camera.height = terrainHeight + SOLDIER.eyeHeights[SOLDIER.stance];
+            camera.horizon = screenHeight * 0.5;
+            camera.bank = 0;
+            camera.bankVelocity = 0;
+            camera.forwardSpeed = 0;
+            camera.lateralSpeed = 0;
+            camera.verticalSpeed = 0;
+
+            // Reset soldier state
+            SOLDIER.stance = 'stand';
+            SOLDIER.velocity = { x: 0, y: 0 };
+            SOLDIER.isSprinting = false;
+            resetSoldierWeapons();
+
+            return true;
+        }
+
+        function canEnterHeli() {
+            if (gameMode !== GAME_MODES.DELTA) return false;
+            if (playerState.heli.destroyed) return false;
+
+            const dx = camera.x - playerState.heli.x;
+            const dy = camera.y - playerState.heli.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            return dist < 25; // Within 25 units
+        }
+
+        function enterHeli() {
+            if (!canEnterHeli()) return false;
+
+            // Switch to Comanche mode
+            playerState.mode = GAME_MODES.COMANCHE;
+            playerState.activeVehicle = 'heli';
+            gameMode = GAME_MODES.COMANCHE;
+            playerState.heli.visible = false;
+
+            // Restore camera from helicopter state
+            camera.x = playerState.heli.x;
+            camera.y = playerState.heli.y;
+            camera.height = playerState.heli.z;
+            camera.angle = playerState.heli.angle;
+            camera.bank = playerState.heli.bank;
+            camera.horizon = screenHeight * 0.4;
+            camera.forwardSpeed = 0;
+            camera.lateralSpeed = 0;
+            camera.verticalSpeed = 0;
+
+            return true;
+        }
         
         // ============================================
         // MISSION SYSTEM
@@ -3051,7 +3763,14 @@
 
         function startMission(missionIndex, options = {}) {
             currentMissionIndex = missionIndex;
-            const mission = MISSIONS[missionIndex];
+            const baseMission = MISSIONS[missionIndex];
+            const mission = pendingAIMission ? buildMissionFromAI(pendingAIMission, baseMission) : baseMission;
+            activeMission = mission;
+            activeAIMission = pendingAIMission;
+            pendingAIMission = null;
+            aiMission = null;
+            aiDebrief = null;
+            isGeneratingDebrief = false;
             
             // Show loading
             const loadingEl = document.getElementById('loading');
@@ -3059,7 +3778,9 @@
             loadingEl.textContent = `LOADING ${mission.name}...`;
             
             // Load the correct map
-            loadMapForMission(mission.map, () => {
+            const mapIndex = activeAIMission && typeof aiMissionMapIndex === 'number' ? aiMissionMapIndex : mission.map;
+            aiMissionMapIndex = null;
+            loadMapForMission(mapIndex, () => {
                 // Reset player state
                 playerHealth = maxPlayerHealth;
                 score = 0;
@@ -3068,6 +3789,7 @@
                 defeatReason = '';
                 missionNoDamage = true;
                 lastMissionElapsed = 0;
+                resetSessionStats();
                 updateStats('missionsPlayed', 1);
                 
                 // Reset weapons
@@ -3087,6 +3809,7 @@
                 camera.y = 512;
                 camera.angle = 0;
                 resetPlayerForMode(gameMode);
+                resetTelemetry();
                 
                 // Clear combat state
                 targets = [];
@@ -3101,7 +3824,12 @@
                 screenFlashTime = 0;
                 
                 // Spawn mission targets
-                spawnMissionTargets(mission);
+                if (activeAIMission) {
+                    applyAIMission(activeAIMission);
+                } else {
+                    generateWorldStructures();
+                    spawnMissionTargets(mission);
+                }
                 
                 // Start timer
                 missionStartTime = performance.now();
@@ -3121,6 +3849,11 @@
         function startFreePlay(options = {}) {
             // Free play mode - use currently loaded map, no mission objectives
             // Map is already loaded from menu background, so start immediately
+
+            activeMission = null;
+            activeAIMission = null;
+            aiDebrief = null;
+            isGeneratingDebrief = false;
             
             // Reset player state
             playerHealth = maxPlayerHealth;
@@ -3130,6 +3863,7 @@
             defeatReason = '';
             missionNoDamage = true;
             lastMissionElapsed = 0;
+            resetSessionStats();
             
             // Reset weapons (full ammo for free play)
             weaponState.cannon.ammo = Infinity;
@@ -3148,6 +3882,7 @@
             camera.y = 512;
             camera.angle = 0;
             resetPlayerForMode(gameMode);
+            resetTelemetry();
             
             // Clear combat state
             targets = [];
@@ -3171,6 +3906,7 @@
             const isDelta = gameMode === GAME_MODES.DELTA;
 
             // Spawn random targets for fun (lighter than missions)
+            generateWorldStructures();
             if (isDelta) {
                 for (let i = 0; i < 10; i++) spawnTarget('SOLDIER');
                 for (let i = 0; i < 2; i++) spawnTarget('BUILDING');
@@ -3313,6 +4049,21 @@
                         facingAngle: Math.random() * Math.PI * 2,
                         pose: 'stand'
                     };
+                } else if (targetType.ai.type === 'aircraft') {
+                    aiState = {
+                        type: 'aircraft',
+                        role: targetType.ai.role,
+                        speed: targetType.ai.speed,
+                        turnRate: targetType.ai.turnRate,
+                        climbRate: targetType.ai.climbRate,
+                        preferredAlt: targetType.ai.preferredAlt,
+                        detectRange: targetType.ai.detectRange,
+                        engageRange: targetType.ai.engageRange,
+                        fireRate: targetType.ai.fireRate,
+                        weaponType: targetType.ai.weaponType,
+                        bulletSpeed: targetType.ai.bulletSpeed,
+                        bulletDamage: targetType.ai.bulletDamage
+                    };
                 }
             }
             
@@ -3326,9 +4077,384 @@
                 points: targetType.points,
                 size: targetType.size,
                 color: targetType.color,
+                domain: targetType.domain,
+                faction: targetType.faction,
+                hitHeight: targetType.hitHeight,
                 destroyed: false,
                 ai: aiState
             });
+
+            enforceEntityBudget();
+        }
+
+        function spawnTargetAt(typeKey, x, y, faction = FACTIONS.ENEMY) {
+            const template = TARGET_TYPES[typeKey];
+            if (!template) return null;
+
+            const terrainHeight = getTerrainHeight(x, y);
+            const heightOffset = (typeof template.heightOffset === 'number')
+                ? template.heightOffset
+                : (template.type === 'helipad' ? 0.5 : template.size * 0.3);
+
+            let aiState = null;
+            if (template.ai) {
+                if (template.ai.type === 'patrol') {
+                    aiState = {
+                        type: 'patrol',
+                        speed: template.ai.speed,
+                        patrolRadius: template.ai.patrolRadius,
+                        patrolCenter: { x: x, y: y },
+                        patrolAngle: Math.random() * Math.PI * 2,
+                        patrolDirection: Math.random() > 0.5 ? 1 : -1
+                    };
+                } else if (template.ai.type === 'sam') {
+                    aiState = {
+                        type: 'sam',
+                        fireRate: template.ai.fireRate,
+                        lastFired: 0,
+                        range: template.ai.range,
+                        missileSpeed: template.ai.missileSpeed,
+                        missileDamage: template.ai.missileDamage
+                    };
+                } else if (template.ai.type === 'infantry') {
+                    aiState = {
+                        type: 'infantry',
+                        state: 'patrol',
+                        patrolCenter: { x: x, y: y },
+                        patrolRadius: template.ai.patrolRadius,
+                        patrolAngle: Math.random() * Math.PI * 2,
+                        patrolSpeed: template.ai.patrolSpeed,
+                        detectRange: template.ai.detectRange,
+                        engageRange: template.ai.engageRange,
+                        fireRate: template.ai.fireRate,
+                        accuracy: template.ai.accuracy,
+                        bulletSpeed: template.ai.bulletSpeed,
+                        bulletDamage: template.ai.bulletDamage,
+                        lastFired: 0,
+                        facingAngle: Math.random() * Math.PI * 2,
+                        pose: 'stand'
+                    };
+                } else if (template.ai.type === 'aircraft') {
+                    aiState = {
+                        type: 'aircraft',
+                        role: template.ai.role,
+                        speed: template.ai.speed,
+                        turnRate: template.ai.turnRate,
+                        climbRate: template.ai.climbRate,
+                        preferredAlt: template.ai.preferredAlt,
+                        detectRange: template.ai.detectRange,
+                        engageRange: template.ai.engageRange,
+                        fireRate: template.ai.fireRate,
+                        weaponType: template.ai.weaponType,
+                        bulletSpeed: template.ai.bulletSpeed,
+                        bulletDamage: template.ai.bulletDamage
+                    };
+                }
+            }
+
+            const target = {
+                id: 'target_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
+                x: x,
+                y: y,
+                z: terrainHeight + heightOffset,
+                type: template.type,
+                domain: template.domain,
+                faction: faction,
+                health: template.health,
+                maxHealth: template.health,
+                size: template.size,
+                hitHeight: template.hitHeight,
+                color: template.color,
+                points: template.points,
+                destroyed: false,
+                ai: aiState
+            };
+
+            targets.push(target);
+            enforceEntityBudget();
+            return target;
+        }
+
+        function enforceEntityBudget() {
+            const activeTargets = targets.filter((target) => !target.destroyed);
+
+            const groundTargets = activeTargets.filter((target) => target.domain === DOMAINS.GROUND);
+            const airTargets = activeTargets.filter((target) => target.domain === DOMAINS.AIR);
+            const structureTargets = activeTargets.filter((target) => target.domain === DOMAINS.STRUCTURE);
+
+            const removeFarthest = (list, excess) => {
+                if (excess <= 0) return;
+                list.sort((a, b) => distance2D(b.x, b.y, camera.x, camera.y) - distance2D(a.x, a.y, camera.x, camera.y));
+                for (let i = 0; i < excess && i < list.length; i++) {
+                    list[i].destroyed = true;
+                }
+            };
+
+            removeFarthest(groundTargets, groundTargets.length - ENTITY_BUDGET.maxGround);
+            removeFarthest(airTargets, airTargets.length - ENTITY_BUDGET.maxAir);
+            removeFarthest(structureTargets, structureTargets.length - ENTITY_BUDGET.maxStructures);
+
+            const remaining = targets.filter((target) => !target.destroyed);
+            if (remaining.length > ENTITY_BUDGET.maxTotal) {
+                remaining.sort((a, b) => distance2D(b.x, b.y, camera.x, camera.y) - distance2D(a.x, a.y, camera.x, camera.y));
+                for (let i = ENTITY_BUDGET.maxTotal; i < remaining.length; i++) {
+                    remaining[i].destroyed = true;
+                }
+            }
+        }
+
+        function generateAirport(x, y, heading, faction = FACTIONS.ENEMY) {
+            const id = 'airport_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
+            const runwayLength = 180;
+            const runwayWidth = 20;
+
+            const airport = {
+                id, x, y, heading, faction,
+                length: runwayLength,
+                width: runwayWidth,
+                entities: []
+            };
+
+            // Create stamps for runway
+            const stamps = [
+                { type: 'flatten', x, y, width: runwayWidth + 10, length: runwayLength + 20, heading, height: getTerrainHeight(x, y), feather: 5 },
+                { type: 'color', x, y, width: runwayWidth, length: runwayLength, heading, color: 0xFF2a2a2a, alpha: 1 },
+                // Center line
+                { type: 'color', x, y, width: 2, length: runwayLength - 20, heading, color: 0xFF4a4a4a, alpha: 1 }
+            ];
+
+            // Spawn buildings alongside runway
+            const cos = Math.cos(heading);
+            const sin = Math.sin(heading);
+            const sideOffset = runwayWidth + 40;
+
+            // Hangar
+            const hangarX = x + cos * 40 + sin * sideOffset;
+            const hangarY = y - sin * 40 + cos * sideOffset;
+            const hangar = spawnTargetAt('HANGAR', hangarX, hangarY, faction);
+            airport.entities.push(hangar);
+
+            // Control tower
+            const towerX = x - cos * 30 + sin * sideOffset;
+            const towerY = y + sin * 30 + cos * sideOffset;
+            const tower = spawnTargetAt('CONTROL_TOWER', towerX, towerY, faction);
+            airport.entities.push(tower);
+
+            // Fuel depot
+            const fuelX = x + cos * 70 + sin * sideOffset;
+            const fuelY = y - sin * 70 + cos * sideOffset;
+            const fuel = spawnTargetAt('FUEL_DEPOT', fuelX, fuelY, faction);
+            airport.entities.push(fuel);
+
+            // SAM site for defense
+            const samX = x - cos * 60 - sin * (sideOffset + 30);
+            const samY = y + sin * 60 - cos * (sideOffset + 30);
+            const sam = spawnTargetAt('SAM_SITE', samX, samY, faction);
+            airport.entities.push(sam);
+
+            world.airports.push(airport);
+            return { stamps, airport };
+        }
+
+        function generateBase(x, y, faction = FACTIONS.ENEMY, size = 'medium') {
+            const id = 'base_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
+            const baseRadius = size === 'small' ? 60 : size === 'large' ? 120 : 90;
+
+            const base = {
+                id, x, y, faction, size,
+                buildings: [],
+                defenses: []
+            };
+
+            // Flatten the base area
+            const stamps = [
+                { type: 'flatten', x, y, width: baseRadius * 2, length: baseRadius * 2, heading: 0, height: getTerrainHeight(x, y), feather: 8 }
+            ];
+
+            // Spawn buildings in a rough layout
+            const buildingCount = size === 'small' ? 2 : size === 'large' ? 5 : 3;
+
+            // Barracks
+            for (let i = 0; i < Math.min(2, buildingCount); i++) {
+                const angle = (i / buildingCount) * Math.PI * 2 + Math.random() * 0.3;
+                const dist = baseRadius * 0.5 + Math.random() * baseRadius * 0.3;
+                const bx = x + Math.cos(angle) * dist;
+                const by = y + Math.sin(angle) * dist;
+                const barracks = spawnTargetAt('BARRACKS', bx, by, faction);
+                base.buildings.push(barracks);
+            }
+
+            // Helipad
+            const helipadX = x + (Math.random() - 0.5) * baseRadius * 0.6;
+            const helipadY = y + (Math.random() - 0.5) * baseRadius * 0.6;
+            const helipad = spawnTargetAt('HELIPAD', helipadX, helipadY, faction);
+            base.buildings.push(helipad);
+            world.helipads.push({ id: helipad.id, x: helipadX, y: helipadY, faction });
+            stamps.push(
+                { type: 'color', x: helipadX, y: helipadY, width: 26, length: 26, heading: 0, color: 0xFF2a2a2a, alpha: 1 },
+                { type: 'color', x: helipadX, y: helipadY, width: 18, length: 18, heading: 0, color: 0xFF3a3a3a, alpha: 1 }
+            );
+
+            // Defenses - soldiers and maybe a tank
+            for (let i = 0; i < 3; i++) {
+                const angle = Math.random() * Math.PI * 2;
+                const dist = baseRadius * 0.7 + Math.random() * baseRadius * 0.2;
+                const sx = x + Math.cos(angle) * dist;
+                const sy = y + Math.sin(angle) * dist;
+                const soldier = spawnTargetAt('SOLDIER', sx, sy, faction);
+                base.defenses.push(soldier);
+            }
+
+            if (size !== 'small') {
+                const tankAngle = Math.random() * Math.PI * 2;
+                const tankDist = baseRadius * 0.8;
+                const tank = spawnTargetAt('TANK', x + Math.cos(tankAngle) * tankDist, y + Math.sin(tankAngle) * tankDist, faction);
+                base.defenses.push(tank);
+            }
+
+            // SAM site
+            const samAngle = Math.random() * Math.PI * 2;
+            const sam = spawnTargetAt('SAM_SITE', x + Math.cos(samAngle) * baseRadius, y + Math.sin(samAngle) * baseRadius, faction);
+            base.defenses.push(sam);
+
+            world.bases.push(base);
+            return { stamps, base };
+        }
+
+        function generateWorldStructures() {
+            // Reset world
+            world.stamps = [];
+            world.airports = [];
+            world.bases = [];
+            world.helipads = [];
+            airportSpawnTimers = {};
+
+            // Generate 1-2 airports
+            const airportCount = 1 + Math.floor(Math.random() * 2);
+            for (let i = 0; i < airportCount; i++) {
+                const spot = findFlatSpot(50, 30, 6, 512, 512, 250 + i * 150);
+                if (spot) {
+                    const heading = Math.random() * Math.PI * 2;
+                    const result = generateAirport(spot.x, spot.y, heading);
+                    world.stamps.push(...result.stamps);
+                }
+            }
+
+            // Generate 2-4 bases
+            const baseCount = 2 + Math.floor(Math.random() * 3);
+            for (let i = 0; i < baseCount; i++) {
+                const spot = findFlatSpot(50, 20, 10, 512, 512, 200 + i * 100);
+                if (spot) {
+                    const sizes = ['small', 'medium', 'large'];
+                    const size = sizes[Math.floor(Math.random() * sizes.length)];
+                    const result = generateBase(spot.x, spot.y, FACTIONS.ENEMY, size);
+                    world.stamps.push(...result.stamps);
+                }
+            }
+
+            // Apply all stamps
+            if (world.stamps.length > 0) {
+                applyMissionStamps(world.stamps);
+            }
+        }
+
+        function applyAIMission(mission) {
+            if (!mission) return;
+
+            if (mission.weather) {
+                weatherCondition = mission.weather;
+            }
+
+            if (mission.timeLimit) {
+                missionTime = mission.timeLimit;
+            }
+
+            world.stamps = [];
+            world.airports = [];
+            world.bases = [];
+            world.helipads = [];
+            airportSpawnTimers = {};
+
+            for (let i = 0; i < (mission.airportCount || 1); i++) {
+                const spot = findFlatSpot(50, 30, 6, 512, 512, 250 + i * 150);
+                if (spot) {
+                    const heading = Math.random() * Math.PI * 2;
+                    const result = generateAirport(spot.x, spot.y, heading);
+                    world.stamps.push(...result.stamps);
+                }
+            }
+
+            for (let i = 0; i < (mission.baseCount || 2); i++) {
+                const spot = findFlatSpot(50, 20, 10, 512, 512, 200 + i * 100);
+                if (spot) {
+                    const sizes = ['small', 'medium', 'large'];
+                    const size = sizes[Math.floor(Math.random() * sizes.length)];
+                    const result = generateBase(spot.x, spot.y, FACTIONS.ENEMY, size);
+                    world.stamps.push(...result.stamps);
+                }
+            }
+
+            if (world.stamps.length > 0) {
+                applyMissionStamps(world.stamps);
+            }
+
+            if (Array.isArray(mission.entities)) {
+                for (const entitySpec of mission.entities) {
+                    const typeKey = String(entitySpec.type || '').toUpperCase();
+                    const rawCount = Number(entitySpec.count || 0);
+                    const count = Math.max(0, Number.isFinite(rawCount) ? rawCount : 0);
+                    if (TARGET_TYPES[typeKey]) {
+                        for (let i = 0; i < count; i++) {
+                            spawnTarget(typeKey);
+                        }
+                    }
+                }
+            }
+        }
+
+        function spawnAircraftFromAirport(airport) {
+            if (!airport || airport.faction !== FACTIONS.ENEMY) return null;
+
+            // Choose aircraft type based on role
+            const types = ['AIR_FIGHTER', 'AIR_ATTACK_HELI'];
+            const typeKey = types[Math.floor(Math.random() * types.length)];
+
+            // Spawn at runway end
+            const cos = Math.cos(airport.heading);
+            const sin = Math.sin(airport.heading);
+            const spawnX = airport.x + cos * (airport.length / 2 + 20);
+            const spawnY = airport.y + sin * (airport.length / 2 + 20);
+
+            const aircraft = spawnTargetAt(typeKey, spawnX, spawnY, airport.faction);
+            if (aircraft) {
+                aircraft.z = getTerrainHeight(spawnX, spawnY) + 30;  // Start airborne
+                if (aircraft.ai) {
+                    aircraft.ai.heading = airport.heading;
+                    aircraft.ai.patrolCenter = { x: airport.x, y: airport.y };
+                }
+            }
+
+            return aircraft;
+        }
+
+        function updateAirportSpawns(currentTime) {
+            const spawnInterval = 30000;  // 30 seconds between spawns
+            const maxAircraft = ENTITY_BUDGET.maxAir;  // Max aircraft in world
+
+            // Count current aircraft
+            const aircraftCount = targets.filter(t => t.domain === DOMAINS.AIR && !t.destroyed).length;
+            if (aircraftCount >= maxAircraft) return;
+
+            for (const airport of world.airports) {
+                if (!airportSpawnTimers[airport.id]) {
+                    airportSpawnTimers[airport.id] = currentTime + Math.random() * spawnInterval;
+                }
+
+                if (currentTime > airportSpawnTimers[airport.id]) {
+                    spawnAircraftFromAirport(airport);
+                    airportSpawnTimers[airport.id] = currentTime + spawnInterval + Math.random() * 10000;
+                }
+            }
         }
         
         function updateMissionTimer() {
@@ -3336,7 +4462,7 @@
                 // Skip timer update in free play mode (currentMissionIndex === -1)
                 if (currentMissionIndex < 0) return;
                 
-                const mission = MISSIONS[currentMissionIndex];
+                const mission = getActiveMission();
                 if (mission && mission.timeLimit) {
                     const elapsed = (performance.now() - missionStartTime) / 1000;
                     const remaining = mission.timeLimit - elapsed;
@@ -3398,7 +4524,7 @@
             stopWarningAlarm();
             stopWindSound();
 
-            const mission = currentMissionIndex >= 0 ? MISSIONS[currentMissionIndex] : null;
+            const mission = getActiveMission();
             const elapsed = getMissionElapsedSeconds();
             lastMissionElapsed = elapsed;
             
@@ -3411,6 +4537,9 @@
                     checkAchievements('score', { score: scoreInfo.totalScore });
                     recordHighScore(scoreInfo.totalScore);
                     checkAchievements('mission_complete', { noDamage: missionNoDamage, elapsed });
+                    sessionStats.score = scoreInfo.totalScore;
+                    postStatsEvent({ type: 'mission_complete', count: 1 });
+                    submitSessionScore(scoreInfo.totalScore);
                 }
                 playVictoryStinger();
                 startTransition(GAME_STATES.VICTORY, 900, {
@@ -3422,12 +4551,28 @@
                 isPlayerDead = true;
                 defeatReason = reason;
                 updateStats('totalDeaths', 1);
+                sessionStats.deaths += 1;
+                postStatsEvent({ type: 'death', count: 1 });
+                submitSessionScore(score);
                 playDefeatStinger();
                 startTransition(GAME_STATES.DEFEAT, 900, {
                     onSwitch: () => {
                         gameState = GAME_STATES.DEFEAT;
                     }
                 });
+            }
+
+            if (currentMissionIndex >= 0 && !isGeneratingDebrief) {
+                isGeneratingDebrief = true;
+                requestDebrief(victory)
+                    .then((debrief) => {
+                        if (debrief) {
+                            aiDebrief = debrief;
+                        }
+                    })
+                    .finally(() => {
+                        isGeneratingDebrief = false;
+                    });
             }
         }
         
@@ -3554,6 +4699,12 @@
                 guided: weapon.guided || false,
                 airToAir: weapon.airToAir || false
             });
+
+            sessionStats.shotsFired += 1;
+            telemetry.shotsFired += 1;
+            if (weapon.projectileType === 'missile') {
+                telemetry.missilesFired += 1;
+            }
         }
 
         function getSoldierSpread(weapon) {
@@ -3596,6 +4747,9 @@
                 airToAir: false
             });
 
+            sessionStats.shotsFired += 1;
+            telemetry.shotsFired += 1;
+
             const recoilKick = weaponKey === 'sniper' ? 6.5 : weaponKey === 'm4' ? 2.4 : 1.6;
             camera.horizon = Math.max(screenHeight * 0.25, Math.min(screenHeight * 0.75, camera.horizon - recoilKick));
             soldierWeapon.recoilOffset += recoilKick;
@@ -3608,16 +4762,17 @@
         // ============================================
         // GUIDED MISSILE SYSTEM
         // ============================================
-        function findNearestTarget(x, y, airToAir) {
+        function findNearestTarget(x, y, options = {}) {
+            const { airToAir = false, faction = FACTIONS.ENEMY, maxRange = Infinity } = options;
             let nearest = null;
-            let nearestDist = Infinity;
+            let nearestDist = maxRange;
             
             for (const target of targets) {
                 if (target.destroyed) continue;
+                if (faction && target.faction !== faction) continue;
                 
                 // Air-to-air missiles only target air units (future feature)
-                // For now, all targets are ground-based
-                if (airToAir) continue; // Skip ground targets for air-to-air
+                if (airToAir && target.domain !== DOMAINS.AIR) continue;
                 
                 let dx = target.x - x;
                 let dy = target.y - y;
@@ -3646,7 +4801,7 @@
         
         function updateGuidedMissile(projectile) {
             // Find nearest valid target
-            const target = findNearestTarget(projectile.x, projectile.y, projectile.airToAir);
+            const target = findNearestTarget(projectile.x, projectile.y, { airToAir: projectile.airToAir });
             
             if (target) {
                 // Calculate relative position with map wrapping
@@ -3745,6 +4900,13 @@
                         
                         // Must be within both horizontal AND vertical range to hit
                         if (dist2D < target.size && zInRange) {
+                            sessionStats.hits += 1;
+                            telemetry.shotsHit += 1;
+                            if (proj.projectileType === 'missile') {
+                                telemetry.missilesHit += 1;
+                            }
+                            const damageDealt = Math.min(proj.damage, target.health);
+                            telemetry.damageDealt += damageDealt;
                             target.health -= proj.damage;
 
                             // Hit confirmation feedback
@@ -3755,10 +4917,13 @@
                                 playHitSound();
                             }
                             
-                            if (target.health <= 0) {
-                                target.destroyed = true;
-                                score += target.points;
-                                updateStats('totalKills', 1);
+                                if (target.health <= 0) {
+                                    target.destroyed = true;
+                                    score += target.points;
+                                    sessionStats.score += target.points;
+                                    sessionStats.kills += 1;
+                                    postStatsEvent({ type: 'kill', count: 1 });
+                                    updateStats('totalKills', 1);
                                 if (target.type === 'tank') updateStats('tanksDestroyed', 1);
                                 if (target.type === 'sam') updateStats('samsDestroyed', 1);
                                 if (target.type === 'building') updateStats('buildingsDestroyed', 1);
@@ -3870,6 +5035,8 @@
                     updateSamAI(target, currentTime);
                 } else if (target.ai.type === 'infantry') {
                     updateSoldierAI(target, deltaTime, currentTime);
+                } else if (target.ai.type === 'aircraft') {
+                    updateAircraftAI(target, deltaTime, currentTime);
                 }
             }
         }
@@ -3989,15 +5156,202 @@
             const terrainHeight = getTerrainHeight(target.x, target.y);
             target.z = terrainHeight + TARGET_TYPES.SOLDIER.heightOffset;
         }
+
+        function updateAircraftAI(entity, deltaTime, currentTime) {
+            if (!entity.ai || entity.ai.type !== 'aircraft') return;
+
+            const ai = entity.ai;
+            const dt = deltaTime * 0.001;
+
+            // Initialize state if needed
+            if (!ai.state) {
+                ai.state = 'patrol';
+                ai.patrolCenter = { x: entity.x, y: entity.y };
+                ai.patrolAngle = Math.random() * Math.PI * 2;
+                ai.heading = ai.patrolAngle;
+                ai.lastFireTime = 0;
+                ai.targetId = null;
+            }
+
+            // Get player position (in Comanche mode, player is a target)
+            const playerX = camera.x;
+            const playerY = camera.y;
+            const playerZ = camera.height;
+            const playerDist = distance2D(entity.x, entity.y, playerX, playerY);
+            const isPlayerInAir = gameMode === GAME_MODES.COMANCHE;
+
+            // State machine
+            switch (ai.state) {
+                case 'patrol': {
+                    // Circle around patrol center
+                    ai.patrolAngle += ai.turnRate * 0.5 * dt * 60;
+                    const patrolRadius = 150;
+                    const targetX = ai.patrolCenter.x + Math.cos(ai.patrolAngle) * patrolRadius;
+                    const targetY = ai.patrolCenter.y + Math.sin(ai.patrolAngle) * patrolRadius;
+
+                    airSteerToward(entity, targetX, targetY, ai.turnRate, dt);
+                    airHoldAltitude(entity, ai.preferredAlt, ai.climbRate, dt);
+
+                    // Check for player detection
+                    if (isPlayerInAir && playerDist < ai.detectRange && ai.engageRange > 0) {
+                        ai.state = 'intercept';
+                        ai.targetId = 'player';
+                    }
+                    break;
+                }
+                case 'intercept': {
+                    // Close distance to target
+                    airSteerToward(entity, playerX, playerY, ai.turnRate, dt);
+
+                    // Gain altitude advantage
+                    const targetAlt = Math.max(ai.preferredAlt, playerZ + 20);
+                    airHoldAltitude(entity, targetAlt, ai.climbRate, dt);
+
+                    // Switch to attack when in range
+                    if (playerDist < ai.engageRange) {
+                        ai.state = 'attack_run';
+                    } else if (playerDist > ai.detectRange * 1.5) {
+                        ai.state = 'patrol';
+                    }
+                    break;
+                }
+                case 'attack_run': {
+                    // Align and fire
+                    airSteerToward(entity, playerX, playerY, ai.turnRate * 1.2, dt);
+
+                    // Descend toward target altitude
+                    airHoldAltitude(entity, playerZ + 10, ai.climbRate * 0.5, dt);
+
+                    // Fire weapons
+                    if (ai.weaponType && currentTime - ai.lastFireTime > ai.fireRate) {
+                        fireAircraftWeapon(entity, playerX, playerY, playerZ);
+                        ai.lastFireTime = currentTime;
+                    }
+
+                    // After attack run, extend and re-engage
+                    if (playerDist < 50) {
+                        ai.state = 'extend';
+                        ai.extendTime = currentTime;
+                    } else if (playerDist > ai.engageRange * 1.5) {
+                        ai.state = 'intercept';
+                    }
+
+                    // Take damage -> evade
+                    if (entity.health < entity.maxHealth * 0.5) {
+                        ai.state = 'evade';
+                        ai.evadeTime = currentTime;
+                    }
+                    break;
+                }
+                case 'extend': {
+                    // Fly away briefly before re-engaging
+                    const awayAngle = Math.atan2(entity.y - playerY, entity.x - playerX);
+                    const extendX = entity.x + Math.cos(awayAngle) * 100;
+                    const extendY = entity.y + Math.sin(awayAngle) * 100;
+                    airSteerToward(entity, extendX, extendY, ai.turnRate, dt);
+                    airHoldAltitude(entity, ai.preferredAlt + 30, ai.climbRate, dt);
+
+                    if (currentTime - ai.extendTime > 3000) {
+                        ai.state = 'intercept';
+                    }
+                    break;
+                }
+                case 'evade': {
+                    // Defensive maneuvers
+                    const evadeAngle = Math.atan2(entity.y - playerY, entity.x - playerX) + (Math.random() - 0.5) * Math.PI;
+                    const evadeX = entity.x + Math.cos(evadeAngle) * 150;
+                    const evadeY = entity.y + Math.sin(evadeAngle) * 150;
+                    airSteerToward(entity, evadeX, evadeY, ai.turnRate * 1.5, dt);
+                    airHoldAltitude(entity, ai.preferredAlt + 50, ai.climbRate * 1.5, dt);
+
+                    if (currentTime - ai.evadeTime > 5000) {
+                        ai.state = entity.health > entity.maxHealth * 0.3 ? 'intercept' : 'patrol';
+                    }
+                    break;
+                }
+            }
+
+            // Move aircraft forward
+            entity.x += Math.cos(ai.heading) * ai.speed * dt * 60;
+            entity.y += Math.sin(ai.heading) * ai.speed * dt * 60;
+
+            // Wrap around map
+            entity.x = ((entity.x % CONFIG.MAP_SIZE) + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
+            entity.y = ((entity.y % CONFIG.MAP_SIZE) + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
+        }
+
+        function airSteerToward(entity, targetX, targetY, maxTurnRate, dt) {
+            const ai = entity.ai;
+            const dx = targetX - entity.x;
+            const dy = targetY - entity.y;
+            const targetHeading = Math.atan2(dy, dx);
+
+            let diff = normalizeAngle(targetHeading - ai.heading);
+            const turn = Math.sign(diff) * Math.min(Math.abs(diff), maxTurnRate * dt * 60);
+            ai.heading = normalizeAngle(ai.heading + turn);
+        }
+
+        function airHoldAltitude(entity, targetAlt, climbRate, dt) {
+            const diff = targetAlt - entity.z;
+            const climb = Math.sign(diff) * Math.min(Math.abs(diff), climbRate * dt * 60);
+            entity.z += climb;
+
+            // Minimum altitude
+            const terrainHeight = getTerrainHeight(entity.x, entity.y);
+            entity.z = Math.max(entity.z, terrainHeight + 20);
+        }
+
+        function fireAircraftWeapon(entity, targetX, targetY, targetZ) {
+            const ai = entity.ai;
+            if (!ai.weaponType) return;
+
+            const dx = targetX - entity.x;
+            const dy = targetY - entity.y;
+            const dz = targetZ - entity.z;
+            const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+            if (dist <= 0) return;
+
+            // Normalize direction
+            const dirX = dx / dist;
+            const dirY = dy / dist;
+            const dirZ = dz / dist;
+
+            // Add some spread
+            const spread = ai.weaponType === 'air_cannon' ? 0.05 : 0.02;
+            const spreadX = (Math.random() - 0.5) * spread;
+            const spreadY = (Math.random() - 0.5) * spread;
+
+            const projectile = {
+                type: ai.weaponType,
+                x: entity.x,
+                y: entity.y,
+                z: entity.z,
+                vx: (dirX + spreadX) * ai.bulletSpeed,
+                vy: (dirY + spreadY) * ai.bulletSpeed,
+                vz: dirZ * ai.bulletSpeed,
+                damage: ai.bulletDamage,
+                sourceId: entity.id,
+                life: 3000,  // 3 seconds
+                spawnTime: performance.now()
+            };
+
+            enemyProjectiles.push(projectile);
+        }
         
         // ============================================
         // ENEMY PROJECTILES
         // ============================================
         function updateEnemyProjectiles() {
+            const now = performance.now();
             for (let i = enemyProjectiles.length - 1; i >= 0; i--) {
                 const ep = enemyProjectiles[i];
                 
-                if (ep.type === 'infantry_bullet') {
+                if (ep.type === 'air_cannon' || ep.type === 'air_rocket') {
+                    ep.x += ep.vx;
+                    ep.y += ep.vy;
+                    ep.z += ep.vz;
+                } else if (ep.type === 'infantry_bullet') {
                     ep.x += Math.sin(ep.angle) * ep.speed;
                     ep.y += Math.cos(ep.angle) * ep.speed;
                     ep.z += ep.pitch * ep.speed;
@@ -4030,28 +5384,66 @@
                     }
                 }
                 
-                ep.lifetime--;
+                if (typeof ep.life === 'number') {
+                    if (now - ep.spawnTime > ep.life) {
+                        if (ep.type === 'sam_missile') {
+                            telemetry.missilesDodged += 1;
+                        }
+                        enemyProjectiles.splice(i, 1);
+                        continue;
+                    }
+                } else {
+                    ep.lifetime--;
+                }
                 
                 // Check hit player
-                const playerDist = distance3D(ep.x, ep.y, ep.z, camera.x, camera.y, camera.height);
-                const hitRadius = ep.type === 'infantry_bullet' ? 12 : 30;
-                if (playerDist < hitRadius) {
-                    damagePlayer(ep.damage);
-                    enemyProjectiles.splice(i, 1);
-                    createExplosion(ep.x, ep.y, ep.z, ep.type === 'infantry_bullet' ? 'small' : 'medium');
-                    continue;
+                if (ep.type === 'air_cannon' || ep.type === 'air_rocket') {
+                    if (gameMode === GAME_MODES.COMANCHE) {
+                        const dx = ep.x - camera.x;
+                        const dy = ep.y - camera.y;
+                        const dz = ep.z - camera.height;
+                        const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+                        if (dist < 15) {
+                            if (!godMode) {
+                                playerHealth -= ep.damage;
+                                telemetry.damageTaken += ep.damage;
+                                damageVignetteTime = performance.now();
+                                damageVignetteIntensity = Math.min(1, ep.damage / 30);
+                                screenShake.intensity = Math.min(15, ep.damage * 0.5);
+                                screenShake.duration = 200;
+                            }
+                            enemyProjectiles.splice(i, 1);
+                            continue;
+                        }
+                    }
+                } else {
+                    const playerDist = distance3D(ep.x, ep.y, ep.z, camera.x, camera.y, camera.height);
+                    const hitRadius = ep.type === 'infantry_bullet' ? 12 : 30;
+                    if (playerDist < hitRadius) {
+                        damagePlayer(ep.damage);
+                        enemyProjectiles.splice(i, 1);
+                        createExplosion(ep.x, ep.y, ep.z, ep.type === 'infantry_bullet' ? 'small' : 'medium');
+                        continue;
+                    }
                 }
                 
                 // Check terrain collision
                 const terrainHeight = getTerrainHeight(ep.x, ep.y);
                 if (ep.z <= terrainHeight) {
                     createExplosion(ep.x, ep.y, terrainHeight, 'small');
+                    if (ep.type === 'sam_missile') {
+                        telemetry.missilesDodged += 1;
+                    }
                     enemyProjectiles.splice(i, 1);
                     continue;
                 }
                 
                 // Remove if expired
-                if (ep.lifetime <= 0) {
+                if (typeof ep.life !== 'number' && ep.lifetime <= 0) {
+                    if (ep.type === 'sam_missile') {
+                        telemetry.missilesDodged += 1;
+                    }
                     enemyProjectiles.splice(i, 1);
                 }
             }
@@ -4077,6 +5469,7 @@
             if (godMode) return;  // Skip damage in god mode
             
             playerHealth -= amount;
+            telemetry.damageTaken += amount;
             missionNoDamage = false;
             screenFlash('red', 200);  // Red flash when hit
             playDamageSound();  // Play damage sound
@@ -4217,12 +5610,16 @@
                     // 70% chance to decoy
                     if (Math.random() < 0.7) {
                         createExplosion(ep.x, ep.y, ep.z, 'small');
+                        telemetry.missilesDodged += 1;
                         enemyProjectiles.splice(i, 1);
                     }
                 } else if (type === 'chaff') {
                     // Chaff confuses missile guidance - 50% chance
                     if (Math.random() < 0.5) {
                         createExplosion(ep.x, ep.y, ep.z, 'small');
+                        if (ep.type === 'sam_missile') {
+                            telemetry.missilesDodged += 1;
+                        }
                         enemyProjectiles.splice(i, 1);
                     }
                 }
@@ -4389,6 +5786,53 @@
             ctx.fillText(modeLabel, rect.x + rect.width / 2, rect.y + rect.height / 2 + 6);
         }
 
+        function renderLeaderboard(stats) {
+            if (!stats || !stats.leaderboard || !stats.totals) return;
+
+            const panelX = screenWidth / 2 - 150;
+            const panelY = 200;
+            const panelW = 300;
+            const panelH = 300;
+
+            ctx.fillStyle = 'rgba(0, 20, 0, 0.9)';
+            ctx.fillRect(panelX, panelY, panelW, panelH);
+            ctx.strokeStyle = '#0f0';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(panelX, panelY, panelW, panelH);
+
+            ctx.font = 'bold 16px Courier New';
+            ctx.fillStyle = '#0f0';
+            ctx.textAlign = 'center';
+            ctx.fillText('GLOBAL LEADERBOARD', panelX + panelW / 2, panelY + 25);
+
+            ctx.font = '12px Courier New';
+            ctx.fillStyle = '#0a0';
+            ctx.fillText(`Total Kills: ${stats.totals.kills} | Deaths: ${stats.totals.deaths}`, panelX + panelW / 2, panelY + 45);
+            ctx.fillText(`Missions Completed: ${stats.totals.missionsCompleted}`, panelX + panelW / 2, panelY + 60);
+
+            ctx.textAlign = 'left';
+            ctx.font = '11px Courier New';
+            let y = panelY + 85;
+
+            for (let i = 0; i < Math.min(10, stats.leaderboard.length); i++) {
+                const entry = stats.leaderboard[i];
+                const rank = i + 1;
+                ctx.fillStyle = rank <= 3 ? '#ff0' : '#0f0';
+                ctx.fillText(`${rank}.`, panelX + 15, y);
+                ctx.fillText(entry.name.substring(0, 12), panelX + 40, y);
+                ctx.textAlign = 'right';
+                ctx.fillText(entry.score.toLocaleString(), panelX + panelW - 15, y);
+                ctx.textAlign = 'left';
+                y += 18;
+            }
+
+            if (stats.leaderboard.length === 0) {
+                ctx.fillStyle = '#0a0';
+                ctx.textAlign = 'center';
+                ctx.fillText('No scores yet - be the first!', panelX + panelW / 2, panelY + 100);
+            }
+        }
+
         function renderTitleOverlay() {
             menuButtons = [];
             const centerX = screenWidth / 2;
@@ -4460,6 +5904,42 @@
             ctx.fillStyle = '#0a0';
             ctx.textAlign = 'center';
             ctx.fillText('ARROW KEYS + ENTER', centerX, boxY + boxHeight - 20);
+
+            renderAIMissionUI();
+        }
+
+        function renderAIMissionUI() {
+            const panelX = 50;
+            const panelY = screenHeight - 200;
+            const panelW = 300;
+            const panelH = 150;
+
+            ctx.fillStyle = 'rgba(0, 20, 0, 0.9)';
+            ctx.fillRect(panelX, panelY, panelW, panelH);
+            ctx.strokeStyle = '#0f0';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(panelX, panelY, panelW, panelH);
+
+            ctx.font = 'bold 14px Courier New';
+            ctx.fillStyle = '#0f0';
+            ctx.textAlign = 'left';
+            ctx.fillText('AI MISSION GENERATOR', panelX + 15, panelY + 25);
+
+            ctx.font = '11px Courier New';
+            ctx.fillStyle = '#0a0';
+            ctx.fillText('Press G to generate custom mission', panelX + 15, panelY + 50);
+            ctx.fillText('Examples:', panelX + 15, panelY + 70);
+            ctx.fillText('- "night raid on enemy base"', panelX + 15, panelY + 85);
+            ctx.fillText('- "defend against air attack"', panelX + 15, panelY + 100);
+            ctx.fillText('- "stealth mission, few enemies"', panelX + 15, panelY + 115);
+
+            if (isGeneratingMission) {
+                ctx.fillStyle = '#ff0';
+                ctx.fillText('Generating mission...', panelX + 15, panelY + 135);
+            } else if (aiMission) {
+                ctx.fillStyle = '#0f0';
+                ctx.fillText('Mission ready! Press ENTER to start', panelX + 15, panelY + 135);
+            }
         }
 
         function renderCampaignOverlay() {
@@ -4725,9 +6205,9 @@
             const centerX = screenWidth / 2;
             const centerY = screenHeight / 2;
             const boxWidth = 560;
-            const boxHeight = 420;
+            const boxHeight = 520;
             const boxX = centerX - boxWidth / 2;
-            const boxY = centerY - 220;
+            const boxY = centerY - boxHeight / 2;
             drawMenuPanel(boxX, boxY, boxWidth, boxHeight, 'HOW TO PLAY');
 
             ctx.font = '14px Courier New';
@@ -4758,12 +6238,33 @@
             ctx.fillText('M - Weather Cycle   N - Night Vision   T - Simple Controls', boxX + 30, y);
             y += 20;
             ctx.fillText('B - Toggle Sound   H - Toggle Controls', boxX + 30, y);
+            y += 20;
+            ctx.fillText('E - Exit/Enter Helicopter (when landed)', boxX + 30, y);
+            y += 20;
+            ctx.fillText('G - Generate AI Mission (in menu)', boxX + 30, y);
+            y += 20;
+            ctx.fillText('F1 - Toggle Tips', boxX + 30, y);
             y += 28;
             ctx.fillStyle = '#0f0';
             ctx.fillText('PAUSE', boxX + 30, y);
             ctx.fillStyle = '#0c0';
             y += 22;
             ctx.fillText('ESC - Pause / Resume', boxX + 30, y);
+
+            y += 10;
+            ctx.fillStyle = '#0f0';
+            ctx.fillText('NEW FEATURES', boxX + 30, y);
+            y += 22;
+            ctx.fillStyle = '#0c0';
+            ctx.fillText('• Land helicopter and fight on foot (Delta mode)', boxX + 30, y);
+            y += 18;
+            ctx.fillText('• Enemy aircraft patrol and attack', boxX + 30, y);
+            y += 18;
+            ctx.fillText('• Military bases and airports', boxX + 30, y);
+            y += 18;
+            ctx.fillText('• AI-generated custom missions', boxX + 30, y);
+            y += 18;
+            ctx.fillText('• Global leaderboard', boxX + 30, y);
 
             const backRect = { x: boxX + 180, y: boxY + boxHeight - 55, width: boxWidth - 360, height: 34 };
             const hovered = hitTest(backRect, mouseX, mouseY);
@@ -4772,7 +6273,7 @@
         }
         
         function renderBriefingOverlay() {
-            const mission = MISSIONS[currentMissionIndex];
+            const mission = getBriefingMission();
             const isDelta = gameMode === GAME_MODES.DELTA;
             const briefingText = isDelta
                 ? (mission.briefingDelta || mission.briefing)
@@ -4890,25 +6391,54 @@
                 ctx.fillText('[ENTER] Launch Mission', centerX - 100, boxY + boxHeight - 25);
             }
             ctx.fillStyle = '#888';
-            ctx.fillText('[ESC] Back to Campaign', centerX + 100, boxY + boxHeight - 25);
+            const backLabel = pendingAIMission ? '[ESC] Back to Menu' : '[ESC] Back to Campaign';
+            ctx.fillText(backLabel, centerX + 100, boxY + boxHeight - 25);
         }
         
         function renderPauseOverlay() {
             pauseButtons = [];
-            const centerX = screenWidth / 2;
-            const centerY = screenHeight / 2;
-            
-            const boxWidth = 360;
-            const boxHeight = 240;
-            const boxX = centerX - boxWidth / 2;
-            const boxY = centerY - boxHeight / 2;
-            drawMenuPanel(boxX, boxY, boxWidth, boxHeight, 'GAME PAUSED');
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+            ctx.fillRect(0, 0, screenWidth, screenHeight);
 
-            let y = boxY + 80;
+            const panelW = 300;
+            const panelH = 350;
+            const panelX = (screenWidth - panelW) / 2;
+            const panelY = (screenHeight - panelH) / 2;
+
+            ctx.fillStyle = 'rgba(0, 30, 0, 0.95)';
+            ctx.fillRect(panelX, panelY, panelW, panelH);
+            ctx.strokeStyle = '#0f0';
+            ctx.lineWidth = 3;
+            ctx.strokeRect(panelX, panelY, panelW, panelH);
+
+            ctx.font = 'bold 24px Courier New';
+            ctx.fillStyle = '#0f0';
+            ctx.textAlign = 'center';
+            ctx.fillText('PAUSED', screenWidth / 2, panelY + 40);
+
+            ctx.font = '12px Courier New';
+            ctx.fillStyle = '#0a0';
+            ctx.textAlign = 'left';
+            let y = panelY + 70;
+
+            ctx.fillText(`Kills: ${sessionStats.kills}`, panelX + 20, y); y += 20;
+            ctx.fillText(`Score: ${sessionStats.score}`, panelX + 20, y); y += 20;
+            ctx.fillText(`Accuracy: ${calculateAccuracy()}%`, panelX + 20, y); y += 20;
+            const timeLabel = gameMode === GAME_MODES.COMANCHE ? 'Flight Time' : 'Ground Time';
+            const timeValue = gameMode === GAME_MODES.COMANCHE ? telemetry.flightTime : telemetry.groundTime;
+            ctx.fillText(`${timeLabel}: ${Math.floor(timeValue)}s`, panelX + 20, y); y += 20;
+            ctx.fillText(`Distance: ${Math.floor(telemetry.distanceTraveled)}m`, panelX + 20, y); y += 30;
+
+            ctx.font = 'bold 14px Courier New';
+            ctx.textAlign = 'center';
+
+            y = panelY + 220;
             for (let i = 0; i < PAUSE_OPTIONS.length; i++) {
-                const rect = { x: boxX + 60, y: y - 18, width: boxWidth - 120, height: 34 };
+                const rect = { x: panelX + 20, y: y - 14, width: panelW - 40, height: 26 };
                 const hovered = hitTest(rect, mouseX, mouseY);
-                drawMenuButton(PAUSE_OPTIONS[i], rect, i === pauseSelectionIndex, hovered);
+                const isActive = hovered || i === pauseSelectionIndex;
+                ctx.fillStyle = isActive ? '#ff0' : '#0f0';
+                ctx.fillText(PAUSE_OPTIONS[i], screenWidth / 2, y);
                 pauseButtons.push({ ...rect, onClick: () => {
                     if (i === 0) {
                         startTransition(GAME_STATES.PLAYING, 250, { onSwitch: () => resumeFromPause() });
@@ -4918,17 +6448,18 @@
                         startTransition(GAME_STATES.MENU, 700, { onSwitch: () => returnToMenu() });
                     }
                 }});
-                y += 48;
+                y += 35;
             }
 
-            ctx.font = '12px Courier New';
+            ctx.font = '11px Courier New';
             ctx.fillStyle = '#0a0';
             ctx.textAlign = 'center';
-            ctx.fillText('ARROW KEYS + ENTER', centerX, boxY + boxHeight - 20);
+            ctx.fillText('Use UP/DOWN to select, ENTER to confirm', screenWidth / 2, panelY + panelH - 20);
         }
         
         function renderVictoryOverlay() {
-            const mission = MISSIONS[currentMissionIndex];
+            const mission = getActiveMission();
+            if (!mission) return;
             
             // Semi-transparent dark background
             ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
@@ -5025,7 +6556,12 @@
             ctx.textAlign = 'center';
             
             const blinkOn = Math.floor(performance.now() / 500) % 2 === 0;
-            if (currentMissionIndex < MISSIONS.length - 1) {
+            if (activeAIMission) {
+                if (blinkOn) {
+                    ctx.fillStyle = '#0f0';
+                    ctx.fillText('[ENTER] Return to Menu', centerX, boxY + boxHeight - 35);
+                }
+            } else if (currentMissionIndex < MISSIONS.length - 1) {
                 if (blinkOn) {
                     ctx.fillStyle = '#0f0';
                     ctx.fillText('[ENTER] Next Mission', centerX, boxY + boxHeight - 40);
@@ -5040,6 +6576,62 @@
             }
             ctx.fillStyle = '#888';
             ctx.fillText('[ESC] Return to Menu', centerX, boxY + boxHeight - 15);
+
+            renderDebriefPanel();
+        }
+
+        function renderDebriefPanel() {
+            if (!aiDebrief && !isGeneratingDebrief) return;
+
+            const panelW = 460;
+            const panelH = 170;
+            const panelX = screenWidth / 2 - panelW / 2;
+            const panelY = Math.min(screenHeight - panelH - 20, screenHeight * 0.65);
+
+            ctx.fillStyle = 'rgba(0, 15, 0, 0.9)';
+            ctx.fillRect(panelX, panelY, panelW, panelH);
+            ctx.strokeStyle = '#0f0';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(panelX, panelY, panelW, panelH);
+
+            ctx.font = 'bold 14px Courier New';
+            ctx.fillStyle = '#0f0';
+            ctx.textAlign = 'left';
+            ctx.fillText('POST-MISSION DEBRIEF', panelX + 14, panelY + 22);
+
+            if (isGeneratingDebrief && !aiDebrief) {
+                ctx.font = '12px Courier New';
+                ctx.fillStyle = '#ff0';
+                ctx.fillText('Generating debrief...', panelX + 14, panelY + 45);
+                return;
+            }
+
+            if (!aiDebrief) return;
+
+            ctx.font = '12px Courier New';
+            ctx.fillStyle = '#0c0';
+            const summaryLines = wrapText(aiDebrief.summary || '', panelW - 28);
+            ctx.font = '12px Courier New';
+            let y = panelY + 45;
+            for (const line of summaryLines.slice(0, 2)) {
+                ctx.fillText(line, panelX + 14, y);
+                y += 18;
+            }
+
+            ctx.fillStyle = '#0f0';
+            ctx.fillText(`Performance: ${String(aiDebrief.performance || 'average').toUpperCase()}`, panelX + 14, y + 4);
+            y += 22;
+
+            ctx.fillStyle = '#0c0';
+            const strengths = Array.isArray(aiDebrief.strengths) ? aiDebrief.strengths : [];
+            const improvements = Array.isArray(aiDebrief.improvements) ? aiDebrief.improvements : [];
+            if (strengths.length > 0) {
+                ctx.fillText(`Strengths: ${strengths.slice(0, 2).join('; ')}`, panelX + 14, y);
+                y += 18;
+            }
+            if (improvements.length > 0) {
+                ctx.fillText(`Improve: ${improvements.slice(0, 2).join('; ')}`, panelX + 14, y);
+            }
         }
         
         function renderDefeatOverlay() {
@@ -5094,6 +6686,8 @@
             }
             ctx.fillStyle = '#888';
             ctx.fillText('[ESC] Return to Menu', centerX, boxY + boxHeight - 20);
+
+            renderDebriefPanel();
         }
         
         function getDifficultyStars(difficulty) {
@@ -5267,6 +6861,7 @@
             if (gameState === GAME_STATES.PLAYING || gameState === GAME_STATES.PAUSED) {
                 // Render targets (using canvas 2D API on top)
                 renderTargets(renderCam);
+                renderParkedHelicopter(renderCam);
                 
                 // Render projectiles
                 renderProjectiles(renderCam);
@@ -5324,6 +6919,10 @@
                 renderTitleOverlay();
             } else if (gameState === GAME_STATES.MENU) {
                 renderMainMenuOverlay();
+                refreshGlobalStatsIfNeeded();
+                if (cachedGlobalStats) {
+                    renderLeaderboard(cachedGlobalStats);
+                }
             } else if (gameState === GAME_STATES.CAMPAIGN) {
                 renderCampaignOverlay();
             } else if (gameState === GAME_STATES.FREEPLAY) {
@@ -5344,6 +6943,10 @@
                 renderExplosions(camera);
                 renderHUD();
                 renderVictoryOverlay();
+                refreshGlobalStatsIfNeeded();
+                if (cachedGlobalStats) {
+                    renderLeaderboard(cachedGlobalStats);
+                }
             } else if (gameState === GAME_STATES.DEFEAT) {
                 // Render game scene in background
                 renderTargets(camera);
@@ -5398,7 +7001,44 @@
                     const bankOffset = (screenX - screenWidth / 2) * bankTiltFactor;
                     const screenY = (cam.height - ep.z) * scaleY + cam.horizon + bankOffset;
                     
-                    if (ep.type === 'infantry_bullet') {
+                    if (ep.type === 'air_cannon') {
+                        const tracerSize = Math.max(1.5, 3 * scaleY);
+                        ctx.fillStyle = '#ffcc66';
+                        ctx.beginPath();
+                        ctx.arc(screenX, screenY, tracerSize, 0, Math.PI * 2);
+                        ctx.fill();
+
+                        const trailAngle = Math.atan2(ep.vx || 0, ep.vy || 0);
+                        ctx.strokeStyle = 'rgba(255, 200, 120, 0.7)';
+                        ctx.lineWidth = Math.max(1, 1.4 * scaleY);
+                        ctx.beginPath();
+                        ctx.moveTo(screenX, screenY);
+                        ctx.lineTo(
+                            screenX - Math.sin(trailAngle) * 12 * scaleY,
+                            screenY + Math.cos(trailAngle) * 12 * scaleY
+                        );
+                        ctx.stroke();
+                    } else if (ep.type === 'air_rocket') {
+                        ctx.fillStyle = '#ff8844';
+                        ctx.beginPath();
+                        ctx.arc(screenX, screenY, 4 * scaleY, 0, Math.PI * 2);
+                        ctx.fill();
+
+                        const trailAngle = Math.atan2(ep.vx || 0, ep.vy || 0);
+                        const trailX = screenX - Math.sin(trailAngle) * 18 * scaleY;
+                        const trailY = screenY + Math.cos(trailAngle) * 18 * scaleY;
+                        ctx.strokeStyle = 'rgba(180, 180, 180, 0.5)';
+                        ctx.lineWidth = 2.5 * scaleY;
+                        ctx.beginPath();
+                        ctx.moveTo(screenX, screenY);
+                        ctx.lineTo(trailX, trailY);
+                        ctx.stroke();
+
+                        ctx.fillStyle = '#ffaa00';
+                        ctx.beginPath();
+                        ctx.arc(trailX, trailY, 2.5 * scaleY, 0, Math.PI * 2);
+                        ctx.fill();
+                    } else if (ep.type === 'infantry_bullet') {
                         const tracerSize = Math.max(1.2, 2.5 * scaleY);
                         ctx.fillStyle = '#ffe066';
                         ctx.beginPath();
@@ -5654,6 +7294,16 @@
                         screenY += target.size * 0.3 * scaleY;  // Tanks low profile
                     } else if (target.type === 'sam') {
                         screenY += target.size * 0.35 * scaleY; // SAM medium height
+                    } else if (target.type === 'hangar') {
+                        screenY += target.size * 0.6 * scaleY;
+                    } else if (target.type === 'control_tower') {
+                        screenY += target.size * 1.0 * scaleY;
+                    } else if (target.type === 'barracks') {
+                        screenY += target.size * 0.5 * scaleY;
+                    } else if (target.type === 'fuel_depot') {
+                        screenY += target.size * 0.4 * scaleY;
+                    } else if (target.type === 'helipad') {
+                        screenY += target.size * 0.1 * scaleY;
                     } else if (target.type === 'soldier') {
                         screenY += target.size * 0.25 * scaleY; // Soldier center mass
                     }
@@ -5671,8 +7321,24 @@
                             drawBuilding(screenX, screenY, size, target.color, fogFactor, weather.ambient, weather.skyColor);
                         } else if (target.type === 'sam') {
                             drawSAMSite(screenX, screenY, size, target.color, fogFactor, weather.ambient, weather.skyColor);
+                        } else if (target.type === 'hangar') {
+                            drawHangar(screenX, screenY, size, target.color, fogFactor, weather.ambient, weather.skyColor);
+                        } else if (target.type === 'control_tower') {
+                            drawControlTower(screenX, screenY, size, target.color, fogFactor, weather.ambient, weather.skyColor);
+                        } else if (target.type === 'barracks') {
+                            drawBarracks(screenX, screenY, size, target.color, fogFactor, weather.ambient, weather.skyColor);
+                        } else if (target.type === 'fuel_depot') {
+                            drawFuelDepot(screenX, screenY, size, target.color, fogFactor, weather.ambient, weather.skyColor);
+                        } else if (target.type === 'helipad') {
+                            drawHelipad(screenX, screenY, size, target.color, fogFactor, weather.ambient, weather.skyColor);
                         } else if (target.type === 'soldier') {
                             drawSoldier(screenX, screenY, size, target.color, target.ai?.pose, fogFactor, weather.ambient, weather.skyColor);
+                        } else if (target.type === 'air_fighter') {
+                            drawFighterJet(screenX, screenY, size, target.color, target.ai?.heading || 0, fogFactor, weather.ambient, weather.skyColor);
+                        } else if (target.type === 'air_transport') {
+                            drawTransportPlane(screenX, screenY, size, target.color, target.ai?.heading || 0, fogFactor, weather.ambient, weather.skyColor);
+                        } else if (target.type === 'air_attack_heli') {
+                            drawAttackHelicopter(screenX, screenY, size, target.color, target.ai?.heading || 0, fogFactor, weather.ambient, weather.skyColor);
                         }
                         
                         // Health bar
@@ -5686,6 +7352,41 @@
                         }
                     }
                 }
+            }
+        }
+
+        function renderParkedHelicopter(cam) {
+            if (gameMode !== GAME_MODES.DELTA || !playerState.heli.visible || playerState.heli.destroyed) return;
+
+            const heli = playerState.heli;
+
+            // Calculate relative position
+            let dx = heli.x - cam.x;
+            let dy = heli.y - cam.y;
+
+            // Handle map wrapping
+            if (dx > CONFIG.MAP_SIZE / 2) dx -= CONFIG.MAP_SIZE;
+            if (dx < -CONFIG.MAP_SIZE / 2) dx += CONFIG.MAP_SIZE;
+            if (dy > CONFIG.MAP_SIZE / 2) dy -= CONFIG.MAP_SIZE;
+            if (dy < -CONFIG.MAP_SIZE / 2) dy += CONFIG.MAP_SIZE;
+
+            // Rotate to camera space
+            const cosAngle = Math.cos(cam.angle);
+            const sinAngle = Math.sin(cam.angle);
+            const rx = dx * cosAngle - dy * sinAngle;
+            const ry = -dx * sinAngle - dy * cosAngle;
+
+            if (ry > 5 && ry < cam.distance) {
+                const scaleX = (screenWidth / 2) / ry;
+                const scaleY = 240.0 / ry;
+                const screenX = screenWidth / 2 + rx * scaleX;
+                const screenY = (cam.height - heli.z) * scaleY + cam.horizon;
+
+                const size = Math.max(12, 35 * scaleY);
+                const fogFactor = Math.min(1, ry / cam.distance);
+                const weather = WEATHER_SETTINGS[weatherCondition];
+
+                drawHelicopter(screenX, screenY, size, '#4a5a4a', heli.angle, fogFactor, weather.ambient, weather.skyColor);
             }
         }
         
@@ -5812,6 +7513,211 @@
             ctx.fillStyle = gear;
             ctx.fillRect(weaponX, weaponY, Math.max(2, Math.floor(s * 0.35)), Math.max(1, Math.floor(s * 0.08)));
         }
+
+        function drawHelicopter(x, y, size, color, heading, fogFactor = 0, ambient = 1, skyColor = CONFIG.SKY_COLOR) {
+            ctx.imageSmoothingEnabled = false;
+            const s = Math.max(Math.floor(size), 12);
+            const ix = Math.floor(x);
+            const iy = Math.floor(y);
+
+            const bodyColor = getSpriteColorWithFog(color, fogFactor, ambient, skyColor);
+            const darkColor = getSpriteColorWithFog(darkenColor(color, 30), fogFactor, ambient, skyColor);
+            const glassColor = getSpriteColorWithFog('#2a6a8a', fogFactor, ambient, skyColor);
+            const rotorColor = getSpriteColorWithFog('#444444', fogFactor, ambient, skyColor);
+
+            // Main body (elongated rectangle)
+            ctx.fillStyle = bodyColor;
+            const bodyW = s * 0.6;
+            const bodyL = s * 1.2;
+            ctx.fillRect(ix - bodyW / 2, iy - bodyL / 2, bodyW, bodyL);
+
+            // Cockpit (front)
+            ctx.fillStyle = glassColor;
+            ctx.fillRect(ix - bodyW / 3, iy - bodyL / 2, bodyW * 0.66, s * 0.3);
+
+            // Tail boom
+            ctx.fillStyle = darkColor;
+            ctx.fillRect(ix - s * 0.1, iy + bodyL / 2 - 2, s * 0.2, s * 0.6);
+
+            // Tail rotor housing
+            ctx.fillRect(ix - s * 0.15, iy + bodyL / 2 + s * 0.4, s * 0.3, s * 0.15);
+
+            // Main rotor (spinning effect - use time for animation)
+            const rotorTime = performance.now() / 50;
+            ctx.fillStyle = rotorColor;
+            ctx.globalAlpha = 0.6;
+            const rotorRadius = s * 0.9;
+            for (let i = 0; i < 4; i++) {
+                const angle = rotorTime + (i * Math.PI / 2);
+                const rx = Math.cos(angle) * rotorRadius;
+                const ry = Math.sin(angle) * rotorRadius * 0.3; // Flattened perspective
+                ctx.fillRect(ix + rx - 2, iy + ry - 1, 4, 2);
+            }
+            ctx.globalAlpha = 1.0;
+
+            // Rotor hub
+            ctx.fillStyle = darkColor;
+            ctx.fillRect(ix - 3, iy - 3, 6, 6);
+
+            // Skids
+            ctx.fillStyle = darkColor;
+            ctx.fillRect(ix - bodyW / 2 - 2, iy - bodyL / 3, 3, bodyL * 0.6);
+            ctx.fillRect(ix + bodyW / 2 - 1, iy - bodyL / 3, 3, bodyL * 0.6);
+        }
+
+        function drawFighterJet(x, y, size, color, heading, fogFactor = 0, ambient = 1, skyColor = CONFIG.SKY_COLOR) {
+            ctx.imageSmoothingEnabled = false;
+            const s = Math.max(Math.floor(size), 12);
+            const ix = Math.floor(x);
+            const iy = Math.floor(y);
+
+            const body = getSpriteColorWithFog(color, fogFactor, ambient, skyColor);
+            const dark = getSpriteColorWithFog(darkenColor(color, 25), fogFactor, ambient, skyColor);
+            const cockpit = getSpriteColorWithFog('#3a5a7a', fogFactor, ambient, skyColor);
+
+            // Calculate relative heading for sprite orientation
+            const relAngle = normalizeAngle(heading - camera.angle);
+            const showSide = Math.abs(Math.sin(relAngle)) > 0.5;
+
+            if (showSide) {
+                // Side view - elongated fuselage
+                ctx.fillStyle = body;
+                ctx.fillRect(ix - s * 0.8, iy - s * 0.15, s * 1.6, s * 0.3);
+
+                // Tail fin
+                ctx.fillStyle = dark;
+                ctx.fillRect(ix - s * 0.7, iy - s * 0.4, s * 0.15, s * 0.3);
+
+                // Wing (top view hint)
+                ctx.fillRect(ix - s * 0.2, iy - s * 0.08, s * 0.5, s * 0.16);
+
+                // Cockpit
+                ctx.fillStyle = cockpit;
+                ctx.fillRect(ix + s * 0.3, iy - s * 0.12, s * 0.3, s * 0.12);
+            } else {
+                // Front/back view - show wings
+                ctx.fillStyle = body;
+                // Fuselage
+                ctx.fillRect(ix - s * 0.15, iy - s * 0.5, s * 0.3, s);
+
+                // Wings
+                ctx.fillRect(ix - s * 0.7, iy - s * 0.1, s * 1.4, s * 0.2);
+
+                // Tail
+                ctx.fillStyle = dark;
+                ctx.fillRect(ix - s * 0.25, iy + s * 0.3, s * 0.5, s * 0.15);
+
+                // Cockpit
+                ctx.fillStyle = cockpit;
+                ctx.fillRect(ix - s * 0.1, iy - s * 0.35, s * 0.2, s * 0.15);
+            }
+        }
+
+        function drawTransportPlane(x, y, size, color, heading, fogFactor = 0, ambient = 1, skyColor = CONFIG.SKY_COLOR) {
+            ctx.imageSmoothingEnabled = false;
+            const s = Math.max(Math.floor(size), 18);
+            const ix = Math.floor(x);
+            const iy = Math.floor(y);
+
+            const body = getSpriteColorWithFog(color, fogFactor, ambient, skyColor);
+            const dark = getSpriteColorWithFog(darkenColor(color, 20), fogFactor, ambient, skyColor);
+            const window = getSpriteColorWithFog('#4a6a8a', fogFactor, ambient, skyColor);
+
+            const relAngle = normalizeAngle(heading - camera.angle);
+            const showSide = Math.abs(Math.sin(relAngle)) > 0.5;
+
+            if (showSide) {
+                // Side view - large fuselage
+                ctx.fillStyle = body;
+                ctx.fillRect(ix - s * 0.9, iy - s * 0.2, s * 1.8, s * 0.4);
+
+                // Tail
+                ctx.fillStyle = dark;
+                ctx.fillRect(ix - s * 0.8, iy - s * 0.5, s * 0.2, s * 0.35);
+
+                // Windows
+                ctx.fillStyle = window;
+                for (let i = 0; i < 4; i++) {
+                    ctx.fillRect(ix - s * 0.4 + i * s * 0.25, iy - s * 0.12, s * 0.1, s * 0.08);
+                }
+
+                // Engines
+                ctx.fillStyle = dark;
+                ctx.fillRect(ix - s * 0.3, iy + s * 0.15, s * 0.15, s * 0.1);
+                ctx.fillRect(ix + s * 0.15, iy + s * 0.15, s * 0.15, s * 0.1);
+            } else {
+                // Front/back view
+                ctx.fillStyle = body;
+                ctx.fillRect(ix - s * 0.2, iy - s * 0.5, s * 0.4, s);
+
+                // Wide wings
+                ctx.fillRect(ix - s * 0.9, iy - s * 0.1, s * 1.8, s * 0.2);
+
+                // Tail
+                ctx.fillStyle = dark;
+                ctx.fillRect(ix - s * 0.3, iy + s * 0.35, s * 0.6, s * 0.12);
+
+                // Engines on wings
+                ctx.fillRect(ix - s * 0.5, iy + s * 0.05, s * 0.12, s * 0.15);
+                ctx.fillRect(ix + s * 0.38, iy + s * 0.05, s * 0.12, s * 0.15);
+            }
+        }
+
+        function drawAttackHelicopter(x, y, size, color, heading, fogFactor = 0, ambient = 1, skyColor = CONFIG.SKY_COLOR) {
+            ctx.imageSmoothingEnabled = false;
+            const s = Math.max(Math.floor(size), 14);
+            const ix = Math.floor(x);
+            const iy = Math.floor(y);
+
+            const body = getSpriteColorWithFog(color, fogFactor, ambient, skyColor);
+            const dark = getSpriteColorWithFog(darkenColor(color, 25), fogFactor, ambient, skyColor);
+            const cockpit = getSpriteColorWithFog('#3a6a5a', fogFactor, ambient, skyColor);
+            const rotor = getSpriteColorWithFog('#444444', fogFactor, ambient, skyColor);
+
+            // Body (angular attack helicopter shape)
+            ctx.fillStyle = body;
+            ctx.fillRect(ix - s * 0.3, iy - s * 0.2, s * 0.6, s * 0.5);
+
+            // Nose (angled cockpit)
+            ctx.fillStyle = cockpit;
+            ctx.beginPath();
+            ctx.moveTo(ix - s * 0.15, iy - s * 0.2);
+            ctx.lineTo(ix + s * 0.15, iy - s * 0.2);
+            ctx.lineTo(ix + s * 0.1, iy - s * 0.4);
+            ctx.lineTo(ix - s * 0.1, iy - s * 0.4);
+            ctx.closePath();
+            ctx.fill();
+
+            // Tail boom
+            ctx.fillStyle = dark;
+            ctx.fillRect(ix - s * 0.08, iy + s * 0.25, s * 0.16, s * 0.5);
+
+            // Tail rotor
+            ctx.fillRect(ix - s * 0.15, iy + s * 0.65, s * 0.3, s * 0.1);
+
+            // Stub wings with weapons
+            ctx.fillStyle = body;
+            ctx.fillRect(ix - s * 0.5, iy, s * 0.2, s * 0.1);
+            ctx.fillRect(ix + s * 0.3, iy, s * 0.2, s * 0.1);
+
+            // Weapon pods
+            ctx.fillStyle = dark;
+            ctx.fillRect(ix - s * 0.55, iy + s * 0.05, s * 0.1, s * 0.15);
+            ctx.fillRect(ix + s * 0.45, iy + s * 0.05, s * 0.1, s * 0.15);
+
+            // Main rotor (animated)
+            const rotorTime = performance.now() / 40;
+            ctx.fillStyle = rotor;
+            ctx.globalAlpha = 0.5;
+            const rotorRadius = s * 0.7;
+            for (let i = 0; i < 4; i++) {
+                const angle = rotorTime + (i * Math.PI / 2);
+                const rx = Math.cos(angle) * rotorRadius;
+                const ry = Math.sin(angle) * rotorRadius * 0.25;
+                ctx.fillRect(ix + rx - 2, iy - s * 0.1 + ry - 1, 4, 2);
+            }
+            ctx.globalAlpha = 1.0;
+        }
         
         function drawTank(x, y, size, color, fogFactor = 0, ambient = 1, skyColor = CONFIG.SKY_COLOR) {
             ctx.imageSmoothingEnabled = false;
@@ -5902,6 +7808,147 @@
             // Door
             ctx.fillStyle = trim;
             ctx.fillRect(ix + Math.floor(s * 0.08), iy - Math.floor(s * 0.34), Math.floor(s * 0.2), Math.floor(s * 0.26));
+        }
+
+        function drawHangar(x, y, size, color, fogFactor = 0, ambient = 1, skyColor = CONFIG.SKY_COLOR) {
+            ctx.imageSmoothingEnabled = false;
+            const s = Math.max(Math.floor(size), 20);
+            const ix = Math.floor(x);
+            const iy = Math.floor(y);
+
+            const base = getSpriteColorWithFog(color, fogFactor, ambient, skyColor);
+            const dark = getSpriteColorWithFog(darkenColor(color, 25), fogFactor, ambient, skyColor);
+            const roof = getSpriteColorWithFog(darkenColor(color, 10), fogFactor, ambient, skyColor);
+
+            // Main structure (large rectangular building)
+            ctx.fillStyle = base;
+            ctx.fillRect(ix - s * 0.7, iy - s * 0.4, s * 1.4, s * 0.8);
+
+            // Curved roof (simplified as darker top section)
+            ctx.fillStyle = roof;
+            ctx.fillRect(ix - s * 0.7, iy - s * 0.5, s * 1.4, s * 0.15);
+
+            // Large door opening (dark)
+            ctx.fillStyle = dark;
+            ctx.fillRect(ix - s * 0.4, iy - s * 0.1, s * 0.8, s * 0.5);
+
+            // Door frame
+            ctx.fillStyle = getSpriteColorWithFog(darkenColor(color, 15), fogFactor, ambient, skyColor);
+            ctx.fillRect(ix - s * 0.45, iy - s * 0.15, s * 0.05, s * 0.55);
+            ctx.fillRect(ix + s * 0.4, iy - s * 0.15, s * 0.05, s * 0.55);
+        }
+
+        function drawControlTower(x, y, size, color, fogFactor = 0, ambient = 1, skyColor = CONFIG.SKY_COLOR) {
+            ctx.imageSmoothingEnabled = false;
+            const s = Math.max(Math.floor(size), 15);
+            const ix = Math.floor(x);
+            const iy = Math.floor(y);
+
+            const base = getSpriteColorWithFog(color, fogFactor, ambient, skyColor);
+            const dark = getSpriteColorWithFog(darkenColor(color, 20), fogFactor, ambient, skyColor);
+            const glass = getSpriteColorWithFog('#4a8aaa', fogFactor, ambient, skyColor);
+
+            // Tower base (wider at bottom)
+            ctx.fillStyle = base;
+            ctx.fillRect(ix - s * 0.3, iy, s * 0.6, s * 0.4);
+
+            // Tower shaft
+            ctx.fillRect(ix - s * 0.2, iy - s * 0.8, s * 0.4, s * 0.8);
+
+            // Control room (wider top with windows)
+            ctx.fillStyle = dark;
+            ctx.fillRect(ix - s * 0.4, iy - s * 1.2, s * 0.8, s * 0.4);
+
+            // Windows (glass)
+            ctx.fillStyle = glass;
+            ctx.fillRect(ix - s * 0.35, iy - s * 1.1, s * 0.7, s * 0.2);
+
+            // Antenna
+            ctx.fillStyle = dark;
+            ctx.fillRect(ix - s * 0.05, iy - s * 1.5, s * 0.1, s * 0.3);
+        }
+
+        function drawBarracks(x, y, size, color, fogFactor = 0, ambient = 1, skyColor = CONFIG.SKY_COLOR) {
+            ctx.imageSmoothingEnabled = false;
+            const s = Math.max(Math.floor(size), 18);
+            const ix = Math.floor(x);
+            const iy = Math.floor(y);
+
+            const base = getSpriteColorWithFog(color, fogFactor, ambient, skyColor);
+            const dark = getSpriteColorWithFog(darkenColor(color, 20), fogFactor, ambient, skyColor);
+            const roof = getSpriteColorWithFog('#4a3a2a', fogFactor, ambient, skyColor);
+
+            // Main building
+            ctx.fillStyle = base;
+            ctx.fillRect(ix - s * 0.6, iy - s * 0.25, s * 1.2, s * 0.5);
+
+            // Roof
+            ctx.fillStyle = roof;
+            ctx.fillRect(ix - s * 0.65, iy - s * 0.35, s * 1.3, s * 0.12);
+
+            // Windows (row of small dark rectangles)
+            ctx.fillStyle = dark;
+            for (let i = 0; i < 4; i++) {
+                ctx.fillRect(ix - s * 0.45 + i * s * 0.25, iy - s * 0.15, s * 0.12, s * 0.15);
+            }
+
+            // Door
+            ctx.fillRect(ix - s * 0.08, iy + s * 0.05, s * 0.16, s * 0.2);
+        }
+
+        function drawFuelDepot(x, y, size, color, fogFactor = 0, ambient = 1, skyColor = CONFIG.SKY_COLOR) {
+            ctx.imageSmoothingEnabled = false;
+            const s = Math.max(Math.floor(size), 15);
+            const ix = Math.floor(x);
+            const iy = Math.floor(y);
+
+            const base = getSpriteColorWithFog(color, fogFactor, ambient, skyColor);
+            const dark = getSpriteColorWithFog(darkenColor(color, 30), fogFactor, ambient, skyColor);
+            const warning = getSpriteColorWithFog('#8a4a2a', fogFactor, ambient, skyColor);
+
+            // Large cylindrical tank (simplified as rounded rectangle)
+            ctx.fillStyle = base;
+            ctx.fillRect(ix - s * 0.5, iy - s * 0.3, s, s * 0.6);
+
+            // Tank top (darker)
+            ctx.fillStyle = dark;
+            ctx.fillRect(ix - s * 0.5, iy - s * 0.35, s, s * 0.1);
+
+            // Warning stripe
+            ctx.fillStyle = warning;
+            ctx.fillRect(ix - s * 0.5, iy - s * 0.1, s, s * 0.08);
+
+            // Pipes
+            ctx.fillStyle = dark;
+            ctx.fillRect(ix + s * 0.4, iy - s * 0.15, s * 0.2, s * 0.1);
+            ctx.fillRect(ix + s * 0.55, iy - s * 0.15, s * 0.05, s * 0.4);
+        }
+
+        function drawHelipad(x, y, size, color, fogFactor = 0, ambient = 1, skyColor = CONFIG.SKY_COLOR) {
+            ctx.imageSmoothingEnabled = false;
+            const s = Math.max(Math.floor(size), 20);
+            const ix = Math.floor(x);
+            const iy = Math.floor(y);
+
+            const base = getSpriteColorWithFog(color, fogFactor, ambient, skyColor);
+            const marking = getSpriteColorWithFog('#8a8a2a', fogFactor, ambient, skyColor);
+
+            // Pad surface
+            ctx.fillStyle = base;
+            ctx.fillRect(ix - s * 0.5, iy - s * 0.5, s, s);
+
+            // H marking
+            ctx.fillStyle = marking;
+            ctx.fillRect(ix - s * 0.3, iy - s * 0.35, s * 0.1, s * 0.7);  // Left vertical
+            ctx.fillRect(ix + s * 0.2, iy - s * 0.35, s * 0.1, s * 0.7);  // Right vertical
+            ctx.fillRect(ix - s * 0.2, iy - s * 0.05, s * 0.4, s * 0.1);  // Horizontal
+
+            // Circle outline
+            ctx.strokeStyle = marking;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(ix, iy, s * 0.45, 0, Math.PI * 2);
+            ctx.stroke();
         }
         
         function drawSAMSite(x, y, size, color, fogFactor = 0, ambient = 1, skyColor = CONFIG.SKY_COLOR) {
@@ -6474,228 +8521,227 @@
         function renderHUD() {
             if (gameMode === GAME_MODES.DELTA) {
                 renderDeltaHUD();
-                return;
-            }
-            // Get heading in degrees
-            let heading = Math.round((-camera.angle * 180 / Math.PI) % 360);
-            if (heading < 0) heading += 360;
-            
-            const remaining = targets.filter(t => !t.destroyed).length;
-            const healthPercent = playerHealth / maxPlayerHealth;
-            
-            // ========================================
-            // TOP BAR - Flight info, Health, Score
-            // ========================================
-            ctx.fillStyle = 'rgba(0, 20, 0, 0.85)';
-            ctx.fillRect(0, 0, screenWidth, 45);
-            ctx.strokeStyle = '#0f0';
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.moveTo(0, 45);
-            ctx.lineTo(screenWidth, 45);
-            ctx.stroke();
-            
-            // Flight data (left side)
-            ctx.font = 'bold 14px Courier New';
-            ctx.fillStyle = '#0f0';
-            ctx.textAlign = 'left';
-            ctx.fillText(`ALT`, 10, 15);
-            ctx.fillText(`SPD`, 90, 15);
-            ctx.fillText(`HDG`, 170, 15);
-            
-            ctx.font = 'bold 18px Courier New';
-            ctx.fillStyle = '#0f0';
-            ctx.fillText(`${Math.floor(camera.height).toString().padStart(4, ' ')}`, 10, 35);
-            ctx.fillText(`${Math.abs(currentSpeed).toFixed(0).padStart(3, ' ')}`, 90, 35);
-            ctx.fillText(`${heading.toString().padStart(3, '0')}°`, 170, 35);
-            
-            // Health bar (center-left area)
-            const healthBarX = 260;
-            const healthBarWidth = 200;
-            const healthBarHeight = 20;
-            const healthBarY = 12;
-            
-            // Health label
-            ctx.font = 'bold 12px Courier New';
-            ctx.fillStyle = '#0f0';
-            ctx.textAlign = 'right';
-            ctx.fillText('HULL', healthBarX - 5, healthBarY + 14);
-            
-            // Health bar background
-            ctx.fillStyle = '#111';
-            ctx.fillRect(healthBarX, healthBarY, healthBarWidth, healthBarHeight);
-            ctx.strokeStyle = '#0a0';
-            ctx.lineWidth = 1;
-            ctx.strokeRect(healthBarX, healthBarY, healthBarWidth, healthBarHeight);
-            
-            // Health bar fill with gradient color
-            let healthColor;
-            if (healthPercent > 0.6) {
-                healthColor = '#0f0';
-            } else if (healthPercent > 0.3) {
-                healthColor = '#ff0';
             } else {
-                // Blinking red when critical
-                const blinkOn = Math.floor(performance.now() / 250) % 2 === 0;
-                healthColor = blinkOn ? '#f00' : '#800';
-            }
-            ctx.fillStyle = healthColor;
-            ctx.fillRect(healthBarX + 2, healthBarY + 2, (healthBarWidth - 4) * healthPercent, healthBarHeight - 4);
-            
-            // Health segments (tick marks)
-            ctx.strokeStyle = '#0a0';
-            ctx.lineWidth = 1;
-            for (let i = 1; i < 10; i++) {
-                const tickX = healthBarX + (healthBarWidth / 10) * i;
+                // Get heading in degrees
+                let heading = Math.round((-camera.angle * 180 / Math.PI) % 360);
+                if (heading < 0) heading += 360;
+
+                const remaining = targets.filter(t => !t.destroyed).length;
+                const healthPercent = playerHealth / maxPlayerHealth;
+
+                // ========================================
+                // TOP BAR - Flight info, Health, Score
+                // ========================================
+                ctx.fillStyle = 'rgba(0, 20, 0, 0.85)';
+                ctx.fillRect(0, 0, screenWidth, 45);
+                ctx.strokeStyle = '#0f0';
+                ctx.lineWidth = 2;
                 ctx.beginPath();
-                ctx.moveTo(tickX, healthBarY);
-                ctx.lineTo(tickX, healthBarY + 4);
-                ctx.moveTo(tickX, healthBarY + healthBarHeight - 4);
-                ctx.lineTo(tickX, healthBarY + healthBarHeight);
+                ctx.moveTo(0, 45);
+                ctx.lineTo(screenWidth, 45);
                 ctx.stroke();
-            }
-            
-            // Health percentage text
-            ctx.font = 'bold 14px Courier New';
-            ctx.textAlign = 'center';
-            ctx.strokeStyle = '#000';
-            ctx.lineWidth = 2;
-            ctx.strokeText(`${Math.ceil(healthPercent * 100)}%`, healthBarX + healthBarWidth / 2, healthBarY + 15);
-            ctx.fillStyle = '#fff';
-            ctx.fillText(`${Math.ceil(healthPercent * 100)}%`, healthBarX + healthBarWidth / 2, healthBarY + 15);
-            
-            // Score and targets (right side)
-            ctx.font = 'bold 14px Courier New';
-            ctx.fillStyle = '#0f0';
-            ctx.textAlign = 'right';
-            // Show FREE PLAY indicator or targets count
-            if (currentMissionIndex === -1) {
-                ctx.fillStyle = '#0af';
-                ctx.fillText('FREE PLAY', screenWidth - 10, 15);
-            } else {
-                ctx.fillText(`TARGETS: ${remaining}`, screenWidth - 10, 15);
-            }
-            ctx.font = 'bold 18px Courier New';
-            ctx.fillStyle = '#ff0';
-            ctx.fillText(`SCORE: ${score.toString().padStart(6, '0')}`, screenWidth - 10, 35);
-            
-            // Sound indicator
-            if (!soundEnabled) {
-                ctx.font = '12px Courier New';
-                ctx.fillStyle = '#f00';
-                ctx.textAlign = 'right';
-                ctx.fillText('MUTED [B]', screenWidth - 150, 35);
-            }
-            
-            // God mode indicator
-            if (godMode) {
-                ctx.font = 'bold 12px Courier New';
-                ctx.fillStyle = '#ff0';
-                ctx.textAlign = 'left';
-                ctx.fillText('GOD MODE [G]', 480, 15);
-            }
-            
-            // Night vision indicator
-            if (nightVisionMode) {
+
+                // Flight data (left side)
                 ctx.font = 'bold 14px Courier New';
                 ctx.fillStyle = '#0f0';
                 ctx.textAlign = 'left';
-                ctx.fillText('◉ IR MODE [N]', 10, screenHeight - 130);
-            }
-            
-            // Simple controls indicator
-            if (simpleControls) {
+                ctx.fillText(`ALT`, 10, 15);
+                ctx.fillText(`SPD`, 90, 15);
+                ctx.fillText(`HDG`, 170, 15);
+
+                ctx.font = 'bold 18px Courier New';
+                ctx.fillStyle = '#0f0';
+                ctx.fillText(`${Math.floor(camera.height).toString().padStart(4, ' ')}`, 10, 35);
+                ctx.fillText(`${Math.abs(currentSpeed).toFixed(0).padStart(3, ' ')}`, 90, 35);
+                ctx.fillText(`${heading.toString().padStart(3, '0')}°`, 170, 35);
+
+                // Health bar (center-left area)
+                const healthBarX = 260;
+                const healthBarWidth = 200;
+                const healthBarHeight = 20;
+                const healthBarY = 12;
+
+                // Health label
                 ctx.font = 'bold 12px Courier New';
-                ctx.fillStyle = '#0af';
-                ctx.textAlign = 'left';
-                ctx.fillText('SIMPLE CTRL [T]', 580, 15);
-            }
-            
-            // Weather indicator (show if not clear)
-            if (weatherCondition !== 'clear') {
-                const weather = WEATHER_SETTINGS[weatherCondition];
-                ctx.font = 'bold 12px Courier New';
-                ctx.fillStyle = weatherCondition === 'night' ? '#448' : 
-                               weatherCondition === 'storm' ? '#f80' : '#aaa';
-                ctx.textAlign = 'left';
-                ctx.fillText(`☁ ${weather.name} [M]`, 580, 35);
-                
-                // Warning if visibility is very low and no night vision
-                if (weather.ambient < 0.3 && !nightVisionMode) {
-                    const blinkOn = Math.floor(performance.now() / 500) % 2 === 0;
-                    if (blinkOn) {
-                        ctx.fillStyle = '#f00';
-                        ctx.fillText('LOW VIS - USE NV [N]', 10, screenHeight - 150);
+                ctx.fillStyle = '#0f0';
+                ctx.textAlign = 'right';
+                ctx.fillText('HULL', healthBarX - 5, healthBarY + 14);
+
+                // Health bar background
+                ctx.fillStyle = '#111';
+                ctx.fillRect(healthBarX, healthBarY, healthBarWidth, healthBarHeight);
+                ctx.strokeStyle = '#0a0';
+                ctx.lineWidth = 1;
+                ctx.strokeRect(healthBarX, healthBarY, healthBarWidth, healthBarHeight);
+
+                // Health bar fill with gradient color
+                let healthColor;
+                if (healthPercent > 0.6) {
+                    healthColor = '#0f0';
+                } else if (healthPercent > 0.3) {
+                    healthColor = '#ff0';
+                } else {
+                    // Blinking red when critical
+                    const blinkOn = Math.floor(performance.now() / 250) % 2 === 0;
+                    healthColor = blinkOn ? '#f00' : '#800';
+                }
+                ctx.fillStyle = healthColor;
+                ctx.fillRect(healthBarX + 2, healthBarY + 2, (healthBarWidth - 4) * healthPercent, healthBarHeight - 4);
+
+                // Health segments (tick marks)
+                ctx.strokeStyle = '#0a0';
+                ctx.lineWidth = 1;
+                for (let i = 1; i < 10; i++) {
+                    const tickX = healthBarX + (healthBarWidth / 10) * i;
+                    ctx.beginPath();
+                    ctx.moveTo(tickX, healthBarY);
+                    ctx.lineTo(tickX, healthBarY + 4);
+                    ctx.moveTo(tickX, healthBarY + healthBarHeight - 4);
+                    ctx.lineTo(tickX, healthBarY + healthBarHeight);
+                    ctx.stroke();
+                }
+
+                // Health percentage text
+                ctx.font = 'bold 14px Courier New';
+                ctx.textAlign = 'center';
+                ctx.strokeStyle = '#000';
+                ctx.lineWidth = 2;
+                ctx.strokeText(`${Math.ceil(healthPercent * 100)}%`, healthBarX + healthBarWidth / 2, healthBarY + 15);
+                ctx.fillStyle = '#fff';
+                ctx.fillText(`${Math.ceil(healthPercent * 100)}%`, healthBarX + healthBarWidth / 2, healthBarY + 15);
+
+                // Score and targets (right side)
+                ctx.font = 'bold 14px Courier New';
+                ctx.fillStyle = '#0f0';
+                ctx.textAlign = 'right';
+                // Show FREE PLAY indicator or targets count
+                if (currentMissionIndex === -1) {
+                    ctx.fillStyle = '#0af';
+                    ctx.fillText('FREE PLAY', screenWidth - 10, 15);
+                } else {
+                    ctx.fillText(`TARGETS: ${remaining}`, screenWidth - 10, 15);
+                }
+                ctx.font = 'bold 18px Courier New';
+                ctx.fillStyle = '#ff0';
+                ctx.fillText(`SCORE: ${score.toString().padStart(6, '0')}`, screenWidth - 10, 35);
+
+                // Sound indicator
+                if (!soundEnabled) {
+                    ctx.font = '12px Courier New';
+                    ctx.fillStyle = '#f00';
+                    ctx.textAlign = 'right';
+                    ctx.fillText('MUTED [B]', screenWidth - 150, 35);
+                }
+
+                // God mode indicator
+                if (godMode) {
+                    ctx.font = 'bold 12px Courier New';
+                    ctx.fillStyle = '#ff0';
+                    ctx.textAlign = 'left';
+                    ctx.fillText('GOD MODE [G]', 480, 15);
+                }
+
+                // Night vision indicator
+                if (nightVisionMode) {
+                    ctx.font = 'bold 14px Courier New';
+                    ctx.fillStyle = '#0f0';
+                    ctx.textAlign = 'left';
+                    ctx.fillText('◉ IR MODE [N]', 10, screenHeight - 130);
+                }
+
+                // Simple controls indicator
+                if (simpleControls) {
+                    ctx.font = 'bold 12px Courier New';
+                    ctx.fillStyle = '#0af';
+                    ctx.textAlign = 'left';
+                    ctx.fillText('SIMPLE CTRL [T]', 580, 15);
+                }
+
+                // Weather indicator (show if not clear)
+                if (weatherCondition !== 'clear') {
+                    const weather = WEATHER_SETTINGS[weatherCondition];
+                    ctx.font = 'bold 12px Courier New';
+                    ctx.fillStyle = weatherCondition === 'night' ? '#448' :
+                                   weatherCondition === 'storm' ? '#f80' : '#aaa';
+                    ctx.textAlign = 'left';
+                    ctx.fillText(`☁ ${weather.name} [M]`, 580, 35);
+
+                    // Warning if visibility is very low and no night vision
+                    if (weather.ambient < 0.3 && !nightVisionMode) {
+                        const blinkOn = Math.floor(performance.now() / 500) % 2 === 0;
+                        if (blinkOn) {
+                            ctx.fillStyle = '#f00';
+                            ctx.fillText('LOW VIS - USE NV [N]', 10, screenHeight - 150);
+                        }
                     }
                 }
-            }
-            
-            // Heading compass at top center
-            renderCompass(heading);
-            
-            // Altitude ladder on right side
-            renderAltitudeLadder();
-            
-            // ========================================
-            // MISSILE WARNING (center screen)
-            // ========================================
-            if (missileWarning) {
-                const blinkOn = Math.floor(performance.now() / 150) % 2 === 0;
-                if (blinkOn) {
-                    // Warning box
-                    ctx.fillStyle = 'rgba(255, 0, 0, 0.3)';
-                    ctx.fillRect(screenWidth / 2 - 100, 75, 200, 35);
-                    ctx.strokeStyle = '#f00';
-                    ctx.lineWidth = 2;
-                    ctx.strokeRect(screenWidth / 2 - 100, 75, 200, 35);
-                    
-                    ctx.fillStyle = '#ff0000';
-                    ctx.font = 'bold 20px Courier New';
-                    ctx.textAlign = 'center';
-                    ctx.fillText('⚠ MISSILE LOCK ⚠', screenWidth / 2, 98);
+
+                // Heading compass at top center
+                renderCompass(heading);
+
+                // Altitude ladder on right side
+                renderAltitudeLadder();
+
+                // ========================================
+                // MISSILE WARNING (center screen)
+                // ========================================
+                if (missileWarning) {
+                    const blinkOn = Math.floor(performance.now() / 150) % 2 === 0;
+                    if (blinkOn) {
+                        // Warning box
+                        ctx.fillStyle = 'rgba(255, 0, 0, 0.3)';
+                        ctx.fillRect(screenWidth / 2 - 100, 75, 200, 35);
+                        ctx.strokeStyle = '#f00';
+                        ctx.lineWidth = 2;
+                        ctx.strokeRect(screenWidth / 2 - 100, 75, 200, 35);
+
+                        ctx.fillStyle = '#ff0000';
+                        ctx.font = 'bold 20px Courier New';
+                        ctx.textAlign = 'center';
+                        ctx.fillText('⚠ MISSILE LOCK ⚠', screenWidth / 2, 98);
+                    }
                 }
-            }
-            
-            // Flight path predictor (trajectory line)
-            renderFlightPathPredictor();
-            
-            // Targeting reticle in center
-            renderReticle();
-            
-            // ========================================
-            // WEAPON PANEL (bottom-left, above radar)
-            // ========================================
-            const radarSize = CONFIG.RADAR_SIZE; // 100px
-            const weaponPanelX = 10;
-            const weaponPanelY = screenHeight - radarSize - 10 - 125; // Above radar
-            const weaponPanelW = 200;
-            const weaponPanelH = 120;
-            
-            drawHUDPanel(weaponPanelX, weaponPanelY, weaponPanelW, weaponPanelH, 'WEAPONS');
-            
-            // Weapon list
-            let weaponY = weaponPanelY + 28;
-            for (let i = 0; i < weaponOrder.length; i++) {
-                const wKey = weaponOrder[i];
-                const w = WEAPONS[wKey];
-                const state = weaponState[wKey];
-                const isSelected = i === currentWeaponIndex;
-                
-                // Selection indicator
-                if (isSelected) {
-                    // Highlight background
-                    ctx.fillStyle = 'rgba(0, 255, 0, 0.15)';
-                    ctx.fillRect(weaponPanelX + 4, weaponY - 11, weaponPanelW - 8, 18);
-                    
-                    // Selection arrow
-                    ctx.fillStyle = '#0f0';
-                    ctx.beginPath();
-                    ctx.moveTo(weaponPanelX + 8, weaponY - 5);
-                    ctx.lineTo(weaponPanelX + 14, weaponY);
-                    ctx.lineTo(weaponPanelX + 8, weaponY + 5);
-                    ctx.closePath();
-                    ctx.fill();
-                }
+
+                // Flight path predictor (trajectory line)
+                renderFlightPathPredictor();
+
+                // Targeting reticle in center
+                renderReticle();
+
+                // ========================================
+                // WEAPON PANEL (bottom-left, above radar)
+                // ========================================
+                const radarSize = CONFIG.RADAR_SIZE; // 100px
+                const weaponPanelX = 10;
+                const weaponPanelY = screenHeight - radarSize - 10 - 125; // Above radar
+                const weaponPanelW = 200;
+                const weaponPanelH = 120;
+
+                drawHUDPanel(weaponPanelX, weaponPanelY, weaponPanelW, weaponPanelH, 'WEAPONS');
+
+                // Weapon list
+                let weaponY = weaponPanelY + 28;
+                for (let i = 0; i < weaponOrder.length; i++) {
+                    const wKey = weaponOrder[i];
+                    const w = WEAPONS[wKey];
+                    const state = weaponState[wKey];
+                    const isSelected = i === currentWeaponIndex;
+
+                    // Selection indicator
+                    if (isSelected) {
+                        // Highlight background
+                        ctx.fillStyle = 'rgba(0, 255, 0, 0.15)';
+                        ctx.fillRect(weaponPanelX + 4, weaponY - 11, weaponPanelW - 8, 18);
+
+                        // Selection arrow
+                        ctx.fillStyle = '#0f0';
+                        ctx.beginPath();
+                        ctx.moveTo(weaponPanelX + 8, weaponY - 5);
+                        ctx.lineTo(weaponPanelX + 14, weaponY);
+                        ctx.lineTo(weaponPanelX + 8, weaponY + 5);
+                        ctx.closePath();
+                        ctx.fill();
+                    }
                 
                 // Weapon color bar
                 ctx.fillStyle = w.color;
@@ -6804,9 +8850,34 @@
             // Terrain following radar (Comanche-style forward-looking)
             renderTerrainRadar();
         }
+
+        renderMinimap();
+
+        if (gameState === GAME_STATES.PLAYING) {
+            renderOnboardingHint();
+        }
+        }
+
+        function renderOnboardingHint() {
+            if (!showOnboardingHints || gameState !== GAME_STATES.PLAYING) return;
+
+            for (const hint of ONBOARDING_HINTS) {
+                if (hint.condition()) {
+                    ctx.font = 'bold 14px Courier New';
+                    ctx.fillStyle = '#ff0';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('TIP: ' + hint.text, screenWidth / 2, screenHeight - 100);
+
+                    ctx.font = '10px Courier New';
+                    ctx.fillStyle = '#aa0';
+                    ctx.fillText('(Press F1 to hide tips)', screenWidth / 2, screenHeight - 80);
+                    return;
+                }
+            }
+        }
         
         function renderMissionTimer() {
-            const mission = MISSIONS[currentMissionIndex];
+            const mission = getActiveMission();
             if (!mission || !mission.timeLimit) return;
             
             const mins = Math.floor(missionTime / 60);
@@ -7353,6 +9424,72 @@
             ctx.textAlign = 'left';
             ctx.fillText('RADAR', radarX + 5, radarY + 12);
         }
+
+        function renderMinimap() {
+            const mapSize = 120;
+            const mapX = screenWidth - mapSize - 15;
+            const mapY = 15;
+            const scale = mapSize / CONFIG.MAP_SIZE;
+
+            ctx.fillStyle = 'rgba(0, 20, 0, 0.8)';
+            ctx.fillRect(mapX, mapY, mapSize, mapSize);
+            ctx.strokeStyle = '#0f0';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(mapX, mapY, mapSize, mapSize);
+
+            ctx.fillStyle = '#f00';
+            for (const base of world.bases) {
+                const bx = mapX + base.x * scale;
+                const by = mapY + base.y * scale;
+                ctx.fillRect(bx - 2, by - 2, 4, 4);
+            }
+
+            ctx.fillStyle = '#f80';
+            for (const airport of world.airports) {
+                const ax = mapX + airport.x * scale;
+                const ay = mapY + airport.y * scale;
+                ctx.fillRect(ax - 3, ay - 1, 6, 2);
+            }
+
+            ctx.fillStyle = '#f00';
+            for (const target of targets) {
+                if (target.destroyed) continue;
+                if (target.domain === DOMAINS.AIR) {
+                    const tx = mapX + target.x * scale;
+                    const ty = mapY + target.y * scale;
+                    ctx.beginPath();
+                    ctx.arc(tx, ty, 2, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+
+            ctx.fillStyle = '#0f0';
+            const px = mapX + camera.x * scale;
+            const py = mapY + camera.y * scale;
+
+            ctx.save();
+            ctx.translate(px, py);
+            ctx.rotate(-camera.angle + Math.PI / 2);
+            ctx.beginPath();
+            ctx.moveTo(0, -4);
+            ctx.lineTo(-3, 3);
+            ctx.lineTo(3, 3);
+            ctx.closePath();
+            ctx.fill();
+            ctx.restore();
+
+            if (gameMode === GAME_MODES.DELTA && playerState.heli.visible) {
+                ctx.fillStyle = '#0ff';
+                const hx = mapX + playerState.heli.x * scale;
+                const hy = mapY + playerState.heli.y * scale;
+                ctx.fillRect(hx - 2, hy - 2, 4, 4);
+            }
+
+            ctx.font = '9px Courier New';
+            ctx.fillStyle = '#0a0';
+            ctx.textAlign = 'left';
+            ctx.fillText('TACTICAL MAP', mapX + 3, mapY + mapSize - 3);
+        }
         
         // ============================================
         // TERRAIN FOLLOWING RADAR (Comanche-style)
@@ -7661,11 +9798,28 @@
                 // Update mission timer
                 updateMissionTimer();
                 updatePlaytime(deltaTime);
+                updateTelemetry(deltaTime);
                 
                 // Update player movement and combat
                 if (!isPlayerDead && !missionComplete) {
                     handleInput(deltaTime);
                     handleCombatInput(deltaTime);
+
+                    // In Comanche mode, sync heli state from camera
+                    if (gameMode === GAME_MODES.COMANCHE) {
+                        playerState.heli.x = camera.x;
+                        playerState.heli.y = camera.y;
+                        playerState.heli.z = camera.height;
+                        playerState.heli.angle = camera.angle;
+                        playerState.heli.bank = camera.bank;
+                        playerState.heli.forwardSpeed = camera.forwardSpeed;
+                        playerState.heli.lateralSpeed = camera.lateralSpeed;
+                        playerState.heli.verticalSpeed = camera.verticalSpeed;
+                    } else if (gameMode === GAME_MODES.DELTA) {
+                        playerState.soldier.x = camera.x;
+                        playerState.soldier.y = camera.y;
+                        playerState.soldier.stance = SOLDIER.stance;
+                    }
                     
                     // Update combat systems
                     updateProjectiles();
@@ -7676,6 +9830,7 @@
                     // Update enemy AI and projectiles
                     updateEnemyAI(deltaTime, timestamp);
                     updateEnemyProjectiles();
+                    updateAirportSpawns(timestamp);
                     
                     // Update warning systems
                     updateMissileWarning(deltaTime);
