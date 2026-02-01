@@ -192,7 +192,7 @@
         M - Weather Cycle<br>
         N - Night Vision<br>
         T - Simple Controls<br>
-        6 - Chase View<br>
+
         B - Toggle Sound<br>
         <hr style="border-color:#0a0;margin:3px 0">
         <label style="color:#0f0">Draw Distance:</label><br>
@@ -231,7 +231,7 @@
             RADAR_SIZE: 100,
             RADAR_RANGE: 500
         };
-        
+
         // ============================================
         // GAME STATES
         // ============================================
@@ -547,7 +547,7 @@
                 health: 100,
                 points: 100,
                 size: 20,
-                color: '#4a4a4a',  // Gray
+                color: '#4a5c4a',  // Olive drab
                 heightOffset: 0,      // Sits directly on terrain
                 ai: {
                     type: 'patrol',
@@ -561,7 +561,7 @@
                 maxHealth: 60,
                 points: 100,
                 size: 12,
-                color: '#556b2f',  // Olive drab
+                color: '#5a6b4a',  // Army green
                 heightOffset: 7,   // Center mass height
                 canShoot: true,
                 ai: {
@@ -581,7 +581,7 @@
                 health: 200,
                 points: 200,
                 size: 40,
-                color: '#8b4513',  // Brown
+                color: '#6b5a4a',  // Desert tan/brown
                 heightOffset: 0,      // Sits directly on terrain
                 ai: null  // Buildings don't move
             },
@@ -590,7 +590,7 @@
                 health: 150,
                 points: 150,
                 size: 25,
-                color: '#006400',  // Dark green
+                color: '#3a4a3a',  // Dark military green
                 heightOffset: 0,      // Sits directly on terrain
                 ai: {
                     type: 'sam',
@@ -752,9 +752,6 @@
         let damageVignetteTime = 0;
         let damageVignetteIntensity = 0;
         
-        // View mode state
-        let viewMode = 'cockpit';  // 'cockpit' or 'chase'
-        
         // Night vision / IR mode
         let nightVisionMode = false;
         
@@ -891,6 +888,17 @@
                     p.size = 8 + Math.random() * 6;
                     p.growth = 60 + Math.random() * 40;
                     p.color = { r: 120, g: 110, b: 90 };
+                } else if (type === 'blood') {
+                    // Blood splatter for soldier deaths
+                    const angle = Math.random() * Math.PI * 2;
+                    const speed = 20 + Math.random() * 30;
+                    p.vx = Math.cos(angle) * speed;
+                    p.vy = Math.sin(angle) * speed;
+                    p.vz = 30 + Math.random() * 40;
+                    p.life = 0.4 + Math.random() * 0.3;
+                    p.size = 2 + Math.random() * 3;
+                    // Dark red color
+                    p.color = { r: 120 + Math.floor(Math.random() * 40), g: 20 + Math.floor(Math.random() * 20), b: 20 + Math.floor(Math.random() * 20) };
                 }
 
                 p.maxLife = p.life;
@@ -939,6 +947,18 @@
                         p.z = terrainHeight;
                         p.vx *= 0.4;
                         p.vy *= 0.4;
+                        p.vz = 0;
+                    }
+                }
+
+                // Blood particles fall with gravity
+                if (p.type === 'blood') {
+                    p.vz -= PARTICLE_GRAVITY * 0.8 * dt;
+                    const terrainHeight = getTerrainHeight(p.x, p.y);
+                    if (p.z <= terrainHeight) {
+                        p.z = terrainHeight;
+                        p.vx = 0;
+                        p.vy = 0;
                         p.vz = 0;
                     }
                 }
@@ -996,6 +1016,12 @@
                             ctx.beginPath();
                             ctx.arc(screenX, screenY, size, 0, Math.PI * 2);
                             ctx.stroke();
+                        } else if (p.type === 'blood') {
+                            // Blood splatter - small dark red droplets
+                            ctx.fillStyle = `rgba(${p.color.r}, ${p.color.g}, ${p.color.b}, ${alpha * 0.85})`;
+                            ctx.beginPath();
+                            ctx.arc(screenX, screenY, size, 0, Math.PI * 2);
+                            ctx.fill();
                         }
                     }
                 }
@@ -2036,14 +2062,7 @@
                     // Countermeasures
                     if (e.code === 'Semicolon') deployCountermeasure('chaff');
                     if (e.code === 'Quote') deployCountermeasure('flare');
-                    // View mode toggle
-                    if (e.code === 'Digit6') {
-                        if (gameMode === GAME_MODES.DELTA) {
-                            viewMode = 'cockpit';
-                        } else {
-                            viewMode = viewMode === 'cockpit' ? 'chase' : 'cockpit';
-                        }
-                    }
+
                     // God mode toggle (debug)
                     if (e.code === 'KeyG') {
                         godMode = !godMode;
@@ -2085,7 +2104,7 @@
                     SOLDIER.stanceChanging = false;
                 }
             });
-            
+
             // Start in title state - load first map for background
             gameState = GAME_STATES.TITLE;
             loadMap(0);
@@ -3024,7 +3043,6 @@
                 resetSoldierWeapons();
                 camera.height = Math.max(CONFIG.MIN_ALTITUDE, terrainHeight + SOLDIER.eyeHeights[SOLDIER.stance]);
                 camera.horizon = screenHeight * 0.5;
-                viewMode = 'cockpit';
             } else {
                 camera.height = 80;
                 camera.horizon = screenHeight * 0.4;
@@ -3748,13 +3766,30 @@
                                 if (currentMissionIndex === -1) {
                                     recordHighScore(score);
                                 }
-                                createExplosion(target.x, target.y, target.z, 'large');
-                                spawnParticles(target.x, target.y, target.z, 'spark', 10 + Math.floor(Math.random() * 6));
-                                spawnParticles(target.x, target.y, target.z, 'smoke', 5 + Math.floor(Math.random() * 4));
-                                spawnParticles(target.x, target.y, target.z, 'debris', 5 + Math.floor(Math.random() * 4));
+                                
+                                // Different death effects based on target type
+                                if (target.type === 'soldier') {
+                                    // Soldiers don't explode - just blood/dust puff
+                                    spawnParticles(target.x, target.y, target.z, 'blood', 8 + Math.floor(Math.random() * 5));
+                                    spawnParticles(target.x, target.y, target.z, 'dust', 4 + Math.floor(Math.random() * 3));
+                                } else {
+                                    // Vehicles and buildings explode
+                                    const explosionSize = target.type === 'building' ? 'large' : 'medium';
+                                    createExplosion(target.x, target.y, target.z, explosionSize);
+                                    spawnParticles(target.x, target.y, target.z, 'spark', 10 + Math.floor(Math.random() * 6));
+                                    spawnParticles(target.x, target.y, target.z, 'smoke', 5 + Math.floor(Math.random() * 4));
+                                    spawnParticles(target.x, target.y, target.z, 'debris', 5 + Math.floor(Math.random() * 4));
+                                }
                             } else {
-                                const explosionSize = (proj.projectileType === 'missile' || proj.projectileType === 'rocket') ? 'medium' : 'small';
-                                createExplosion(proj.x, proj.y, proj.z, explosionSize);
+                                // Hit but not killed - small impact effect
+                                if (target.type === 'soldier') {
+                                    // Blood splatter on hit
+                                    spawnParticles(proj.x, proj.y, proj.z, 'blood', 3 + Math.floor(Math.random() * 3));
+                                } else {
+                                    // Spark/ricochet on vehicles
+                                    const explosionSize = (proj.projectileType === 'missile' || proj.projectileType === 'rocket') ? 'medium' : 'small';
+                                    createExplosion(proj.x, proj.y, proj.z, explosionSize);
+                                }
                             }
                             
                             // Remove projectile
@@ -4722,7 +4757,7 @@
             y += 22;
             ctx.fillText('M - Weather Cycle   N - Night Vision   T - Simple Controls', boxX + 30, y);
             y += 20;
-            ctx.fillText('6 - Chase View   B - Toggle Sound   H - Toggle Controls', boxX + 30, y);
+            ctx.fillText('B - Toggle Sound   H - Toggle Controls', boxX + 30, y);
             y += 28;
             ctx.fillStyle = '#0f0';
             ctx.fillText('PAUSE', boxX + 30, y);
@@ -5108,7 +5143,7 @@
         function render() {
             if (!currentMap.altitude || !currentMap.color) return;
             
-            // Create render camera (may be offset for chase view)
+            // Create render camera
             let renderCam = {
                 x: camera.x,
                 y: camera.y,
@@ -5119,17 +5154,7 @@
                 bank: camera.bank || 0
             };
             
-            // Apply chase view offset
-            if (viewMode === 'chase' && gameState === GAME_STATES.PLAYING && gameMode !== GAME_MODES.DELTA) {
-                const chaseDistance = 50;
-                const chaseHeight = 30;
-                renderCam.x = camera.x + Math.sin(camera.angle) * chaseDistance;
-                renderCam.y = camera.y + Math.cos(camera.angle) * chaseDistance;
-                renderCam.height = camera.height + chaseHeight;
-                // Wrap position around map
-                renderCam.x = ((renderCam.x % CONFIG.MAP_SIZE) + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
-                renderCam.y = ((renderCam.y % CONFIG.MAP_SIZE) + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
-            }
+
 
             // Apply screen shake to camera (subtle jitter)
             if (screenShake.intensity > 0) {
@@ -5255,8 +5280,7 @@
                 // Render particles
                 renderParticles(renderCam);
                 
-                // Render helicopter sprite in chase view
-                drawHelicopterSprite();
+
                 
                 // Render screen flash effect
                 renderScreenFlash();
@@ -5285,11 +5309,6 @@
                     ctx.imageSmoothingEnabled = true;
                 }
 
-                // Render Delta Force viewmodel
-                if (gameMode === GAME_MODES.DELTA) {
-                    renderViewModel();
-                }
-                
                 // Render HUD
                 renderHUD();
                 
@@ -5578,13 +5597,16 @@
             
             return false;  // Target is visible
         }
-        
+
         // ============================================
         // TARGET RENDERING
         // ============================================
         function renderTargets(cam) {
             const sinAngle = Math.sin(cam.angle);
             const cosAngle = Math.cos(cam.angle);
+            const weather = WEATHER_SETTINGS[weatherCondition];
+            const fogStart = weather.fogStart;
+            const fogEnd = Math.min(cam.distance, fogStart + (cam.distance - fogStart) / (weather.fogDensity || 2));
             
             for (const target of targets) {
                 if (target.destroyed) continue;
@@ -5605,6 +5627,7 @@
                 
                 // Check if in front of camera
                 if (ry > 10 && ry < cam.distance) {
+                    const fogFactor = fogEnabled ? Math.min(1, Math.max(0, (ry - fogStart) / (fogEnd - fogStart))) : 0;
                     // Check terrain occlusion before rendering
                     if (isTargetOccluded(target, cam, dx, dy, ry)) {
                         continue;
@@ -5643,21 +5666,22 @@
                         
                         // Draw target based on type (no shadow - causes floating look)
                         if (target.type === 'tank') {
-                            drawTank(screenX, screenY, size, target.color);
+                            drawTank(screenX, screenY, size, target.color, fogFactor, weather.ambient, weather.skyColor);
                         } else if (target.type === 'building') {
-                            drawBuilding(screenX, screenY, size, target.color);
+                            drawBuilding(screenX, screenY, size, target.color, fogFactor, weather.ambient, weather.skyColor);
                         } else if (target.type === 'sam') {
-                            drawSAMSite(screenX, screenY, size, target.color);
+                            drawSAMSite(screenX, screenY, size, target.color, fogFactor, weather.ambient, weather.skyColor);
                         } else if (target.type === 'soldier') {
-                            drawSoldier(screenX, screenY, size, target.color, target.ai?.pose);
+                            drawSoldier(screenX, screenY, size, target.color, target.ai?.pose, fogFactor, weather.ambient, weather.skyColor);
                         }
                         
                         // Health bar
                         if (target.health < target.maxHealth) {
                             const healthPercent = target.health / target.maxHealth;
-                            ctx.fillStyle = '#333';
+                            ctx.fillStyle = getSpriteColor('#333333', ry, cam);
                             ctx.fillRect(screenX - size/2, screenY - size - 10, size, 5);
-                            ctx.fillStyle = healthPercent > 0.5 ? '#0f0' : healthPercent > 0.25 ? '#ff0' : '#f00';
+                            const healthColor = healthPercent > 0.5 ? '#4aa04a' : healthPercent > 0.25 ? '#c9a83a' : '#a04a4a';
+                            ctx.fillStyle = getSpriteColor(healthColor, ry, cam);
                             ctx.fillRect(screenX - size/2, screenY - size - 10, size * healthPercent, 5);
                         }
                     }
@@ -5671,352 +5695,290 @@
         // Bold silhouettes with pixel-art aesthetic
         // ============================================
 
-        function drawSoldier(x, y, size, color, pose = 'stand') {
-            const s = Math.max(size, 6);
-            const headSize = s * 0.22;
-            const torsoWidth = s * 0.26;
-            const torsoHeight = s * 0.55;
-            const legWidth = s * 0.14;
-            const legHeight = s * 0.4;
-            const armWidth = s * 0.12;
-            const armHeight = s * 0.22;
+        function normalizeHexColor(color) {
+            if (!color) return '000000';
+            let hex = color.replace('#', '').trim();
+            if (hex.length === 3) {
+                hex = hex.split('').map((c) => c + c).join('');
+            }
+            return hex.padEnd(6, '0').slice(0, 6);
+        }
 
-            const headY = y - s * 0.55;
-            const torsoY = y - torsoHeight * 0.45;
-            const legsY = y + s * 0.05;
-            const armY = y - s * 0.2;
+        function hexToRgb(color) {
+            const hex = normalizeHexColor(color);
+            return {
+                r: parseInt(hex.substr(0, 2), 16),
+                g: parseInt(hex.substr(2, 2), 16),
+                b: parseInt(hex.substr(4, 2), 16)
+            };
+        }
 
-            // Head
-            ctx.fillStyle = darkenColor(color, 25);
-            ctx.beginPath();
-            ctx.arc(x, headY, headSize, 0, Math.PI * 2);
-            ctx.fill();
+        function rgbToHex(color) {
+            const toHex = (value) => value.toString(16).padStart(2, '0');
+            return `#${toHex(color.r)}${toHex(color.g)}${toHex(color.b)}`;
+        }
+
+        function rgbToCss(color) {
+            return `rgb(${color.r}, ${color.g}, ${color.b})`;
+        }
+
+        function applyAmbientToHex(color, ambient) {
+            const base = hexToRgb(color);
+            return {
+                r: Math.floor(base.r * ambient),
+                g: Math.floor(base.g * ambient),
+                b: Math.floor(base.b * ambient)
+            };
+        }
+
+        function blendColorWithFog(color, factor, skyColor) {
+            const skyR = skyColor & 0xFF;
+            const skyG = (skyColor >> 8) & 0xFF;
+            const skyB = (skyColor >> 16) & 0xFF;
+            return {
+                r: Math.floor(color.r + (skyR - color.r) * factor),
+                g: Math.floor(color.g + (skyG - color.g) * factor),
+                b: Math.floor(color.b + (skyB - color.b) * factor)
+            };
+        }
+
+        function getSpriteColor(baseColor, distance, cam) {
+            const weather = WEATHER_SETTINGS[weatherCondition];
+
+            let color = applyAmbientToHex(baseColor, weather.ambient);
+
+            const fogStart = weather.fogStart;
+            const fogEnd = Math.min(cam.distance, fogStart + (cam.distance - fogStart) / (weather.fogDensity || 2));
+            const fogFactor = fogEnabled ? Math.min(1, Math.max(0, (distance - fogStart) / (fogEnd - fogStart))) : 0;
+
+            if (fogFactor > 0) {
+                color = blendColorWithFog(color, fogFactor, weather.skyColor);
+            }
+
+            return rgbToCss(color);
+        }
+
+        function getSpriteColorWithFog(baseColor, fogFactor, ambient, skyColor) {
+            let color = applyAmbientToHex(baseColor, ambient);
+            if (fogFactor > 0) {
+                color = blendColorWithFog(color, fogFactor, skyColor);
+            }
+            return rgbToCss(color);
+        }
+
+        function drawSoldier(x, y, size, color, pose = 'stand', fogFactor = 0, ambient = 1, skyColor = CONFIG.SKY_COLOR) {
+            ctx.imageSmoothingEnabled = false;
+            const s = Math.max(Math.floor(size), 6);
+            const ix = Math.floor(x);
+            const iy = Math.floor(y);
+            const headSize = Math.max(2, Math.floor(s * 0.22));
+            const torsoWidth = Math.max(2, Math.floor(s * 0.28));
+            const torsoHeight = Math.max(4, Math.floor(s * 0.5));
+            const legWidth = Math.max(2, Math.floor(s * 0.14));
+            const legHeight = Math.max(3, Math.floor(s * 0.35));
+            const armWidth = Math.max(2, Math.floor(s * 0.12));
+            const armHeight = Math.max(2, Math.floor(s * 0.18));
+
+            const headY = Math.floor(iy - s * 0.6);
+            const torsoY = Math.floor(iy - torsoHeight * 0.5);
+            const legsY = Math.floor(iy + s * 0.05);
+            const armY = Math.floor(iy - s * 0.2);
+
+            const base = getSpriteColorWithFog(color, fogFactor, ambient, skyColor);
+            const dark = getSpriteColorWithFog(darkenColor(color, 20), fogFactor, ambient, skyColor);
+            const darker = getSpriteColorWithFog(darkenColor(color, 35), fogFactor, ambient, skyColor);
+            const gear = getSpriteColorWithFog('#2a2a2a', fogFactor, ambient, skyColor);
+
+            // Head (blocky)
+            ctx.fillStyle = dark;
+            ctx.fillRect(ix - Math.floor(headSize / 2), headY, headSize, headSize);
 
             // Torso
-            ctx.fillStyle = color;
-            ctx.fillRect(x - torsoWidth / 2, torsoY, torsoWidth, torsoHeight);
+            ctx.fillStyle = base;
+            ctx.fillRect(ix - Math.floor(torsoWidth / 2), torsoY, torsoWidth, torsoHeight);
 
             // Legs
-            ctx.fillStyle = darkenColor(color, 10);
-            ctx.fillRect(x - legWidth - s * 0.04, legsY, legWidth, legHeight);
-            ctx.fillRect(x + s * 0.04, legsY, legWidth, legHeight);
+            ctx.fillStyle = dark;
+            ctx.fillRect(ix - legWidth - Math.floor(s * 0.04), legsY, legWidth, legHeight);
+            ctx.fillRect(ix + Math.floor(s * 0.04), legsY, legWidth, legHeight);
 
             // Arms and weapon
-            const weaponY = pose === 'shoot' ? armY - s * 0.05 : armY + s * 0.02;
-            const weaponX = pose === 'shoot' ? x + torsoWidth * 0.35 : x + torsoWidth * 0.2;
-            ctx.fillStyle = darkenColor(color, 35);
-            ctx.fillRect(x - torsoWidth * 0.6, armY, armWidth, armHeight);
-            ctx.fillRect(x + torsoWidth * 0.45, armY, armWidth, armHeight);
+            const weaponY = pose === 'shoot' ? armY - Math.floor(s * 0.05) : armY + Math.floor(s * 0.02);
+            const weaponX = pose === 'shoot' ? ix + Math.floor(torsoWidth * 0.4) : ix + Math.floor(torsoWidth * 0.2);
+            ctx.fillStyle = darker;
+            ctx.fillRect(ix - torsoWidth, armY, armWidth, armHeight);
+            ctx.fillRect(ix + torsoWidth - armWidth, armY, armWidth, armHeight);
 
-            ctx.fillStyle = '#2a2a2a';
-            ctx.fillRect(weaponX, weaponY, s * 0.35, s * 0.08);
+            ctx.fillStyle = gear;
+            ctx.fillRect(weaponX, weaponY, Math.max(2, Math.floor(s * 0.35)), Math.max(1, Math.floor(s * 0.08)));
         }
         
-        function drawTank(x, y, size, color) {
-            const s = Math.max(size, 14);  // Minimum size for visibility
-            
-            // === TRACKS (bottom layer) ===
-            // Left track
-            ctx.fillStyle = '#1a1a1a';
-            ctx.fillRect(x - s * 0.55, y - s * 0.05, s * 0.2, s * 0.25);
-            // Right track  
-            ctx.fillRect(x + s * 0.35, y - s * 0.05, s * 0.2, s * 0.25);
-            
-            // Track wheels (detail)
-            ctx.fillStyle = '#333';
-            for (let i = 0; i < 3; i++) {
-                const wheelY = y - s * 0.02 + i * s * 0.08;
-                ctx.fillRect(x - s * 0.52, wheelY, s * 0.14, s * 0.06);
-                ctx.fillRect(x + s * 0.38, wheelY, s * 0.14, s * 0.06);
-            }
-            
-            // Track highlight (top edge)
-            ctx.fillStyle = '#444';
-            ctx.fillRect(x - s * 0.55, y - s * 0.05, s * 0.2, s * 0.03);
-            ctx.fillRect(x + s * 0.35, y - s * 0.05, s * 0.2, s * 0.03);
-            
-            // === HULL (main body) ===
-            // Hull base - sloped armor look
-            ctx.fillStyle = darkenColor(color, 20);
-            ctx.beginPath();
-            ctx.moveTo(x - s * 0.45, y + s * 0.05);
-            ctx.lineTo(x - s * 0.35, y - s * 0.15);
-            ctx.lineTo(x + s * 0.35, y - s * 0.15);
-            ctx.lineTo(x + s * 0.45, y + s * 0.05);
-            ctx.closePath();
-            ctx.fill();
-            
-            // Hull top plate
-            ctx.fillStyle = color;
-            ctx.fillRect(x - s * 0.35, y - s * 0.25, s * 0.7, s * 0.12);
-            
-            // Hull front glacis (sloped armor)
-            ctx.fillStyle = lightenColor(color, 15);
-            ctx.beginPath();
-            ctx.moveTo(x + s * 0.35, y - s * 0.15);
-            ctx.lineTo(x + s * 0.45, y + s * 0.05);
-            ctx.lineTo(x + s * 0.35, y + s * 0.05);
-            ctx.closePath();
-            ctx.fill();
-            
-            // === TURRET ===
-            // Turret ring
-            ctx.fillStyle = darkenColor(color, 10);
-            ctx.fillRect(x - s * 0.22, y - s * 0.35, s * 0.44, s * 0.08);
-            
-            // Turret body
-            ctx.fillStyle = color;
-            ctx.beginPath();
-            ctx.moveTo(x - s * 0.2, y - s * 0.35);
-            ctx.lineTo(x - s * 0.15, y - s * 0.5);
-            ctx.lineTo(x + s * 0.2, y - s * 0.5);
-            ctx.lineTo(x + s * 0.25, y - s * 0.35);
-            ctx.closePath();
-            ctx.fill();
-            
-            // Turret highlight
-            ctx.fillStyle = lightenColor(color, 20);
-            ctx.fillRect(x - s * 0.15, y - s * 0.5, s * 0.35, s * 0.04);
-            
-            // Commander's hatch
-            ctx.fillStyle = darkenColor(color, 30);
-            ctx.beginPath();
-            ctx.arc(x - s * 0.05, y - s * 0.45, s * 0.06, 0, Math.PI * 2);
-            ctx.fill();
-            
-            // === MAIN GUN ===
-            // Gun barrel
-            ctx.fillStyle = '#2a2a2a';
-            ctx.fillRect(x + s * 0.15, y - s * 0.47, s * 0.5, s * 0.06);
-            
-            // Gun muzzle brake
-            ctx.fillStyle = '#1a1a1a';
-            ctx.fillRect(x + s * 0.58, y - s * 0.49, s * 0.1, s * 0.1);
-            
-            // Gun mantlet
-            ctx.fillStyle = '#333';
-            ctx.beginPath();
-            ctx.arc(x + s * 0.2, y - s * 0.44, s * 0.08, 0, Math.PI * 2);
-            ctx.fill();
-            
-            // === DETAILS ===
-            // Antenna
-            ctx.strokeStyle = '#555';
-            ctx.lineWidth = 1;
-            ctx.beginPath();
-            ctx.moveTo(x - s * 0.15, y - s * 0.5);
-            ctx.lineTo(x - s * 0.2, y - s * 0.7);
-            ctx.stroke();
-            
-            // External fuel tank
-            ctx.fillStyle = darkenColor(color, 25);
-            ctx.fillRect(x - s * 0.5, y - s * 0.2, s * 0.08, s * 0.15);
+        function drawTank(x, y, size, color, fogFactor = 0, ambient = 1, skyColor = CONFIG.SKY_COLOR) {
+            ctx.imageSmoothingEnabled = false;
+            const s = Math.max(Math.floor(size), 14);
+            const ix = Math.floor(x);
+            const iy = Math.floor(y);
+
+            const base = getSpriteColorWithFog(color, fogFactor, ambient, skyColor);
+            const dark = getSpriteColorWithFog(darkenColor(color, 20), fogFactor, ambient, skyColor);
+            const darker = getSpriteColorWithFog(darkenColor(color, 35), fogFactor, ambient, skyColor);
+            const track = getSpriteColorWithFog('#1a1a1a', fogFactor, ambient, skyColor);
+            const trackHighlight = getSpriteColorWithFog('#3a3a3a', fogFactor, ambient, skyColor);
+            const metal = getSpriteColorWithFog('#2a2a2a', fogFactor, ambient, skyColor);
+
+            const trackY = iy - Math.floor(s * 0.05);
+            const trackH = Math.max(2, Math.floor(s * 0.22));
+            const hullH = Math.max(3, Math.floor(s * 0.22));
+            const hullY = iy - Math.floor(s * 0.22);
+            const turretH = Math.max(2, Math.floor(s * 0.18));
+            const turretY = iy - Math.floor(s * 0.38);
+
+            // Tracks (single blocky base)
+            ctx.fillStyle = track;
+            ctx.fillRect(ix - Math.floor(s * 0.55), trackY, Math.floor(s * 1.1), trackH);
+            ctx.fillStyle = trackHighlight;
+            ctx.fillRect(ix - Math.floor(s * 0.55), trackY, Math.floor(s * 1.1), Math.max(1, Math.floor(trackH * 0.25)));
+
+            // Hull
+            ctx.fillStyle = dark;
+            ctx.fillRect(ix - Math.floor(s * 0.45), hullY, Math.floor(s * 0.9), hullH);
+
+            // Turret
+            ctx.fillStyle = base;
+            ctx.fillRect(ix - Math.floor(s * 0.25), turretY, Math.floor(s * 0.5), turretH);
+
+            // Turret cap
+            ctx.fillStyle = darker;
+            ctx.fillRect(ix - Math.floor(s * 0.1), turretY - Math.max(2, Math.floor(s * 0.08)), Math.floor(s * 0.2), Math.max(2, Math.floor(s * 0.08)));
+
+            // Main gun (blocky)
+            ctx.fillStyle = metal;
+            ctx.fillRect(ix + Math.floor(s * 0.15), turretY + Math.max(1, Math.floor(turretH * 0.3)), Math.floor(s * 0.45), Math.max(2, Math.floor(s * 0.06)));
         }
         
-        function drawBuilding(x, y, size, color) {
-            const s = Math.max(size, 16);
-            const height = s * 1.8;
-            
-            // === BASE/FOUNDATION ===
-            ctx.fillStyle = '#444';
-            ctx.fillRect(x - s * 0.45, y - s * 0.08, s * 0.9, s * 0.12);
-            
-            // === MAIN STRUCTURE ===
-            // Left wall (darker - shadow side)
-            ctx.fillStyle = darkenColor(color, 35);
-            ctx.fillRect(x - s * 0.42, y - height, s * 0.35, height - s * 0.08);
-            
-            // Front wall (main color)
-            ctx.fillStyle = color;
-            ctx.fillRect(x - s * 0.08, y - height, s * 0.5, height - s * 0.08);
-            
-            // Right wall edge (highlight)
-            ctx.fillStyle = lightenColor(color, 15);
-            ctx.fillRect(x + s * 0.38, y - height, s * 0.04, height - s * 0.08);
-            
-            // === ROOF ===
-            // Flat roof with lip
-            ctx.fillStyle = darkenColor(color, 50);
-            ctx.fillRect(x - s * 0.48, y - height - s * 0.08, s * 0.96, s * 0.12);
-            
-            // Roof equipment (AC units, etc)
-            ctx.fillStyle = '#555';
-            ctx.fillRect(x - s * 0.2, y - height - s * 0.18, s * 0.15, s * 0.12);
-            ctx.fillRect(x + s * 0.1, y - height - s * 0.15, s * 0.12, s * 0.08);
-            
-            // === WINDOWS ===
-            // Window grid (3 columns, 4 rows on front face)
-            const windowLit = Math.random() > 0.3;  // Some windows lit
-            for (let row = 0; row < 4; row++) {
-                for (let col = 0; col < 3; col++) {
-                    const wx = x - s * 0.02 + col * s * 0.16;
-                    const wy = y - height + s * 0.15 + row * s * 0.4;
-                    
-                    // Window frame
-                    ctx.fillStyle = '#222';
-                    ctx.fillRect(wx - s * 0.01, wy - s * 0.01, s * 0.13, s * 0.17);
-                    
-                    // Window glass - some lit, some dark
-                    const isLit = windowLit && Math.random() > 0.4;
-                    ctx.fillStyle = isLit ? '#ffdd66' : '#334455';
-                    ctx.fillRect(wx, wy, s * 0.11, s * 0.15);
-                    
-                    // Window reflection
-                    if (!isLit) {
-                        ctx.fillStyle = 'rgba(150, 180, 200, 0.3)';
-                        ctx.fillRect(wx, wy, s * 0.04, s * 0.15);
-                    }
+        function drawBuilding(x, y, size, color, fogFactor = 0, ambient = 1, skyColor = CONFIG.SKY_COLOR) {
+            ctx.imageSmoothingEnabled = false;
+            const s = Math.max(Math.floor(size), 16);
+            const ix = Math.floor(x);
+            const iy = Math.floor(y);
+            const height = Math.floor(s * 1.6);
+
+            const base = getSpriteColorWithFog(color, fogFactor, ambient, skyColor);
+            const shadow = getSpriteColorWithFog(darkenColor(color, 30), fogFactor, ambient, skyColor);
+            const highlight = getSpriteColorWithFog(lightenColor(color, 10), fogFactor, ambient, skyColor);
+            const roof = getSpriteColorWithFog(darkenColor(color, 45), fogFactor, ambient, skyColor);
+            const trim = getSpriteColorWithFog('#444444', fogFactor, ambient, skyColor);
+            const windowDark = getSpriteColorWithFog('#223344', fogFactor, ambient, skyColor);
+            const windowLit = getSpriteColorWithFog('#c9b46a', fogFactor, ambient, skyColor);
+
+            // Base/ground plate
+            ctx.fillStyle = trim;
+            ctx.fillRect(ix - Math.floor(s * 0.48), iy - Math.floor(s * 0.08), Math.floor(s * 0.96), Math.floor(s * 0.12));
+
+            // Main block (shadow side + front)
+            ctx.fillStyle = shadow;
+            ctx.fillRect(ix - Math.floor(s * 0.45), iy - height, Math.floor(s * 0.32), height - Math.floor(s * 0.08));
+            ctx.fillStyle = base;
+            ctx.fillRect(ix - Math.floor(s * 0.1), iy - height, Math.floor(s * 0.55), height - Math.floor(s * 0.08));
+            ctx.fillStyle = highlight;
+            ctx.fillRect(ix + Math.floor(s * 0.42), iy - height, Math.floor(s * 0.05), height - Math.floor(s * 0.08));
+
+            // Roof slab
+            ctx.fillStyle = roof;
+            ctx.fillRect(ix - Math.floor(s * 0.5), iy - height - Math.floor(s * 0.08), Math.floor(s * 1.0), Math.floor(s * 0.12));
+
+            // Windows (blocky grid)
+            const rows = 3;
+            const cols = 2;
+            for (let row = 0; row < rows; row++) {
+                for (let col = 0; col < cols; col++) {
+                    const wx = ix - Math.floor(s * 0.02) + col * Math.floor(s * 0.2);
+                    const wy = iy - height + Math.floor(s * 0.18) + row * Math.floor(s * 0.4);
+                    ctx.fillStyle = Math.random() > 0.6 ? windowLit : windowDark;
+                    ctx.fillRect(wx, wy, Math.floor(s * 0.14), Math.floor(s * 0.18));
                 }
             }
-            
-            // Side windows (on shadow wall)
-            for (let row = 0; row < 4; row++) {
-                const wy = y - height + s * 0.15 + row * s * 0.4;
-                ctx.fillStyle = '#223344';
-                ctx.fillRect(x - s * 0.35, wy, s * 0.18, s * 0.15);
-            }
-            
-            // === ENTRANCE ===
+
             // Door
-            ctx.fillStyle = '#333';
-            ctx.fillRect(x + s * 0.05, y - s * 0.35, s * 0.2, s * 0.27);
-            
-            // Door frame
-            ctx.strokeStyle = '#555';
-            ctx.lineWidth = 1;
-            ctx.strokeRect(x + s * 0.05, y - s * 0.35, s * 0.2, s * 0.27);
-            
-            // Entrance light
-            ctx.fillStyle = '#ffaa44';
-            ctx.beginPath();
-            ctx.arc(x + s * 0.15, y - s * 0.4, s * 0.03, 0, Math.PI * 2);
-            ctx.fill();
+            ctx.fillStyle = trim;
+            ctx.fillRect(ix + Math.floor(s * 0.08), iy - Math.floor(s * 0.34), Math.floor(s * 0.2), Math.floor(s * 0.26));
         }
         
-        function drawSAMSite(x, y, size, color) {
-            const s = Math.max(size, 14);
-            
-            // === BASE PLATFORM ===
-            // Concrete pad
-            ctx.fillStyle = '#3a3a3a';
-            ctx.fillRect(x - s * 0.6, y - s * 0.05, s * 1.2, s * 0.15);
-            
-            // Platform edge highlight
-            ctx.fillStyle = '#4a4a4a';
-            ctx.fillRect(x - s * 0.6, y - s * 0.05, s * 1.2, s * 0.03);
-            
-            // === LAUNCHER VEHICLE ===
-            // Truck bed/chassis
-            ctx.fillStyle = darkenColor(color, 30);
-            ctx.fillRect(x - s * 0.4, y - s * 0.15, s * 0.8, s * 0.12);
-            
-            // Wheels
-            ctx.fillStyle = '#1a1a1a';
-            ctx.beginPath();
-            ctx.arc(x - s * 0.25, y, s * 0.06, 0, Math.PI * 2);
-            ctx.arc(x + s * 0.25, y, s * 0.06, 0, Math.PI * 2);
-            ctx.fill();
-            
-            // === LAUNCHER BOX ===
-            // Main launcher housing
-            ctx.fillStyle = color;
-            ctx.fillRect(x - s * 0.3, y - s * 0.45, s * 0.6, s * 0.32);
-            
-            // Launcher front panel
-            ctx.fillStyle = lightenColor(color, 10);
-            ctx.fillRect(x + s * 0.22, y - s * 0.45, s * 0.08, s * 0.32);
-            
-            // === MISSILE TUBES ===
-            // 4 missile tubes (2x2 grid)
-            ctx.fillStyle = '#1a1a1a';
+        function drawSAMSite(x, y, size, color, fogFactor = 0, ambient = 1, skyColor = CONFIG.SKY_COLOR) {
+            ctx.imageSmoothingEnabled = false;
+            const s = Math.max(Math.floor(size), 14);
+            const ix = Math.floor(x);
+            const iy = Math.floor(y);
+
+            const base = getSpriteColorWithFog(color, fogFactor, ambient, skyColor);
+            const dark = getSpriteColorWithFog(darkenColor(color, 25), fogFactor, ambient, skyColor);
+            const darker = getSpriteColorWithFog(darkenColor(color, 35), fogFactor, ambient, skyColor);
+            const platform = getSpriteColorWithFog('#3a3a3a', fogFactor, ambient, skyColor);
+            const platformEdge = getSpriteColorWithFog('#4a4a4a', fogFactor, ambient, skyColor);
+            const tube = getSpriteColorWithFog('#1a1a1a', fogFactor, ambient, skyColor);
+            const radar = getSpriteColorWithFog('#666666', fogFactor, ambient, skyColor);
+            const cabinGlass = getSpriteColorWithFog('#335566', fogFactor, ambient, skyColor);
+
+            // Base platform
+            ctx.fillStyle = platform;
+            ctx.fillRect(ix - Math.floor(s * 0.6), iy - Math.floor(s * 0.05), Math.floor(s * 1.2), Math.floor(s * 0.15));
+            ctx.fillStyle = platformEdge;
+            ctx.fillRect(ix - Math.floor(s * 0.6), iy - Math.floor(s * 0.05), Math.floor(s * 1.2), Math.max(1, Math.floor(s * 0.03)));
+
+            // Chassis
+            ctx.fillStyle = darker;
+            ctx.fillRect(ix - Math.floor(s * 0.4), iy - Math.floor(s * 0.15), Math.floor(s * 0.8), Math.floor(s * 0.12));
+
+            // Wheels (blocky)
+            ctx.fillStyle = tube;
+            ctx.fillRect(ix - Math.floor(s * 0.28), iy - Math.floor(s * 0.02), Math.floor(s * 0.12), Math.floor(s * 0.08));
+            ctx.fillRect(ix + Math.floor(s * 0.16), iy - Math.floor(s * 0.02), Math.floor(s * 0.12), Math.floor(s * 0.08));
+
+            // Launcher box
+            ctx.fillStyle = base;
+            ctx.fillRect(ix - Math.floor(s * 0.3), iy - Math.floor(s * 0.45), Math.floor(s * 0.6), Math.floor(s * 0.32));
+            ctx.fillStyle = dark;
+            ctx.fillRect(ix + Math.floor(s * 0.22), iy - Math.floor(s * 0.45), Math.floor(s * 0.08), Math.floor(s * 0.32));
+
+            // Missile tubes (2x2 squares)
+            ctx.fillStyle = tube;
             for (let row = 0; row < 2; row++) {
                 for (let col = 0; col < 2; col++) {
-                    const tubeX = x - s * 0.2 + col * s * 0.22;
-                    const tubeY = y - s * 0.42 + row * s * 0.14;
-                    
-                    // Tube opening
-                    ctx.beginPath();
-                    ctx.arc(tubeX, tubeY, s * 0.05, 0, Math.PI * 2);
-                    ctx.fill();
-                    
-                    // Tube highlight (3D effect)
-                    ctx.fillStyle = '#333';
-                    ctx.beginPath();
-                    ctx.arc(tubeX - s * 0.01, tubeY - s * 0.01, s * 0.02, 0, Math.PI * 2);
-                    ctx.fill();
-                    ctx.fillStyle = '#1a1a1a';
+                    const tubeX = ix - Math.floor(s * 0.2) + col * Math.floor(s * 0.22);
+                    const tubeY = iy - Math.floor(s * 0.42) + row * Math.floor(s * 0.14);
+                    ctx.fillRect(tubeX, tubeY, Math.floor(s * 0.08), Math.floor(s * 0.08));
                 }
             }
-            
-            // === RADAR ARRAY ===
-            // Radar mast
-            ctx.fillStyle = '#444';
-            ctx.fillRect(x - s * 0.52, y - s * 0.7, s * 0.04, s * 0.35);
-            
-            // Radar dish (rotating animated)
-            const radarAngle = (performance.now() / 500) % (Math.PI * 2);
-            ctx.save();
-            ctx.translate(x - s * 0.5, y - s * 0.7);
-            ctx.rotate(radarAngle);
-            
-            // Dish
-            ctx.fillStyle = '#666';
-            ctx.beginPath();
-            ctx.ellipse(0, 0, s * 0.12, s * 0.06, 0, 0, Math.PI * 2);
-            ctx.fill();
-            
-            // Dish center
-            ctx.fillStyle = '#888';
-            ctx.beginPath();
-            ctx.arc(0, 0, s * 0.03, 0, Math.PI * 2);
-            ctx.fill();
-            
-            ctx.restore();
-            
-            // === CONTROL CABIN ===
-            ctx.fillStyle = darkenColor(color, 20);
-            ctx.fillRect(x + s * 0.35, y - s * 0.35, s * 0.2, s * 0.22);
-            
-            // Cabin window
-            ctx.fillStyle = '#335566';
-            ctx.fillRect(x + s * 0.38, y - s * 0.32, s * 0.14, s * 0.08);
-            
-            // === WARNING MARKINGS ===
-            // Hazard stripes on launcher
-            ctx.fillStyle = '#cc8800';
-            ctx.fillRect(x - s * 0.3, y - s * 0.48, s * 0.6, s * 0.03);
-            
-            // Red warning light (blinking)
-            const blinkOn = Math.floor(performance.now() / 500) % 2 === 0;
-            if (blinkOn) {
-                ctx.fillStyle = '#ff0000';
-                ctx.beginPath();
-                ctx.arc(x - s * 0.5, y - s * 0.72, s * 0.025, 0, Math.PI * 2);
-                ctx.fill();
-                
-                // Glow effect
-                ctx.fillStyle = 'rgba(255, 0, 0, 0.3)';
-                ctx.beginPath();
-                ctx.arc(x - s * 0.5, y - s * 0.72, s * 0.05, 0, Math.PI * 2);
-                ctx.fill();
-            }
+
+            // Radar mast and blocky dish
+            ctx.fillStyle = platformEdge;
+            ctx.fillRect(ix - Math.floor(s * 0.52), iy - Math.floor(s * 0.7), Math.floor(s * 0.05), Math.floor(s * 0.35));
+            ctx.fillStyle = radar;
+            ctx.fillRect(ix - Math.floor(s * 0.56), iy - Math.floor(s * 0.78), Math.floor(s * 0.12), Math.floor(s * 0.08));
+
+            // Cabin
+            ctx.fillStyle = dark;
+            ctx.fillRect(ix + Math.floor(s * 0.35), iy - Math.floor(s * 0.35), Math.floor(s * 0.2), Math.floor(s * 0.22));
+            ctx.fillStyle = cabinGlass;
+            ctx.fillRect(ix + Math.floor(s * 0.38), iy - Math.floor(s * 0.32), Math.floor(s * 0.14), Math.floor(s * 0.08));
         }
         
         function lightenColor(color, amount) {
-            // Simple color lightening for hex colors
-            const hex = color.replace('#', '');
-            const r = Math.min(255, parseInt(hex.substr(0, 2), 16) + amount);
-            const g = Math.min(255, parseInt(hex.substr(2, 2), 16) + amount);
-            const b = Math.min(255, parseInt(hex.substr(4, 2), 16) + amount);
-            return `rgb(${r}, ${g}, ${b})`;
+            const base = hexToRgb(color);
+            return rgbToHex({
+                r: Math.min(255, base.r + amount),
+                g: Math.min(255, base.g + amount),
+                b: Math.min(255, base.b + amount)
+            });
         }
         
         function darkenColor(color, amount) {
-            const hex = color.replace('#', '');
-            const r = Math.max(0, parseInt(hex.substr(0, 2), 16) - amount);
-            const g = Math.max(0, parseInt(hex.substr(2, 2), 16) - amount);
-            const b = Math.max(0, parseInt(hex.substr(4, 2), 16) - amount);
-            return `rgb(${r}, ${g}, ${b})`;
+            const base = hexToRgb(color);
+            return rgbToHex({
+                r: Math.max(0, base.r - amount),
+                g: Math.max(0, base.g - amount),
+                b: Math.max(0, base.b - amount)
+            });
         }
         
         // ============================================
@@ -6184,128 +6146,6 @@
                     ctx.fill();
                 }
             }
-        }
-        
-        // ============================================
-        // HELICOPTER SPRITE (Chase View)
-        // ============================================
-        function drawHelicopterSprite() {
-            if (viewMode !== 'chase' || gameState !== GAME_STATES.PLAYING || gameMode === GAME_MODES.DELTA) return;
-            
-            const cx = screenWidth / 2;
-            const cy = screenHeight / 2 + 30;  // Slightly below center
-            
-            // Shadow on ground
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
-            ctx.beginPath();
-            ctx.ellipse(cx, cy + 40, 25, 8, 0, 0, Math.PI * 2);
-            ctx.fill();
-            
-            // Tail boom
-            ctx.fillStyle = '#3a3a3a';
-            ctx.fillRect(cx - 45, cy - 2, 30, 6);
-            
-            // Tail rotor housing
-            ctx.fillStyle = '#2a2a2a';
-            ctx.fillRect(cx - 50, cy - 8, 8, 18);
-            
-            // Tail rotor (animated)
-            const tailRotorAngle = (performance.now() / 30) % 360;
-            ctx.save();
-            ctx.translate(cx - 46, cy);
-            ctx.rotate(tailRotorAngle * Math.PI / 180);
-            ctx.fillStyle = '#555';
-            ctx.fillRect(-2, -12, 4, 24);
-            ctx.restore();
-            
-            // Main fuselage
-            ctx.fillStyle = '#4a4a4a';
-            ctx.beginPath();
-            ctx.moveTo(cx - 15, cy - 8);
-            ctx.lineTo(cx + 25, cy - 10);
-            ctx.lineTo(cx + 30, cy - 5);
-            ctx.lineTo(cx + 30, cy + 5);
-            ctx.lineTo(cx + 25, cy + 10);
-            ctx.lineTo(cx - 15, cy + 8);
-            ctx.closePath();
-            ctx.fill();
-            
-            // Cockpit glass
-            ctx.fillStyle = '#0af';
-            ctx.globalAlpha = 0.7;
-            ctx.beginPath();
-            ctx.moveTo(cx + 15, cy - 6);
-            ctx.lineTo(cx + 28, cy - 4);
-            ctx.lineTo(cx + 28, cy + 4);
-            ctx.lineTo(cx + 15, cy + 6);
-            ctx.closePath();
-            ctx.fill();
-            ctx.globalAlpha = 1.0;
-            
-            // Cockpit frame
-            ctx.strokeStyle = '#333';
-            ctx.lineWidth = 1;
-            ctx.beginPath();
-            ctx.moveTo(cx + 15, cy - 6);
-            ctx.lineTo(cx + 28, cy - 4);
-            ctx.lineTo(cx + 28, cy + 4);
-            ctx.lineTo(cx + 15, cy + 6);
-            ctx.closePath();
-            ctx.stroke();
-            
-            // Engine housing on top
-            ctx.fillStyle = '#3a3a3a';
-            ctx.fillRect(cx - 10, cy - 14, 20, 6);
-            
-            // Skids (landing gear)
-            ctx.strokeStyle = '#333';
-            ctx.lineWidth = 2;
-            // Left skid
-            ctx.beginPath();
-            ctx.moveTo(cx - 10, cy + 8);
-            ctx.lineTo(cx - 10, cy + 15);
-            ctx.lineTo(cx + 15, cy + 15);
-            ctx.stroke();
-            // Right skid strut
-            ctx.beginPath();
-            ctx.moveTo(cx + 10, cy + 8);
-            ctx.lineTo(cx + 10, cy + 15);
-            ctx.stroke();
-            
-            // Main rotor mast
-            ctx.fillStyle = '#333';
-            ctx.fillRect(cx - 2, cy - 20, 4, 8);
-            
-            // Main rotor (animated spinning)
-            const rotorAngle = (performance.now() / 20) % 360;
-            ctx.save();
-            ctx.translate(cx, cy - 20);
-            ctx.rotate(rotorAngle * Math.PI / 180);
-            
-            // Rotor blades
-            ctx.strokeStyle = '#555';
-            ctx.lineWidth = 3;
-            ctx.beginPath();
-            ctx.moveTo(-40, 0);
-            ctx.lineTo(40, 0);
-            ctx.stroke();
-            ctx.beginPath();
-            ctx.moveTo(0, -40);
-            ctx.lineTo(0, 40);
-            ctx.stroke();
-            
-            // Rotor hub
-            ctx.fillStyle = '#444';
-            ctx.beginPath();
-            ctx.arc(0, 0, 5, 0, Math.PI * 2);
-            ctx.fill();
-            
-            ctx.restore();
-            
-            // Weapon pods (optional detail)
-            ctx.fillStyle = '#3a3a3a';
-            ctx.fillRect(cx - 5, cy + 5, 8, 4);
-            ctx.fillRect(cx + 5, cy + 5, 8, 4);
         }
         
         // ============================================
@@ -6630,101 +6470,6 @@
 
             renderScopeOverlay();
         }
-
-        function renderViewModel() {
-            if (gameMode !== GAME_MODES.DELTA) return;
-            const weaponKey = soldierWeapon.current;
-            const weapon = WEAPONS_DELTA[weaponKey];
-            if (!weapon) return;
-            if (soldierScope.active && weaponKey === 'sniper') return;
-
-            // Position gun in lower-right, centered for FPS feel
-            // Adjust based on camera pitch (horizon) for realistic weapon sway
-            const pitchOffset = (camera.horizon - screenHeight / 2) / screenHeight * 30;
-            const baseX = screenWidth * 0.5 + 60;  // Slightly right of center
-            const baseY = screenHeight * 0.78 - pitchOffset;  // Lower on screen, follows pitch
-            const bobX = Math.sin(soldierWeapon.viewBob * 1.6) * 4;
-            const bobY = Math.abs(Math.cos(soldierWeapon.viewBob * 1.3)) * 3;
-            const recoilKick = Math.min(10, soldierWeapon.recoilOffset) * 0.6;
-
-            ctx.save();
-            ctx.translate(baseX + bobX - recoilKick * 0.3, baseY + bobY + recoilKick * 0.15);
-
-            ctx.fillStyle = '#2e2e2e';
-            ctx.strokeStyle = '#111';
-            ctx.lineWidth = 2;
-
-            let muzzleX = 0;
-            let muzzleY = 0;
-
-            if (weaponKey === 'm4') {
-                // Stock
-                ctx.fillRect(-60, 30, 28, 14);
-                // Body
-                ctx.fillRect(-40, 20, 80, 18);
-                // Grip
-                ctx.fillRect(-5, 38, 12, 18);
-                // Barrel
-                ctx.fillRect(40, 22, 52, 8);
-                // Rail
-                ctx.fillRect(-25, 14, 50, 6);
-                // Hand
-                ctx.fillStyle = '#b07d4f';
-                ctx.fillRect(-12, 40, 22, 14);
-                ctx.fillStyle = '#2e2e2e';
-                muzzleX = 94;
-                muzzleY = 26;
-            } else if (weaponKey === 'sniper') {
-                // Stock
-                ctx.fillRect(-70, 34, 32, 12);
-                // Body
-                ctx.fillRect(-38, 24, 90, 16);
-                // Barrel (long)
-                ctx.fillRect(50, 26, 90, 6);
-                // Scope
-                ctx.fillRect(-10, 10, 40, 8);
-                ctx.fillRect(5, 6, 16, 6);
-                // Grip
-                ctx.fillRect(-5, 40, 12, 16);
-                // Hand
-                ctx.fillStyle = '#b07d4f';
-                ctx.fillRect(-12, 42, 22, 12);
-                ctx.fillStyle = '#2e2e2e';
-                muzzleX = 144;
-                muzzleY = 29;
-            } else {
-                // Pistol body
-                ctx.fillRect(-15, 28, 52, 14);
-                // Slide
-                ctx.fillRect(-12, 22, 42, 6);
-                // Grip
-                ctx.fillRect(2, 40, 14, 18);
-                // Hand
-                ctx.fillStyle = '#b07d4f';
-                ctx.fillRect(-2, 44, 20, 12);
-                ctx.fillStyle = '#2e2e2e';
-                muzzleX = 38;
-                muzzleY = 30;
-            }
-
-            // Muzzle flash
-            if (soldierWeapon.muzzleFlashTime > 0) {
-                const life = Math.max(0, soldierWeapon.muzzleFlashTime / 120);
-                ctx.save();
-                ctx.globalAlpha = 0.8 * life;
-                ctx.fillStyle = 'rgba(255, 220, 120, 0.9)';
-                ctx.beginPath();
-                ctx.moveTo(muzzleX, muzzleY);
-                ctx.lineTo(muzzleX + 20, muzzleY - 6);
-                ctx.lineTo(muzzleX + 34, muzzleY);
-                ctx.lineTo(muzzleX + 20, muzzleY + 6);
-                ctx.closePath();
-                ctx.fill();
-                ctx.restore();
-            }
-
-            ctx.restore();
-        }
         
         function renderHUD() {
             if (gameMode === GAME_MODES.DELTA) {
@@ -6840,14 +6585,6 @@
                 ctx.fillStyle = '#f00';
                 ctx.textAlign = 'right';
                 ctx.fillText('MUTED [B]', screenWidth - 150, 35);
-            }
-            
-            // View mode indicator
-            if (viewMode === 'chase' && gameMode !== GAME_MODES.DELTA) {
-                ctx.font = 'bold 12px Courier New';
-                ctx.fillStyle = '#0ff';
-                ctx.textAlign = 'left';
-                ctx.fillText('CHASE VIEW [6]', 480, 35);
             }
             
             // God mode indicator
