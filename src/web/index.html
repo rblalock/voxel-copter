@@ -7967,49 +7967,121 @@
 
         function drawSoldier(x, y, size, color, pose = 'stand', fogFactor = 0, ambient = 1, skyColor = CONFIG.SKY_COLOR) {
             ctx.imageSmoothingEnabled = false;
-            const s = Math.max(Math.floor(size), 6);
+            const s = Math.max(Math.floor(size), 8);
             const ix = Math.floor(x);
             const iy = Math.floor(y);
-            const headSize = Math.max(2, Math.floor(s * 0.22));
-            const torsoWidth = Math.max(2, Math.floor(s * 0.28));
-            const torsoHeight = Math.max(4, Math.floor(s * 0.5));
-            const legWidth = Math.max(2, Math.floor(s * 0.14));
-            const legHeight = Math.max(3, Math.floor(s * 0.35));
-            const armWidth = Math.max(2, Math.floor(s * 0.12));
-            const armHeight = Math.max(2, Math.floor(s * 0.18));
+            
+            // Proportions - more realistic military figure
+            const headW = Math.max(2, Math.floor(s * 0.18));
+            const headH = Math.max(2, Math.floor(s * 0.16));
+            const helmetH = Math.max(1, Math.floor(s * 0.06));
+            const torsoW = Math.max(3, Math.floor(s * 0.26));
+            const torsoH = Math.max(4, Math.floor(s * 0.32));
+            const legW = Math.max(2, Math.floor(s * 0.1));
+            const legH = Math.max(3, Math.floor(s * 0.28));
+            const armW = Math.max(1, Math.floor(s * 0.08));
+            const armH = Math.max(2, Math.floor(s * 0.22));
+            const bootH = Math.max(1, Math.floor(s * 0.06));
+            const packW = Math.max(2, Math.floor(s * 0.14));
+            const packH = Math.max(2, Math.floor(s * 0.18));
 
-            const headY = Math.floor(iy - s * 0.6);
-            const torsoY = Math.floor(iy - torsoHeight * 0.5);
-            const legsY = Math.floor(iy + s * 0.05);
-            const armY = Math.floor(iy - s * 0.2);
-
+            // Colors with proper shading
             const base = getSpriteColorWithFog(color, fogFactor, ambient, skyColor);
             const dark = getSpriteColorWithFog(darkenColor(color, 20), fogFactor, ambient, skyColor);
             const darker = getSpriteColorWithFog(darkenColor(color, 35), fogFactor, ambient, skyColor);
+            const highlight = getSpriteColorWithFog(lightenColor(color, 10), fogFactor, ambient, skyColor);
+            const skin = getSpriteColorWithFog('#8a6a5a', fogFactor, ambient, skyColor);
             const gear = getSpriteColorWithFog('#2a2a2a', fogFactor, ambient, skyColor);
+            const gearDark = getSpriteColorWithFog('#1a1a1a', fogFactor, ambient, skyColor);
+            const boot = getSpriteColorWithFog('#3a3020', fogFactor, ambient, skyColor);
 
-            // Head (blocky)
-            ctx.fillStyle = dark;
-            ctx.fillRect(ix - Math.floor(headSize / 2), headY, headSize, headSize);
+            // Adjust positions based on pose
+            const isCrouch = pose === 'crouch';
+            const isShoot = pose === 'shoot';
+            const crouchOffset = isCrouch ? Math.floor(s * 0.12) : 0;
+            const legSpread = isCrouch ? Math.floor(s * 0.04) : Math.floor(s * 0.02);
 
-            // Torso
-            ctx.fillStyle = base;
-            ctx.fillRect(ix - Math.floor(torsoWidth / 2), torsoY, torsoWidth, torsoHeight);
+            // Y positions (bottom-up construction)
+            const bootY = iy - bootH + crouchOffset;
+            const legY = bootY - legH + (isCrouch ? Math.floor(legH * 0.3) : 0);
+            const torsoY = legY - torsoH + Math.floor(s * 0.04);
+            const headY = torsoY - headH - helmetH + Math.floor(s * 0.02);
+            const armY = torsoY + Math.floor(s * 0.02);
+
+            // Boots
+            ctx.fillStyle = boot;
+            ctx.fillRect(ix - legW - legSpread, bootY, legW + 1, bootH);
+            ctx.fillRect(ix + legSpread - 1, bootY, legW + 1, bootH);
 
             // Legs
             ctx.fillStyle = dark;
-            ctx.fillRect(ix - legWidth - Math.floor(s * 0.04), legsY, legWidth, legHeight);
-            ctx.fillRect(ix + Math.floor(s * 0.04), legsY, legWidth, legHeight);
+            ctx.fillRect(ix - legW - legSpread, legY, legW, legH);
+            ctx.fillRect(ix + legSpread, legY, legW, legH);
+            // Leg highlight
+            ctx.fillStyle = base;
+            ctx.fillRect(ix - legW - legSpread, legY, Math.max(1, Math.floor(legW * 0.4)), legH);
 
-            // Arms and weapon
-            const weaponY = pose === 'shoot' ? armY - Math.floor(s * 0.05) : armY + Math.floor(s * 0.02);
-            const weaponX = pose === 'shoot' ? ix + Math.floor(torsoWidth * 0.4) : ix + Math.floor(torsoWidth * 0.2);
+            // Torso
+            ctx.fillStyle = base;
+            ctx.fillRect(ix - Math.floor(torsoW / 2), torsoY, torsoW, torsoH);
+            // Torso shadow (left side)
+            ctx.fillStyle = dark;
+            ctx.fillRect(ix - Math.floor(torsoW / 2), torsoY, Math.max(1, Math.floor(torsoW * 0.25)), torsoH);
+            // Torso highlight (right side)
+            ctx.fillStyle = highlight;
+            ctx.fillRect(ix + Math.floor(torsoW / 2) - 1, torsoY, 1, torsoH);
+
+            // Backpack/gear
             ctx.fillStyle = darker;
-            ctx.fillRect(ix - torsoWidth, armY, armWidth, armHeight);
-            ctx.fillRect(ix + torsoWidth - armWidth, armY, armWidth, armHeight);
+            ctx.fillRect(ix - Math.floor(torsoW / 2) - packW + 1, torsoY + Math.floor(s * 0.04), packW, packH);
+            ctx.fillStyle = gearDark;
+            ctx.fillRect(ix - Math.floor(torsoW / 2) - packW + 1, torsoY + Math.floor(s * 0.04), Math.max(1, Math.floor(packW * 0.3)), packH);
 
-            ctx.fillStyle = gear;
-            ctx.fillRect(weaponX, weaponY, Math.max(2, Math.floor(s * 0.35)), Math.max(1, Math.floor(s * 0.08)));
+            // Arms
+            const armOffsetY = isShoot ? -Math.floor(s * 0.06) : 0;
+            ctx.fillStyle = dark;
+            ctx.fillRect(ix - Math.floor(torsoW / 2) - armW, armY + armOffsetY, armW, armH);
+            ctx.fillRect(ix + Math.floor(torsoW / 2), armY + armOffsetY, armW, armH);
+
+            // Helmet
+            ctx.fillStyle = darker;
+            ctx.fillRect(ix - Math.floor(headW / 2) - 1, headY, headW + 2, helmetH + 1);
+            // Helmet rim
+            ctx.fillStyle = gearDark;
+            ctx.fillRect(ix - Math.floor(headW / 2) - 1, headY + helmetH, headW + 2, 1);
+
+            // Head/face
+            ctx.fillStyle = skin;
+            ctx.fillRect(ix - Math.floor(headW / 2), headY + helmetH, headW, headH);
+
+            // Weapon (rifle shape)
+            const weaponLen = Math.max(3, Math.floor(s * 0.4));
+            const weaponH = Math.max(1, Math.floor(s * 0.05));
+            const stockLen = Math.max(2, Math.floor(s * 0.12));
+            const magH = Math.max(1, Math.floor(s * 0.08));
+            
+            if (isShoot) {
+                // Weapon raised, pointing forward
+                const weaponX = ix + Math.floor(torsoW / 2) + armW - 1;
+                const weaponY = armY + armOffsetY + Math.floor(armH * 0.3);
+                ctx.fillStyle = gear;
+                ctx.fillRect(weaponX, weaponY, weaponLen, weaponH);
+                // Stock
+                ctx.fillStyle = gearDark;
+                ctx.fillRect(weaponX - stockLen, weaponY - 1, stockLen, weaponH + 2);
+                // Magazine
+                ctx.fillRect(weaponX + Math.floor(weaponLen * 0.3), weaponY + weaponH, Math.max(1, Math.floor(s * 0.04)), magH);
+            } else {
+                // Weapon at rest, angled down
+                const weaponX = ix + Math.floor(torsoW / 2);
+                const weaponY = armY + Math.floor(armH * 0.5);
+                ctx.fillStyle = gear;
+                ctx.fillRect(weaponX, weaponY, Math.floor(weaponLen * 0.7), weaponH);
+                ctx.fillRect(weaponX + Math.floor(weaponLen * 0.2), weaponY + weaponH, weaponH, Math.floor(weaponLen * 0.4));
+                // Stock
+                ctx.fillStyle = gearDark;
+                ctx.fillRect(weaponX - Math.floor(stockLen * 0.5), weaponY - 1, Math.floor(stockLen * 0.6), weaponH + 2);
+            }
         }
 
         function drawHelicopter(x, y, size, color, heading, fogFactor = 0, ambient = 1, skyColor = CONFIG.SKY_COLOR) {
@@ -8018,10 +8090,15 @@
             const ix = Math.floor(x);
             const iy = Math.floor(y);
 
-            const bodyColor = getSpriteColorWithFog(color, fogFactor, ambient, skyColor);
-            const darkColor = getSpriteColorWithFog(darkenColor(color, 30), fogFactor, ambient, skyColor);
-            const glassColor = getSpriteColorWithFog('#2a6a8a', fogFactor, ambient, skyColor);
-            const rotorColor = getSpriteColorWithFog('#444444', fogFactor, ambient, skyColor);
+            // Colors - military stealth helicopter palette
+            const body = getSpriteColorWithFog(color, fogFactor, ambient, skyColor);
+            const dark = getSpriteColorWithFog(darkenColor(color, 25), fogFactor, ambient, skyColor);
+            const darker = getSpriteColorWithFog(darkenColor(color, 40), fogFactor, ambient, skyColor);
+            const highlight = getSpriteColorWithFog(lightenColor(color, 12), fogFactor, ambient, skyColor);
+            const glass = getSpriteColorWithFog('#1a4a5a', fogFactor, ambient, skyColor);
+            const glassHighlight = getSpriteColorWithFog('#3a7a9a', fogFactor, ambient, skyColor);
+            const rotor = getSpriteColorWithFog('#3a3a3a', fogFactor, ambient, skyColor);
+            const exhaust = getSpriteColorWithFog('#2a2a2a', fogFactor, ambient, skyColor);
 
             const relAngle = normalizeAngle(heading - camera.angle);
             const facingRight = Math.cos(relAngle) >= 0;
@@ -8031,54 +8108,152 @@
             ctx.translate(ix, iy);
             ctx.scale(dir, 1);
 
-            const bodyLength = s * 1.25;
-            const bodyHeight = s * 0.38;
-            const tailLength = s * 0.75;
-            const tailHeight = s * 0.12;
-            const skidHeight = Math.max(1, Math.floor(s * 0.06));
+            // Proportions - sleek Comanche/Apache-like profile
+            const fuseLen = s * 1.4;
+            const fuseH = s * 0.28;
+            const noseLen = s * 0.35;
+            const tailLen = s * 0.9;
+            const tailH = s * 0.1;
+            const finH = s * 0.22;
+            const skidH = Math.max(1, Math.floor(s * 0.04));
+            const skidStrut = Math.max(1, Math.floor(s * 0.03));
 
-            // Main body (horizontal fuselage)
-            ctx.fillStyle = bodyColor;
-            ctx.fillRect(-bodyLength * 0.5, -bodyHeight * 0.5, bodyLength, bodyHeight);
-
-            // Cockpit bubble (front)
-            ctx.fillStyle = glassColor;
+            // Tail boom (tapered)
+            ctx.fillStyle = dark;
             ctx.beginPath();
-            ctx.ellipse(bodyLength * 0.25, -bodyHeight * 0.05, bodyLength * 0.18, bodyHeight * 0.55, 0, 0, Math.PI * 2);
+            ctx.moveTo(-fuseLen * 0.35, -tailH * 0.6);
+            ctx.lineTo(-fuseLen * 0.35 - tailLen, -tailH * 0.3);
+            ctx.lineTo(-fuseLen * 0.35 - tailLen, tailH * 0.3);
+            ctx.lineTo(-fuseLen * 0.35, tailH * 0.6);
+            ctx.closePath();
             ctx.fill();
 
-            // Tail boom
-            ctx.fillStyle = darkColor;
-            ctx.fillRect(-bodyLength * 0.5 - tailLength, -tailHeight * 0.5, tailLength, tailHeight);
-
-            // Tail rotor
-            ctx.fillRect(-bodyLength * 0.5 - tailLength - s * 0.05, -tailHeight * 1.2, s * 0.12, tailHeight * 2.4);
-
-            // Skids
-            ctx.fillRect(-bodyLength * 0.35, bodyHeight * 0.55, bodyLength * 0.7, skidHeight);
-            ctx.fillRect(-bodyLength * 0.35, bodyHeight * 0.72, bodyLength * 0.7, skidHeight);
-            ctx.fillRect(-bodyLength * 0.25, bodyHeight * 0.25, skidHeight, bodyHeight * 0.4);
-            ctx.fillRect(bodyLength * 0.15, bodyHeight * 0.25, skidHeight, bodyHeight * 0.4);
-
-            // Main rotor (disc + blades)
-            const rotorTime = performance.now() / 45;
-            ctx.fillStyle = rotorColor;
-            ctx.globalAlpha = 0.35;
+            // Tail fin (vertical stabilizer)
+            ctx.fillStyle = darker;
             ctx.beginPath();
-            ctx.ellipse(0, -bodyHeight * 0.75, bodyLength * 0.6, bodyLength * 0.18, 0, 0, Math.PI * 2);
+            ctx.moveTo(-fuseLen * 0.35 - tailLen + s * 0.08, -tailH * 0.3);
+            ctx.lineTo(-fuseLen * 0.35 - tailLen - s * 0.04, -finH);
+            ctx.lineTo(-fuseLen * 0.35 - tailLen - s * 0.12, -finH);
+            ctx.lineTo(-fuseLen * 0.35 - tailLen - s * 0.06, -tailH * 0.3);
+            ctx.closePath();
             ctx.fill();
-            ctx.globalAlpha = 0.6;
+
+            // Horizontal stabilizer
+            ctx.fillStyle = dark;
+            ctx.fillRect(-fuseLen * 0.35 - tailLen - s * 0.02, -s * 0.02, s * 0.18, s * 0.04);
+
+            // Tail rotor housing
+            ctx.fillStyle = darker;
+            ctx.fillRect(-fuseLen * 0.35 - tailLen - s * 0.08, -finH + s * 0.02, s * 0.1, s * 0.08);
+
+            // Main fuselage (angular stealth shape)
+            ctx.fillStyle = body;
+            ctx.beginPath();
+            ctx.moveTo(fuseLen * 0.4, -fuseH * 0.2);  // Nose top
+            ctx.lineTo(fuseLen * 0.5, fuseH * 0.1);   // Nose tip
+            ctx.lineTo(fuseLen * 0.4, fuseH * 0.4);   // Nose bottom
+            ctx.lineTo(-fuseLen * 0.35, fuseH * 0.5); // Rear bottom
+            ctx.lineTo(-fuseLen * 0.35, -fuseH * 0.4);// Rear top
+            ctx.lineTo(fuseLen * 0.15, -fuseH * 0.5); // Top spine
+            ctx.closePath();
+            ctx.fill();
+
+            // Fuselage top highlight
+            ctx.fillStyle = highlight;
+            ctx.beginPath();
+            ctx.moveTo(fuseLen * 0.35, -fuseH * 0.25);
+            ctx.lineTo(fuseLen * 0.15, -fuseH * 0.5);
+            ctx.lineTo(-fuseLen * 0.25, -fuseH * 0.4);
+            ctx.lineTo(-fuseLen * 0.1, -fuseH * 0.25);
+            ctx.closePath();
+            ctx.fill();
+
+            // Fuselage bottom shadow
+            ctx.fillStyle = dark;
+            ctx.beginPath();
+            ctx.moveTo(fuseLen * 0.4, fuseH * 0.35);
+            ctx.lineTo(-fuseLen * 0.35, fuseH * 0.5);
+            ctx.lineTo(-fuseLen * 0.35, fuseH * 0.3);
+            ctx.lineTo(fuseLen * 0.35, fuseH * 0.2);
+            ctx.closePath();
+            ctx.fill();
+
+            // Engine intake (top)
+            ctx.fillStyle = darker;
+            ctx.fillRect(-fuseLen * 0.15, -fuseH * 0.55, s * 0.2, s * 0.08);
+
+            // Engine exhaust (rear sides)
+            ctx.fillStyle = exhaust;
+            ctx.fillRect(-fuseLen * 0.38, -fuseH * 0.2, s * 0.08, s * 0.12);
+            ctx.fillRect(-fuseLen * 0.38, fuseH * 0.1, s * 0.08, s * 0.12);
+
+            // Cockpit glass (angular, multi-pane)
+            ctx.fillStyle = glass;
+            // Main canopy
+            ctx.beginPath();
+            ctx.moveTo(fuseLen * 0.38, -fuseH * 0.15);
+            ctx.lineTo(fuseLen * 0.48, fuseH * 0.05);
+            ctx.lineTo(fuseLen * 0.35, fuseH * 0.25);
+            ctx.lineTo(fuseLen * 0.1, fuseH * 0.2);
+            ctx.lineTo(fuseLen * 0.08, -fuseH * 0.2);
+            ctx.closePath();
+            ctx.fill();
+            // Glass highlight
+            ctx.fillStyle = glassHighlight;
+            ctx.beginPath();
+            ctx.moveTo(fuseLen * 0.36, -fuseH * 0.1);
+            ctx.lineTo(fuseLen * 0.42, fuseH * 0.0);
+            ctx.lineTo(fuseLen * 0.3, fuseH * 0.05);
+            ctx.lineTo(fuseLen * 0.28, -fuseH * 0.1);
+            ctx.closePath();
+            ctx.fill();
+
+            // Chin sensor/gun turret
+            ctx.fillStyle = darker;
+            ctx.beginPath();
+            ctx.arc(fuseLen * 0.35, fuseH * 0.35, s * 0.08, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = exhaust;
+            ctx.fillRect(fuseLen * 0.35, fuseH * 0.32, s * 0.15, s * 0.04);
+
+            // Landing skids
+            ctx.fillStyle = darker;
+            // Skid struts
+            ctx.fillRect(fuseLen * 0.15, fuseH * 0.4, skidStrut, s * 0.18);
+            ctx.fillRect(-fuseLen * 0.15, fuseH * 0.4, skidStrut, s * 0.18);
+            // Skid rails
+            ctx.fillRect(-fuseLen * 0.22, fuseH * 0.55, fuseLen * 0.5, skidH);
+
+            // Main rotor disc (perspective ellipse)
+            const rotorTime = performance.now() / 40;
+            const rotorRadX = fuseLen * 0.7;
+            const rotorRadY = fuseLen * 0.2;
+            
+            // Rotor blur disc
+            ctx.fillStyle = rotor;
+            ctx.globalAlpha = 0.25;
+            ctx.beginPath();
+            ctx.ellipse(0, -fuseH * 0.7, rotorRadX, rotorRadY, 0, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Rotor blades (4 blades)
+            ctx.globalAlpha = 0.7;
             for (let i = 0; i < 4; i++) {
                 const angle = rotorTime + (i * Math.PI / 2);
-                const rx = Math.cos(angle) * bodyLength * 0.6;
-                const ry = Math.sin(angle) * bodyLength * 0.18;
-                ctx.fillRect(rx - 2, -bodyHeight * 0.75 + ry - 1, 4, 2);
+                const bx = Math.cos(angle) * rotorRadX;
+                const by = Math.sin(angle) * rotorRadY;
+                const bladeW = Math.max(2, Math.floor(s * 0.06));
+                ctx.fillRect(bx - bladeW / 2, -fuseH * 0.7 + by - 1, bladeW, 2);
             }
             ctx.globalAlpha = 1.0;
 
-            // Rotor hub
-            ctx.fillStyle = darkColor;
-            ctx.fillRect(-3, -bodyHeight * 0.82, 6, 6);
+            // Rotor hub/mast
+            ctx.fillStyle = darker;
+            ctx.fillRect(-s * 0.04, -fuseH * 0.8, s * 0.08, s * 0.12);
+            ctx.fillStyle = exhaust;
+            ctx.beginPath();
+            ctx.arc(0, -fuseH * 0.82, s * 0.05, 0, Math.PI * 2);
+            ctx.fill();
 
             ctx.restore();
         }
@@ -8089,9 +8264,15 @@
             const ix = Math.floor(x);
             const iy = Math.floor(y);
 
+            // Colors - sleek fighter jet palette
             const body = getSpriteColorWithFog(color, fogFactor, ambient, skyColor);
             const dark = getSpriteColorWithFog(darkenColor(color, 25), fogFactor, ambient, skyColor);
-            const cockpit = getSpriteColorWithFog('#3a5a7a', fogFactor, ambient, skyColor);
+            const darker = getSpriteColorWithFog(darkenColor(color, 40), fogFactor, ambient, skyColor);
+            const highlight = getSpriteColorWithFog(lightenColor(color, 15), fogFactor, ambient, skyColor);
+            const glass = getSpriteColorWithFog('#2a4a6a', fogFactor, ambient, skyColor);
+            const glassHighlight = getSpriteColorWithFog('#4a7a9a', fogFactor, ambient, skyColor);
+            const exhaust = getSpriteColorWithFog('#1a1a1a', fogFactor, ambient, skyColor);
+            const exhaustGlow = getSpriteColorWithFog('#4a3a2a', fogFactor, ambient, skyColor);
 
             const relAngle = normalizeAngle(heading - camera.angle);
             const showSide = Math.abs(Math.sin(relAngle)) > 0.5;
@@ -8099,59 +8280,188 @@
             const dir = facingRight ? 1 : -1;
 
             if (showSide) {
+                // Side view - F-16/F-22 like profile
                 ctx.save();
                 ctx.translate(ix, iy);
                 ctx.scale(dir, 1);
 
-                // Sleek fuselage with pointed nose
+                const fuseLen = s * 1.5;
+                const fuseH = s * 0.22;
+                const noseLen = s * 0.4;
+                const wingChord = s * 0.35;
+
+                // Main fuselage (sleek tapered shape)
                 ctx.fillStyle = body;
-                ctx.fillRect(-s * 0.6, -s * 0.14, s * 1.1, s * 0.28);
                 ctx.beginPath();
-                ctx.moveTo(s * 0.5, 0);
-                ctx.lineTo(s * 0.72, -s * 0.1);
-                ctx.lineTo(s * 0.72, s * 0.1);
+                ctx.moveTo(fuseLen * 0.5, 0);           // Nose tip
+                ctx.lineTo(fuseLen * 0.35, -fuseH * 0.6); // Nose top
+                ctx.lineTo(-fuseLen * 0.1, -fuseH * 0.8); // Canopy peak
+                ctx.lineTo(-fuseLen * 0.5, -fuseH * 0.5); // Rear top
+                ctx.lineTo(-fuseLen * 0.55, 0);          // Exhaust
+                ctx.lineTo(-fuseLen * 0.5, fuseH * 0.5);  // Rear bottom
+                ctx.lineTo(fuseLen * 0.3, fuseH * 0.5);   // Belly
+                ctx.lineTo(fuseLen * 0.45, fuseH * 0.2);  // Nose bottom
                 ctx.closePath();
                 ctx.fill();
 
-                // Delta wing hint
-                ctx.fillStyle = dark;
+                // Fuselage top highlight
+                ctx.fillStyle = highlight;
                 ctx.beginPath();
-                ctx.moveTo(-s * 0.15, -s * 0.05);
-                ctx.lineTo(s * 0.15, 0);
-                ctx.lineTo(-s * 0.2, s * 0.12);
+                ctx.moveTo(fuseLen * 0.4, -fuseH * 0.4);
+                ctx.lineTo(-fuseLen * 0.1, -fuseH * 0.75);
+                ctx.lineTo(-fuseLen * 0.4, -fuseH * 0.5);
+                ctx.lineTo(-fuseLen * 0.2, -fuseH * 0.4);
                 ctx.closePath();
                 ctx.fill();
 
-                // Tail fin
+                // Fuselage bottom shadow
                 ctx.fillStyle = dark;
-                ctx.fillRect(-s * 0.65, -s * 0.32, s * 0.12, s * 0.28);
+                ctx.beginPath();
+                ctx.moveTo(fuseLen * 0.35, fuseH * 0.4);
+                ctx.lineTo(-fuseLen * 0.45, fuseH * 0.5);
+                ctx.lineTo(-fuseLen * 0.45, fuseH * 0.2);
+                ctx.lineTo(fuseLen * 0.3, fuseH * 0.25);
+                ctx.closePath();
+                ctx.fill();
 
-                // Cockpit bubble
-                ctx.fillStyle = cockpit;
-                ctx.fillRect(s * 0.2, -s * 0.12, s * 0.2, s * 0.12);
+                // Wing (delta shape from side)
+                ctx.fillStyle = dark;
+                ctx.beginPath();
+                ctx.moveTo(-fuseLen * 0.05, fuseH * 0.3);
+                ctx.lineTo(-fuseLen * 0.35, fuseH * 0.9);
+                ctx.lineTo(-fuseLen * 0.4, fuseH * 0.9);
+                ctx.lineTo(-fuseLen * 0.35, fuseH * 0.3);
+                ctx.closePath();
+                ctx.fill();
+
+                // Horizontal stabilizer
+                ctx.fillStyle = darker;
+                ctx.beginPath();
+                ctx.moveTo(-fuseLen * 0.4, fuseH * 0.2);
+                ctx.lineTo(-fuseLen * 0.55, fuseH * 0.5);
+                ctx.lineTo(-fuseLen * 0.55, fuseH * 0.35);
+                ctx.lineTo(-fuseLen * 0.45, fuseH * 0.2);
+                ctx.closePath();
+                ctx.fill();
+
+                // Vertical tail fin
+                ctx.fillStyle = darker;
+                ctx.beginPath();
+                ctx.moveTo(-fuseLen * 0.35, -fuseH * 0.5);
+                ctx.lineTo(-fuseLen * 0.5, -fuseH * 1.3);
+                ctx.lineTo(-fuseLen * 0.55, -fuseH * 1.3);
+                ctx.lineTo(-fuseLen * 0.55, -fuseH * 0.5);
+                ctx.closePath();
+                ctx.fill();
+
+                // Cockpit canopy
+                ctx.fillStyle = glass;
+                ctx.beginPath();
+                ctx.moveTo(fuseLen * 0.3, -fuseH * 0.5);
+                ctx.lineTo(-fuseLen * 0.1, -fuseH * 0.75);
+                ctx.lineTo(-fuseLen * 0.15, -fuseH * 0.5);
+                ctx.lineTo(fuseLen * 0.2, -fuseH * 0.35);
+                ctx.closePath();
+                ctx.fill();
+                // Canopy frame
+                ctx.fillStyle = darker;
+                ctx.fillRect(fuseLen * 0.05, -fuseH * 0.65, s * 0.02, fuseH * 0.25);
+                // Canopy highlight
+                ctx.fillStyle = glassHighlight;
+                ctx.beginPath();
+                ctx.moveTo(fuseLen * 0.25, -fuseH * 0.45);
+                ctx.lineTo(fuseLen * 0.1, -fuseH * 0.6);
+                ctx.lineTo(fuseLen * 0.15, -fuseH * 0.45);
+                ctx.closePath();
+                ctx.fill();
+
+                // Engine exhaust nozzle
+                ctx.fillStyle = exhaust;
+                ctx.fillRect(-fuseLen * 0.55, -fuseH * 0.3, s * 0.1, fuseH * 0.6);
+                // Exhaust glow
+                ctx.fillStyle = exhaustGlow;
+                ctx.fillRect(-fuseLen * 0.58, -fuseH * 0.15, s * 0.05, fuseH * 0.3);
+
+                // Air intake (under fuselage)
+                ctx.fillStyle = darker;
+                ctx.fillRect(fuseLen * 0.0, fuseH * 0.35, s * 0.2, s * 0.08);
 
                 ctx.restore();
             } else {
                 // Front/back view - delta wing silhouette
+                const wingSpan = s * 1.1;
+                const fuseH = s * 0.8;
+
+                // Main delta wing shape
                 ctx.fillStyle = body;
                 ctx.beginPath();
-                ctx.moveTo(ix, iy - s * 0.55);
-                ctx.lineTo(ix - s * 0.8, iy + s * 0.2);
-                ctx.lineTo(ix, iy + s * 0.5);
-                ctx.lineTo(ix + s * 0.8, iy + s * 0.2);
+                ctx.moveTo(ix, iy - fuseH * 0.5);           // Nose
+                ctx.lineTo(ix - wingSpan, iy + fuseH * 0.15); // Left wing tip
+                ctx.lineTo(ix - wingSpan * 0.3, iy + fuseH * 0.4); // Left wing root
+                ctx.lineTo(ix, iy + fuseH * 0.5);           // Tail
+                ctx.lineTo(ix + wingSpan * 0.3, iy + fuseH * 0.4); // Right wing root
+                ctx.lineTo(ix + wingSpan, iy + fuseH * 0.15); // Right wing tip
+                ctx.closePath();
+                ctx.fill();
+
+                // Wing top highlight
+                ctx.fillStyle = highlight;
+                ctx.beginPath();
+                ctx.moveTo(ix, iy - fuseH * 0.4);
+                ctx.lineTo(ix - wingSpan * 0.7, iy + fuseH * 0.05);
+                ctx.lineTo(ix - wingSpan * 0.3, iy + fuseH * 0.1);
+                ctx.lineTo(ix, iy - fuseH * 0.2);
+                ctx.closePath();
+                ctx.fill();
+                ctx.beginPath();
+                ctx.moveTo(ix, iy - fuseH * 0.4);
+                ctx.lineTo(ix + wingSpan * 0.7, iy + fuseH * 0.05);
+                ctx.lineTo(ix + wingSpan * 0.3, iy + fuseH * 0.1);
+                ctx.lineTo(ix, iy - fuseH * 0.2);
                 ctx.closePath();
                 ctx.fill();
 
                 // Fuselage spine
                 ctx.fillStyle = dark;
-                ctx.fillRect(ix - s * 0.1, iy - s * 0.4, s * 0.2, s * 0.75);
+                ctx.fillRect(ix - s * 0.1, iy - fuseH * 0.35, s * 0.2, fuseH * 0.7);
 
-                // Single tail
-                ctx.fillRect(ix - s * 0.12, iy + s * 0.3, s * 0.24, s * 0.18);
+                // Vertical tail fins (twin tails like F-22)
+                ctx.fillStyle = darker;
+                ctx.beginPath();
+                ctx.moveTo(ix - s * 0.15, iy + fuseH * 0.2);
+                ctx.lineTo(ix - s * 0.25, iy + fuseH * 0.5);
+                ctx.lineTo(ix - s * 0.08, iy + fuseH * 0.45);
+                ctx.closePath();
+                ctx.fill();
+                ctx.beginPath();
+                ctx.moveTo(ix + s * 0.15, iy + fuseH * 0.2);
+                ctx.lineTo(ix + s * 0.25, iy + fuseH * 0.5);
+                ctx.lineTo(ix + s * 0.08, iy + fuseH * 0.45);
+                ctx.closePath();
+                ctx.fill();
 
-                // Cockpit
-                ctx.fillStyle = cockpit;
-                ctx.fillRect(ix - s * 0.08, iy - s * 0.32, s * 0.16, s * 0.14);
+                // Cockpit canopy
+                ctx.fillStyle = glass;
+                ctx.fillRect(ix - s * 0.08, iy - fuseH * 0.3, s * 0.16, s * 0.18);
+                ctx.fillStyle = glassHighlight;
+                ctx.fillRect(ix - s * 0.06, iy - fuseH * 0.28, s * 0.06, s * 0.08);
+
+                // Engine exhausts
+                ctx.fillStyle = exhaust;
+                ctx.beginPath();
+                ctx.arc(ix - s * 0.08, iy + fuseH * 0.42, s * 0.06, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.beginPath();
+                ctx.arc(ix + s * 0.08, iy + fuseH * 0.42, s * 0.06, 0, Math.PI * 2);
+                ctx.fill();
+                // Exhaust glow
+                ctx.fillStyle = exhaustGlow;
+                ctx.beginPath();
+                ctx.arc(ix - s * 0.08, iy + fuseH * 0.44, s * 0.035, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.beginPath();
+                ctx.arc(ix + s * 0.08, iy + fuseH * 0.44, s * 0.035, 0, Math.PI * 2);
+                ctx.fill();
             }
         }
 
@@ -8240,10 +8550,16 @@
             const ix = Math.floor(x);
             const iy = Math.floor(y);
 
+            // Colors - aggressive attack helicopter palette (slightly different from player)
             const body = getSpriteColorWithFog(color, fogFactor, ambient, skyColor);
-            const dark = getSpriteColorWithFog(darkenColor(color, 25), fogFactor, ambient, skyColor);
-            const cockpit = getSpriteColorWithFog('#3a6a5a', fogFactor, ambient, skyColor);
-            const rotor = getSpriteColorWithFog('#444444', fogFactor, ambient, skyColor);
+            const dark = getSpriteColorWithFog(darkenColor(color, 22), fogFactor, ambient, skyColor);
+            const darker = getSpriteColorWithFog(darkenColor(color, 38), fogFactor, ambient, skyColor);
+            const highlight = getSpriteColorWithFog(lightenColor(color, 10), fogFactor, ambient, skyColor);
+            const glass = getSpriteColorWithFog('#1a3a3a', fogFactor, ambient, skyColor);
+            const glassHighlight = getSpriteColorWithFog('#3a6a6a', fogFactor, ambient, skyColor);
+            const rotor = getSpriteColorWithFog('#3a3a3a', fogFactor, ambient, skyColor);
+            const weapon = getSpriteColorWithFog('#2a2a2a', fogFactor, ambient, skyColor);
+            const weaponDark = getSpriteColorWithFog('#1a1a1a', fogFactor, ambient, skyColor);
 
             const relAngle = normalizeAngle(heading - camera.angle);
             const facingRight = Math.cos(relAngle) >= 0;
@@ -8253,64 +8569,190 @@
             ctx.translate(ix, iy);
             ctx.scale(dir, 1);
 
-            const bodyLength = s * 1.35;
-            const bodyHeight = s * 0.42;
-            const tailLength = s * 0.85;
-            const tailHeight = s * 0.14;
+            // Proportions - Apache/Hind-like aggressive profile
+            const fuseLen = s * 1.5;
+            const fuseH = s * 0.32;
+            const tailLen = s * 0.95;
+            const tailH = s * 0.12;
+            const finH = s * 0.28;
+            const wingSpan = s * 0.45;
+            const skidH = Math.max(1, Math.floor(s * 0.04));
 
-            // Armored fuselage
-            ctx.fillStyle = body;
-            ctx.fillRect(-bodyLength * 0.45, -bodyHeight * 0.5, bodyLength * 0.9, bodyHeight);
-
-            // Nose / cockpit bubble
-            ctx.fillStyle = cockpit;
+            // Tail boom (tapered, slightly thicker than player heli)
+            ctx.fillStyle = dark;
             ctx.beginPath();
-            ctx.ellipse(bodyLength * 0.25, -bodyHeight * 0.05, bodyLength * 0.18, bodyHeight * 0.55, 0, 0, Math.PI * 2);
+            ctx.moveTo(-fuseLen * 0.32, -tailH * 0.7);
+            ctx.lineTo(-fuseLen * 0.32 - tailLen, -tailH * 0.35);
+            ctx.lineTo(-fuseLen * 0.32 - tailLen, tailH * 0.35);
+            ctx.lineTo(-fuseLen * 0.32, tailH * 0.7);
+            ctx.closePath();
             ctx.fill();
 
-            // Chin gun
-            ctx.fillStyle = dark;
-            ctx.fillRect(bodyLength * 0.35, bodyHeight * 0.1, s * 0.18, s * 0.08);
+            // Tail fin (larger, more aggressive)
+            ctx.fillStyle = darker;
+            ctx.beginPath();
+            ctx.moveTo(-fuseLen * 0.32 - tailLen + s * 0.1, -tailH * 0.35);
+            ctx.lineTo(-fuseLen * 0.32 - tailLen - s * 0.02, -finH);
+            ctx.lineTo(-fuseLen * 0.32 - tailLen - s * 0.14, -finH);
+            ctx.lineTo(-fuseLen * 0.32 - tailLen - s * 0.08, -tailH * 0.35);
+            ctx.closePath();
+            ctx.fill();
 
-            // Tail boom
+            // Horizontal stabilizer (larger)
             ctx.fillStyle = dark;
-            ctx.fillRect(-bodyLength * 0.45 - tailLength, -tailHeight * 0.5, tailLength, tailHeight);
-            ctx.fillRect(-bodyLength * 0.45 - tailLength - s * 0.08, -tailHeight * 1.3, s * 0.12, tailHeight * 2.6);
+            ctx.fillRect(-fuseLen * 0.32 - tailLen - s * 0.04, -s * 0.03, s * 0.22, s * 0.06);
 
-            // Stub wings
+            // Tail rotor housing
+            ctx.fillStyle = darker;
+            ctx.fillRect(-fuseLen * 0.32 - tailLen - s * 0.1, -finH + s * 0.03, s * 0.12, s * 0.1);
+
+            // Main fuselage (bulkier, more armored look)
             ctx.fillStyle = body;
-            ctx.fillRect(-bodyLength * 0.1, -bodyHeight * 0.05, bodyLength * 0.25, bodyHeight * 0.15);
-            ctx.fillRect(-bodyLength * 0.1, bodyHeight * 0.1, bodyLength * 0.25, bodyHeight * 0.15);
+            ctx.beginPath();
+            ctx.moveTo(fuseLen * 0.42, -fuseH * 0.1);  // Nose top
+            ctx.lineTo(fuseLen * 0.5, fuseH * 0.2);    // Nose tip (lower, more aggressive)
+            ctx.lineTo(fuseLen * 0.42, fuseH * 0.5);   // Nose bottom
+            ctx.lineTo(-fuseLen * 0.32, fuseH * 0.55); // Rear bottom
+            ctx.lineTo(-fuseLen * 0.32, -fuseH * 0.45);// Rear top
+            ctx.lineTo(fuseLen * 0.1, -fuseH * 0.55);  // Top spine
+            ctx.closePath();
+            ctx.fill();
 
-            // Weapon pods
+            // Fuselage top highlight
+            ctx.fillStyle = highlight;
+            ctx.beginPath();
+            ctx.moveTo(fuseLen * 0.35, -fuseH * 0.15);
+            ctx.lineTo(fuseLen * 0.1, -fuseH * 0.52);
+            ctx.lineTo(-fuseLen * 0.2, -fuseH * 0.42);
+            ctx.lineTo(-fuseLen * 0.05, -fuseH * 0.2);
+            ctx.closePath();
+            ctx.fill();
+
+            // Fuselage bottom shadow
             ctx.fillStyle = dark;
-            ctx.fillRect(-bodyLength * 0.02, -bodyHeight * 0.05, bodyLength * 0.12, bodyHeight * 0.18);
-            ctx.fillRect(-bodyLength * 0.02, bodyHeight * 0.12, bodyLength * 0.12, bodyHeight * 0.18);
+            ctx.beginPath();
+            ctx.moveTo(fuseLen * 0.4, fuseH * 0.4);
+            ctx.lineTo(-fuseLen * 0.32, fuseH * 0.55);
+            ctx.lineTo(-fuseLen * 0.32, fuseH * 0.35);
+            ctx.lineTo(fuseLen * 0.35, fuseH * 0.25);
+            ctx.closePath();
+            ctx.fill();
 
-            // Skids
-            ctx.fillRect(-bodyLength * 0.3, bodyHeight * 0.55, bodyLength * 0.6, Math.max(1, Math.floor(s * 0.06)));
-            ctx.fillRect(-bodyLength * 0.22, bodyHeight * 0.25, Math.max(1, Math.floor(s * 0.06)), bodyHeight * 0.4);
-            ctx.fillRect(bodyLength * 0.1, bodyHeight * 0.25, Math.max(1, Math.floor(s * 0.06)), bodyHeight * 0.4);
+            // Engine housing (bulge on top)
+            ctx.fillStyle = darker;
+            ctx.fillRect(-fuseLen * 0.2, -fuseH * 0.65, s * 0.28, s * 0.12);
 
-            // Main rotor (disc + blades)
-            const rotorTime = performance.now() / 40;
+            // Stub wings with weapon pylons
+            ctx.fillStyle = body;
+            // Upper wing
+            ctx.beginPath();
+            ctx.moveTo(-fuseLen * 0.05, -fuseH * 0.15);
+            ctx.lineTo(-fuseLen * 0.05 - wingSpan, -fuseH * 0.25);
+            ctx.lineTo(-fuseLen * 0.05 - wingSpan, -fuseH * 0.1);
+            ctx.lineTo(-fuseLen * 0.15, -fuseH * 0.05);
+            ctx.closePath();
+            ctx.fill();
+            // Lower wing
+            ctx.beginPath();
+            ctx.moveTo(-fuseLen * 0.05, fuseH * 0.2);
+            ctx.lineTo(-fuseLen * 0.05 - wingSpan, fuseH * 0.3);
+            ctx.lineTo(-fuseLen * 0.05 - wingSpan, fuseH * 0.15);
+            ctx.lineTo(-fuseLen * 0.15, fuseH * 0.1);
+            ctx.closePath();
+            ctx.fill();
+
+            // Weapon pylons
+            ctx.fillStyle = weapon;
+            // Rocket pods (upper wing)
+            ctx.fillRect(-fuseLen * 0.05 - wingSpan * 0.7, -fuseH * 0.35, s * 0.18, s * 0.12);
+            ctx.fillRect(-fuseLen * 0.05 - wingSpan * 0.4, -fuseH * 0.32, s * 0.14, s * 0.1);
+            // Missile rails (lower wing)
+            ctx.fillRect(-fuseLen * 0.05 - wingSpan * 0.7, fuseH * 0.28, s * 0.2, s * 0.08);
+            ctx.fillRect(-fuseLen * 0.05 - wingSpan * 0.4, fuseH * 0.25, s * 0.16, s * 0.08);
+
+            // Missiles on rails
+            ctx.fillStyle = weaponDark;
+            ctx.fillRect(-fuseLen * 0.05 - wingSpan * 0.65, fuseH * 0.36, s * 0.12, s * 0.04);
+            ctx.fillRect(-fuseLen * 0.05 - wingSpan * 0.35, fuseH * 0.33, s * 0.1, s * 0.04);
+
+            // Cockpit glass (tandem seating, angular)
+            ctx.fillStyle = glass;
+            // Front gunner
+            ctx.beginPath();
+            ctx.moveTo(fuseLen * 0.4, -fuseH * 0.05);
+            ctx.lineTo(fuseLen * 0.48, fuseH * 0.15);
+            ctx.lineTo(fuseLen * 0.35, fuseH * 0.35);
+            ctx.lineTo(fuseLen * 0.2, fuseH * 0.3);
+            ctx.lineTo(fuseLen * 0.18, -fuseH * 0.1);
+            ctx.closePath();
+            ctx.fill();
+            // Rear pilot
+            ctx.beginPath();
+            ctx.moveTo(fuseLen * 0.15, -fuseH * 0.15);
+            ctx.lineTo(fuseLen * 0.15, fuseH * 0.2);
+            ctx.lineTo(-fuseLen * 0.02, fuseH * 0.15);
+            ctx.lineTo(-fuseLen * 0.02, -fuseH * 0.25);
+            ctx.closePath();
+            ctx.fill();
+            // Glass highlights
+            ctx.fillStyle = glassHighlight;
+            ctx.beginPath();
+            ctx.moveTo(fuseLen * 0.38, 0);
+            ctx.lineTo(fuseLen * 0.42, fuseH * 0.1);
+            ctx.lineTo(fuseLen * 0.32, fuseH * 0.15);
+            ctx.lineTo(fuseLen * 0.3, 0);
+            ctx.closePath();
+            ctx.fill();
+
+            // Chin-mounted gun turret
+            ctx.fillStyle = weapon;
+            ctx.beginPath();
+            ctx.arc(fuseLen * 0.38, fuseH * 0.45, s * 0.1, 0, Math.PI * 2);
+            ctx.fill();
+            // Gun barrel
+            ctx.fillStyle = weaponDark;
+            ctx.fillRect(fuseLen * 0.38, fuseH * 0.42, s * 0.22, s * 0.05);
+            // Gun barrel tip
+            ctx.fillRect(fuseLen * 0.58, fuseH * 0.4, s * 0.04, s * 0.08);
+
+            // Landing gear (fixed skids)
+            ctx.fillStyle = darker;
+            // Skid struts
+            ctx.fillRect(fuseLen * 0.12, fuseH * 0.45, Math.max(1, s * 0.03), s * 0.2);
+            ctx.fillRect(-fuseLen * 0.18, fuseH * 0.45, Math.max(1, s * 0.03), s * 0.2);
+            // Skid rails
+            ctx.fillRect(-fuseLen * 0.25, fuseH * 0.62, fuseLen * 0.5, skidH);
+
+            // Main rotor disc (perspective ellipse)
+            const rotorTime = performance.now() / 38;
+            const rotorRadX = fuseLen * 0.72;
+            const rotorRadY = fuseLen * 0.22;
+            
+            // Rotor blur disc
             ctx.fillStyle = rotor;
-            ctx.globalAlpha = 0.35;
+            ctx.globalAlpha = 0.25;
             ctx.beginPath();
-            ctx.ellipse(0, -bodyHeight * 0.8, bodyLength * 0.6, bodyLength * 0.2, 0, 0, Math.PI * 2);
+            ctx.ellipse(0, -fuseH * 0.75, rotorRadX, rotorRadY, 0, 0, Math.PI * 2);
             ctx.fill();
-            ctx.globalAlpha = 0.6;
+            
+            // Rotor blades (4 blades)
+            ctx.globalAlpha = 0.7;
             for (let i = 0; i < 4; i++) {
                 const angle = rotorTime + (i * Math.PI / 2);
-                const rx = Math.cos(angle) * bodyLength * 0.6;
-                const ry = Math.sin(angle) * bodyLength * 0.2;
-                ctx.fillRect(rx - 2, -bodyHeight * 0.8 + ry - 1, 4, 2);
+                const bx = Math.cos(angle) * rotorRadX;
+                const by = Math.sin(angle) * rotorRadY;
+                const bladeW = Math.max(2, Math.floor(s * 0.07));
+                ctx.fillRect(bx - bladeW / 2, -fuseH * 0.75 + by - 1, bladeW, 2);
             }
             ctx.globalAlpha = 1.0;
 
-            // Rotor hub
-            ctx.fillStyle = dark;
-            ctx.fillRect(-3, -bodyHeight * 0.88, 6, 6);
+            // Rotor hub/mast
+            ctx.fillStyle = darker;
+            ctx.fillRect(-s * 0.05, -fuseH * 0.88, s * 0.1, s * 0.15);
+            ctx.fillStyle = weapon;
+            ctx.beginPath();
+            ctx.arc(0, -fuseH * 0.9, s * 0.06, 0, Math.PI * 2);
+            ctx.fill();
 
             ctx.restore();
         }
@@ -8321,41 +8763,188 @@
             const ix = Math.floor(x);
             const iy = Math.floor(y);
 
+            // Colors - M1 Abrams-like military tank palette
             const base = getSpriteColorWithFog(color, fogFactor, ambient, skyColor);
-            const dark = getSpriteColorWithFog(darkenColor(color, 20), fogFactor, ambient, skyColor);
-            const darker = getSpriteColorWithFog(darkenColor(color, 35), fogFactor, ambient, skyColor);
+            const dark = getSpriteColorWithFog(darkenColor(color, 18), fogFactor, ambient, skyColor);
+            const darker = getSpriteColorWithFog(darkenColor(color, 32), fogFactor, ambient, skyColor);
+            const highlight = getSpriteColorWithFog(lightenColor(color, 12), fogFactor, ambient, skyColor);
             const track = getSpriteColorWithFog('#1a1a1a', fogFactor, ambient, skyColor);
+            const trackMid = getSpriteColorWithFog('#2a2a2a', fogFactor, ambient, skyColor);
             const trackHighlight = getSpriteColorWithFog('#3a3a3a', fogFactor, ambient, skyColor);
+            const wheel = getSpriteColorWithFog('#252525', fogFactor, ambient, skyColor);
+            const wheelHighlight = getSpriteColorWithFog('#404040', fogFactor, ambient, skyColor);
             const metal = getSpriteColorWithFog('#2a2a2a', fogFactor, ambient, skyColor);
+            const metalDark = getSpriteColorWithFog('#1a1a1a', fogFactor, ambient, skyColor);
 
-            const trackY = iy - Math.floor(s * 0.05);
-            const trackH = Math.max(2, Math.floor(s * 0.22));
-            const hullH = Math.max(3, Math.floor(s * 0.22));
-            const hullY = iy - Math.floor(s * 0.22);
-            const turretH = Math.max(2, Math.floor(s * 0.18));
-            const turretY = iy - Math.floor(s * 0.38);
+            // Dimensions - proper tank proportions
+            const hullLen = s * 1.2;
+            const hullH = s * 0.22;
+            const trackH = Math.max(3, Math.floor(s * 0.24));
+            const trackLen = s * 1.3;
+            const turretLen = s * 0.55;
+            const turretH = s * 0.2;
+            const gunLen = s * 0.6;
+            const gunH = Math.max(2, Math.floor(s * 0.06));
+            const wheelRad = Math.max(2, Math.floor(trackH * 0.38));
+            const wheelCount = Math.max(3, Math.floor(s / 12));
 
-            // Tracks (single blocky base)
+            // Y positions (bottom-up)
+            const trackY = iy - Math.floor(trackH * 0.3);
+            const hullY = trackY - hullH + Math.floor(trackH * 0.15);
+            const turretY = hullY - turretH + Math.floor(s * 0.04);
+
+            // Track assembly (with visible road wheels)
+            // Track base
             ctx.fillStyle = track;
-            ctx.fillRect(ix - Math.floor(s * 0.55), trackY, Math.floor(s * 1.1), trackH);
+            ctx.fillRect(ix - trackLen * 0.5, trackY, trackLen, trackH);
+            
+            // Track top highlight
             ctx.fillStyle = trackHighlight;
-            ctx.fillRect(ix - Math.floor(s * 0.55), trackY, Math.floor(s * 1.1), Math.max(1, Math.floor(trackH * 0.25)));
-
-            // Hull
+            ctx.fillRect(ix - trackLen * 0.5, trackY, trackLen, Math.max(1, Math.floor(trackH * 0.15)));
+            
+            // Track guards/fenders
             ctx.fillStyle = dark;
-            ctx.fillRect(ix - Math.floor(s * 0.45), hullY, Math.floor(s * 0.9), hullH);
+            ctx.fillRect(ix - trackLen * 0.52, trackY - Math.floor(s * 0.04), trackLen * 1.04, Math.floor(s * 0.05));
 
-            // Turret
+            // Road wheels (visible between track sections)
+            const wheelSpacing = trackLen / (wheelCount + 1);
+            for (let i = 1; i <= wheelCount; i++) {
+                const wx = ix - trackLen * 0.5 + wheelSpacing * i;
+                const wy = trackY + trackH * 0.5;
+                
+                // Wheel body
+                ctx.fillStyle = wheel;
+                ctx.beginPath();
+                ctx.arc(wx, wy, wheelRad, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Wheel highlight (top)
+                ctx.fillStyle = wheelHighlight;
+                ctx.beginPath();
+                ctx.arc(wx, wy - wheelRad * 0.3, wheelRad * 0.5, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Wheel hub
+                ctx.fillStyle = trackMid;
+                ctx.beginPath();
+                ctx.arc(wx, wy, wheelRad * 0.35, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            // Drive sprocket (rear)
+            ctx.fillStyle = wheel;
+            ctx.beginPath();
+            ctx.arc(ix - trackLen * 0.42, trackY + trackH * 0.4, wheelRad * 0.9, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = wheelHighlight;
+            ctx.beginPath();
+            ctx.arc(ix - trackLen * 0.42, trackY + trackH * 0.3, wheelRad * 0.4, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Idler wheel (front)
+            ctx.fillStyle = wheel;
+            ctx.beginPath();
+            ctx.arc(ix + trackLen * 0.42, trackY + trackH * 0.4, wheelRad * 0.9, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = wheelHighlight;
+            ctx.beginPath();
+            ctx.arc(ix + trackLen * 0.42, trackY + trackH * 0.3, wheelRad * 0.4, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Hull (sloped armor like M1 Abrams)
             ctx.fillStyle = base;
-            ctx.fillRect(ix - Math.floor(s * 0.25), turretY, Math.floor(s * 0.5), turretH);
+            ctx.beginPath();
+            ctx.moveTo(ix + hullLen * 0.5, hullY + hullH);        // Front bottom
+            ctx.lineTo(ix + hullLen * 0.55, hullY + hullH * 0.3); // Front slope
+            ctx.lineTo(ix + hullLen * 0.4, hullY);                // Front top
+            ctx.lineTo(ix - hullLen * 0.45, hullY);               // Rear top
+            ctx.lineTo(ix - hullLen * 0.5, hullY + hullH);        // Rear bottom
+            ctx.closePath();
+            ctx.fill();
 
-            // Turret cap
+            // Hull top highlight
+            ctx.fillStyle = highlight;
+            ctx.beginPath();
+            ctx.moveTo(ix + hullLen * 0.4, hullY);
+            ctx.lineTo(ix - hullLen * 0.45, hullY);
+            ctx.lineTo(ix - hullLen * 0.35, hullY + hullH * 0.25);
+            ctx.lineTo(ix + hullLen * 0.3, hullY + hullH * 0.25);
+            ctx.closePath();
+            ctx.fill();
+
+            // Hull side shadow
+            ctx.fillStyle = dark;
+            ctx.fillRect(ix - hullLen * 0.5, hullY + hullH * 0.6, hullLen, hullH * 0.4);
+
+            // Turret (angular, modern design)
+            ctx.fillStyle = base;
+            ctx.beginPath();
+            ctx.moveTo(ix + turretLen * 0.5, turretY + turretH);      // Front bottom
+            ctx.lineTo(ix + turretLen * 0.55, turretY + turretH * 0.4);// Front slope
+            ctx.lineTo(ix + turretLen * 0.4, turretY);                // Front top
+            ctx.lineTo(ix - turretLen * 0.5, turretY);                // Rear top
+            ctx.lineTo(ix - turretLen * 0.55, turretY + turretH);     // Rear bottom
+            ctx.closePath();
+            ctx.fill();
+
+            // Turret top highlight
+            ctx.fillStyle = highlight;
+            ctx.beginPath();
+            ctx.moveTo(ix + turretLen * 0.35, turretY);
+            ctx.lineTo(ix - turretLen * 0.45, turretY);
+            ctx.lineTo(ix - turretLen * 0.35, turretY + turretH * 0.3);
+            ctx.lineTo(ix + turretLen * 0.25, turretY + turretH * 0.3);
+            ctx.closePath();
+            ctx.fill();
+
+            // Turret side shadow
+            ctx.fillStyle = dark;
+            ctx.fillRect(ix - turretLen * 0.55, turretY + turretH * 0.65, turretLen * 1.1, turretH * 0.35);
+
+            // Commander's hatch
             ctx.fillStyle = darker;
-            ctx.fillRect(ix - Math.floor(s * 0.1), turretY - Math.max(2, Math.floor(s * 0.08)), Math.floor(s * 0.2), Math.max(2, Math.floor(s * 0.08)));
+            ctx.fillRect(ix - turretLen * 0.15, turretY - Math.floor(s * 0.05), s * 0.15, Math.floor(s * 0.06));
+            ctx.fillStyle = metalDark;
+            ctx.fillRect(ix - turretLen * 0.12, turretY - Math.floor(s * 0.04), s * 0.09, Math.floor(s * 0.04));
 
-            // Main gun (blocky)
+            // Loader's hatch
+            ctx.fillStyle = darker;
+            ctx.fillRect(ix - turretLen * 0.4, turretY - Math.floor(s * 0.03), s * 0.1, Math.floor(s * 0.04));
+
+            // Main gun mantlet
+            ctx.fillStyle = darker;
+            ctx.beginPath();
+            ctx.moveTo(ix + turretLen * 0.45, turretY + turretH * 0.25);
+            ctx.lineTo(ix + turretLen * 0.55, turretY + turretH * 0.4);
+            ctx.lineTo(ix + turretLen * 0.55, turretY + turretH * 0.7);
+            ctx.lineTo(ix + turretLen * 0.45, turretY + turretH * 0.85);
+            ctx.closePath();
+            ctx.fill();
+
+            // Main gun barrel (long, with thermal sleeve)
+            const gunY = turretY + turretH * 0.45;
             ctx.fillStyle = metal;
-            ctx.fillRect(ix + Math.floor(s * 0.15), turretY + Math.max(1, Math.floor(turretH * 0.3)), Math.floor(s * 0.45), Math.max(2, Math.floor(s * 0.06)));
+            ctx.fillRect(ix + turretLen * 0.5, gunY, gunLen, gunH);
+            // Thermal sleeve sections
+            ctx.fillStyle = metalDark;
+            ctx.fillRect(ix + turretLen * 0.5 + gunLen * 0.15, gunY - 1, gunLen * 0.15, gunH + 2);
+            ctx.fillRect(ix + turretLen * 0.5 + gunLen * 0.45, gunY - 1, gunLen * 0.15, gunH + 2);
+            // Muzzle brake
+            ctx.fillStyle = metalDark;
+            ctx.fillRect(ix + turretLen * 0.5 + gunLen - s * 0.06, gunY - Math.floor(s * 0.02), s * 0.08, gunH + Math.floor(s * 0.04));
+            // Bore evacuator
+            ctx.fillStyle = darker;
+            ctx.fillRect(ix + turretLen * 0.5 + gunLen * 0.3, gunY - Math.floor(s * 0.015), s * 0.08, gunH + Math.floor(s * 0.03));
+
+            // Coaxial machine gun
+            ctx.fillStyle = metalDark;
+            ctx.fillRect(ix + turretLen * 0.48, gunY + gunH + Math.floor(s * 0.02), s * 0.2, Math.max(1, Math.floor(s * 0.025)));
+
+            // Smoke grenade launchers (side of turret)
+            ctx.fillStyle = metalDark;
+            for (let i = 0; i < 3; i++) {
+                ctx.fillRect(ix + turretLen * 0.25 + i * s * 0.06, turretY + turretH * 0.15, s * 0.04, s * 0.08);
+            }
         }
         
         function drawBuilding(x, y, size, color, fogFactor = 0, ambient = 1, skyColor = CONFIG.SKY_COLOR) {
