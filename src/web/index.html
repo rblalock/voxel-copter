@@ -4708,7 +4708,10 @@
                         bulletSpeed: template.ai.bulletSpeed,
                         bulletDamage: template.ai.bulletDamage,
                         attackCooldown: template.ai.attackCooldown || 0,
-                        lastAttackTime: 0
+                        burstCount: template.ai.burstCount || 0,
+                        burstCooldown: template.ai.burstCooldown || 0,
+                        lastAttackTime: 0,
+                        lastFireTime: 0
                     };
                 }
             }
