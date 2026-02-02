@@ -5546,7 +5546,16 @@
                 
                 // Check terrain collision
                 const terrainHeight = getTerrainHeight(p.x, p.y);
-                if (p.z <= terrainHeight) {
+                
+                // IMPORTANT: Check target hits BEFORE terrain removal
+                // This allows hitting targets that are at or slightly below terrain level
+                // (e.g., soldiers on slopes where bullet might graze terrain)
+                let hitTarget = false;
+                if (p.playerFired) {
+                    hitTarget = checkSingleProjectileHit(p, i);
+                }
+                
+                if (!hitTarget && p.z <= terrainHeight) {
                     const explosionSize = (p.projectileType === 'missile' || p.projectileType === 'rocket') ? 'large' : 'small';
                     createExplosion(p.x, p.y, terrainHeight, explosionSize);
                     projectiles.splice(i, 1);
@@ -5554,15 +5563,110 @@
                 }
                 
                 // Check if expired
-                if (p.lifetime <= 0) {
+                if (p.lifetime <= 0 || hitTarget) {
                     projectiles.splice(i, 1);
                 }
             }
+        }
+
+        // Check if a single projectile hits any target - returns true if hit
+        function checkSingleProjectileHit(proj, projIndex) {
+            for (const target of targets) {
+                if (target.destroyed) continue;
+                
+                let dx = proj.x - target.x;
+                let dy = proj.y - target.y;
+                if (dx > CONFIG.MAP_SIZE / 2) dx -= CONFIG.MAP_SIZE;
+                if (dx < -CONFIG.MAP_SIZE / 2) dx += CONFIG.MAP_SIZE;
+                if (dy > CONFIG.MAP_SIZE / 2) dy -= CONFIG.MAP_SIZE;
+                if (dy < -CONFIG.MAP_SIZE / 2) dy += CONFIG.MAP_SIZE;
+                
+                const dist2D = Math.sqrt(dx * dx + dy * dy);
+                
+                // Check vertical (Z) distance
+                const targetHeight = target.size * 0.75;
+                const targetBottom = target.z - 5;
+                const targetTop = target.z + targetHeight;
+                const zInRange = proj.z >= targetBottom && proj.z <= targetTop;
+                
+                // Hitbox size
+                const isBuilding = target.type && (target.type === 'building' || target.type === 'hangar' || 
+                    target.type === 'control_tower' || target.type === 'fuel_depot' || 
+                    target.type === 'barracks' || target.type === 'radar');
+                const hitboxSize = isBuilding ? target.size * 0.5 : target.size;
+                
+                if (dist2D < hitboxSize && zInRange) {
+                    // Hit! Apply damage
+                    sessionStats.hits += 1;
+                    telemetry.shotsHit += 1;
+                    if (proj.projectileType === 'missile') {
+                        telemetry.missilesHit += 1;
+                    }
+                    
+                    const multiplier = getDamageMultiplier(proj.type, target);
+                    const adjustedDamage = proj.damage * multiplier;
+                    const damageDealt = Math.min(adjustedDamage, target.health);
+                    telemetry.damageDealt += damageDealt;
+                    target.health -= adjustedDamage;
+                    
+                    triggerHitMarker(proj.projectileType === 'bullet' ? 0.8 : 1.0);
+                    if (proj.projectileType === 'bullet') {
+                        playHitSound();
+                    }
+                    
+                    if (target.health <= 0) {
+                        target.destroyed = true;
+                        score += target.points;
+                        sessionStats.score += target.points;
+                        sessionStats.kills += 1;
+                        trackEvent('kill', {
+                            targetType: target.type,
+                            weapon: gameMode === GAME_MODES.DELTA ? soldierWeapon.current : currentWeapon,
+                            mode: gameMode
+                        });
+                        postStatsEvent({ type: 'kill', count: 1 });
+                        updateStats('totalKills', 1);
+                        if (target.type === 'tank') updateStats('tanksDestroyed', 1);
+                        if (target.type === 'sam') updateStats('samsDestroyed', 1);
+                        if (target.type === 'building') updateStats('buildingsDestroyed', 1);
+                        checkAchievements('kill', { targetType: target.type });
+                        if (currentMissionIndex === -1) {
+                            recordHighScore(score);
+                        }
+                        
+                        if (target.type === 'soldier') {
+                            spawnParticles(target.x, target.y, target.z, 'blood', 8 + Math.floor(Math.random() * 5));
+                            spawnParticles(target.x, target.y, target.z, 'dust', 4 + Math.floor(Math.random() * 3));
+                        } else {
+                            const explosionSize = target.type === 'building' ? 'large' : 'medium';
+                            createExplosion(target.x, target.y, target.z, explosionSize);
+                            spawnParticles(target.x, target.y, target.z, 'spark', 10 + Math.floor(Math.random() * 6));
+                            spawnParticles(target.x, target.y, target.z, 'smoke', 5 + Math.floor(Math.random() * 4));
+                            spawnParticles(target.x, target.y, target.z, 'debris', 5 + Math.floor(Math.random() * 4));
+                        }
+                    } else {
+                        if (target.type === 'soldier') {
+                            spawnParticles(proj.x, proj.y, proj.z, 'blood', 3 + Math.floor(Math.random() * 3));
+                        } else {
+                            const explosionSize = (proj.projectileType === 'missile' || proj.projectileType === 'rocket') ? 'medium' : 'small';
+                            createExplosion(proj.x, proj.y, proj.z, explosionSize);
+                            spawnParticles(proj.x, proj.y, proj.z, 'spark', 3);
+                        }
+                    }
+                    
+                    return true; // Hit a target
+                }
+            }
+            return false; // No hit
         }
         
         function checkProjectileHits() {
             for (let i = projectiles.length - 1; i >= 0; i--) {
                 const proj = projectiles[i];
+                
+                // Skip player-fired projectiles - they're handled in updateProjectiles
+                // to ensure target hits are checked before terrain collision
+                if (proj.playerFired) continue;
 
                 const candidates = [];
                 for (const target of targets) {
