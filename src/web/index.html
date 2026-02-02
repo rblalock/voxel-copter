@@ -8589,6 +8589,36 @@
             return false;  // Target is visible
         }
 
+        // Check if a shadow on the ground is occluded by terrain between camera and shadow
+        function isShadowOccluded(shadowX, shadowY, shadowZ, cam, dx, dy, ry) {
+            // Sample terrain along the line from camera to shadow position
+            const numSamples = Math.min(20, Math.max(5, Math.floor(ry / 20)));
+            const clearance = 3;
+            
+            for (let s = 1; s < numSamples; s++) {
+                const t = s / numSamples;
+                
+                // Interpolate position along ray
+                let sampleX = cam.x + dx * t;
+                let sampleY = cam.y + dy * t;
+                
+                // Wrap coordinates
+                sampleX = ((sampleX % CONFIG.MAP_SIZE) + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
+                sampleY = ((sampleY % CONFIG.MAP_SIZE) + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
+                
+                const terrainAtSample = getTerrainHeight(sampleX, sampleY);
+                
+                // Check if terrain blocks line of sight to shadow on ground
+                const expectedHeight = cam.height + (shadowZ - cam.height) * t;
+                
+                if (terrainAtSample > expectedHeight + clearance) {
+                    return true;  // Terrain blocks view of shadow
+                }
+            }
+            
+            return false;
+        }
+
         const SHADOW_SUN_ANGLE = Math.PI * 0.35;
 
         function drawAircraftShadow(screenX, groundScreenY, size, alpha, camAngle = 0) {
@@ -8720,10 +8750,12 @@
                             const altitudeFactor = Math.min(1, Math.max(0, altitude / 250));
                             const shadowAlpha = Math.max(0, 0.22 * (1 - fogFactor) * (1 - altitudeFactor * 0.7));
                             const shadowSize = Math.max(2, size * (0.85 - altitudeFactor * 0.3));
-                            if (groundScreenY > -size && groundScreenY < screenHeight + size) {
+                            // Check if shadow position is occluded by terrain
+                            const terrainHeight = getTerrainHeight(target.x, target.y);
+                            const shadowOccluded = isShadowOccluded(target.x, target.y, terrainHeight, cam, dx, dy, ry);
+                            if (!shadowOccluded && groundScreenY > -size && groundScreenY < screenHeight + size) {
                                 drawAircraftShadow(screenX, groundScreenY, shadowSize, shadowAlpha, cam.angle);
                             }
-
                         }
                         
                         // Health bar
@@ -11229,8 +11261,8 @@
             if (!weapon || !state) return;
             const headingData = getDeltaHeadingData();
 
-            const weaponPanelW = 240;
-            const weaponPanelH = 82;
+            const weaponPanelW = 200;
+            const weaponPanelH = 95;
             const weaponPanelX = 10;
             const weaponPanelY = 10;
 
@@ -11239,25 +11271,27 @@
             ctx.font = 'bold 14px Courier New';
             ctx.fillStyle = weapon.color;
             ctx.textAlign = 'left';
-            ctx.fillText(weapon.name.toUpperCase(), weaponPanelX + 12, weaponPanelY + 40);
+            ctx.fillText(weapon.name.toUpperCase(), weaponPanelX + 12, weaponPanelY + 35);
 
             ctx.font = '12px Courier New';
             ctx.fillStyle = '#0f0';
             ctx.textAlign = 'right';
-            ctx.fillText(`${state.mag}/${state.mags}`, weaponPanelX + weaponPanelW - 12, weaponPanelY + 40);
+            ctx.fillText(`${state.mag}/${state.mags}`, weaponPanelX + weaponPanelW - 12, weaponPanelY + 35);
 
+            // Magazine icon
             ctx.strokeStyle = '#0f0';
             ctx.lineWidth = 1.5;
-            ctx.strokeRect(weaponPanelX + 14, weaponPanelY + 48, 30, 12);
+            ctx.strokeRect(weaponPanelX + 14, weaponPanelY + 43, 30, 12);
             ctx.fillStyle = '#0a0';
-            ctx.fillRect(weaponPanelX + 18, weaponPanelY + 52, 18, 4);
-            ctx.fillRect(weaponPanelX + 32, weaponPanelY + 50, 12, 2);
+            ctx.fillRect(weaponPanelX + 18, weaponPanelY + 47, 18, 4);
+            ctx.fillRect(weaponPanelX + 32, weaponPanelY + 45, 12, 2);
 
-            ctx.font = '10px Courier New';
+            // Weapon keys - reorganized to fit in panel
+            ctx.font = '9px Courier New';
             ctx.fillStyle = '#0a0';
             ctx.textAlign = 'left';
-            ctx.fillText('[1] M4  [2] SNIPER  [3] PISTOL', weaponPanelX + 54, weaponPanelY + 58);
-            ctx.fillText('[4] JAVELIN  [5] STINGER  [R] RELOAD', weaponPanelX + 54, weaponPanelY + 70);
+            ctx.fillText('[1]M4 [2]SNP [3]PST', weaponPanelX + 12, weaponPanelY + 68);
+            ctx.fillText('[4]JAV [5]STG [R]RLD', weaponPanelX + 12, weaponPanelY + 80);
 
             const compassPanelW = 220;
             const compassPanelH = 60;
@@ -12577,7 +12611,9 @@
             const ui = document.getElementById('ui');
 
             mapSelector.style.display = (gameState === GAME_STATES.FREEPLAY) ? 'block' : 'none';
-            ui.style.display = (gameState === GAME_STATES.PLAYING) ? 'block' : 'none';
+            // Hide HTML UI overlay in Delta mode - it overlaps with the weapon panel
+            // In Comanche mode, the FPS counter is fine at top-left (above the top bar)
+            ui.style.display = (gameState === GAME_STATES.PLAYING && gameMode !== GAME_MODES.DELTA) ? 'block' : 'none';
             if (gameState !== GAME_STATES.PLAYING && gameState !== GAME_STATES.PAUSED) {
                 controls.style.display = 'none';
             }
