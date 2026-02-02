@@ -6724,9 +6724,14 @@
             const centerX = screenWidth / 2;
             const centerY = screenHeight / 2;
             const boxWidth = 420;
-            const boxHeight = 480;
+            
+            // Calculate box height based on number of menu options + space for high score/controls
+            const menuSpacing = 42;
+            const menuItemsHeight = MAIN_MENU_OPTIONS.length * menuSpacing;
+            const boxHeight = menuItemsHeight + 140;  // 80 top padding + 60 bottom for high score/controls
+            
             const boxX = centerX - boxWidth / 2;
-            const boxY = centerY - 210;
+            const boxY = centerY - boxHeight / 2;
             drawMenuPanel(boxX, boxY, boxWidth, boxHeight, 'MAIN MENU');
 
             ctx.font = 'bold 28px Courier New';
@@ -6734,10 +6739,9 @@
             ctx.textAlign = 'center';
             ctx.fillText('VOXELCOPTER', centerX, boxY - 20);
 
-            const menuSpacing = MAIN_MENU_OPTIONS.length > 6 ? 44 : 52;
-            let y = boxY + 80;
+            let y = boxY + 70;
             for (let i = 0; i < MAIN_MENU_OPTIONS.length; i++) {
-                const rect = { x: boxX + 60, y: y - 18, width: boxWidth - 120, height: 36 };
+                const rect = { x: boxX + 60, y: y - 16, width: boxWidth - 120, height: 34 };
                 const hovered = hitTest(rect, mouseX, mouseY);
                 if (i === 0) {
                     drawModeToggleButton(rect, i === menuSelectionIndex, hovered);
@@ -6748,8 +6752,9 @@
                 y += menuSpacing;
             }
 
-            const highScoreY = Math.min(y + 10, boxY + boxHeight - 70);
-            const controlsY = Math.min(highScoreY + 24, boxY + boxHeight - 20);
+            // High score and controls at bottom of box (inside the panel)
+            const highScoreY = boxY + boxHeight - 45;
+            const controlsY = boxY + boxHeight - 22;
 
             ctx.font = '14px Courier New';
             ctx.fillStyle = '#ff0';
