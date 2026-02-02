@@ -186,12 +186,26 @@
     <h1>VoxelCopter Map Editor</h1>
 
     <div class="toolbar">
+        <label>Mission:
+            <select id="missionSelect">
+                <option value="">-- Custom --</option>
+                <option value="1">1: Training Ground</option>
+                <option value="2">2: Valley Assault</option>
+                <option value="3">3: Mountain Strike</option>
+                <option value="4">4: Search and Destroy</option>
+                <option value="5">5: Final Offensive</option>
+            </select>
+        </label>
+        <button id="loadMissionBtn">Load Mission</button>
+        <button id="saveMissionBtn">Save Mission</button>
+        <span style="color: #555;">|</span>
         <label>Map:
             <select id="mapSelect"></select>
         </label>
-        <button id="loadMapBtn">Load</button>
-        <button id="saveLocalBtn">Save</button>
-        <button id="loadLocalBtn">Load</button>
+        <button id="loadMapBtn">Load Map</button>
+        <span style="color: #555;">|</span>
+        <button id="saveLocalBtn">Save Local</button>
+        <button id="loadLocalBtn">Load Local</button>
         <button id="exportBtn">Export</button>
         <button id="importBtn">Import</button>
         <button id="copyBtn">Copy JSON</button>
@@ -347,8 +361,20 @@
             previewDirty: true
         };
 
+        // Mission file paths
+        const MISSION_FILES = {
+            1: './public/missions/mission-1.json',
+            2: './public/missions/mission-2.json',
+            3: './public/missions/mission-3.json',
+            4: './public/missions/mission-4.json',
+            5: './public/missions/mission-5.json'
+        };
+
         const elements = {
             mapCanvas: document.getElementById('mapCanvas'),
+            missionSelect: document.getElementById('missionSelect'),
+            loadMissionBtn: document.getElementById('loadMissionBtn'),
+            saveMissionBtn: document.getElementById('saveMissionBtn'),
             mapSelect: document.getElementById('mapSelect'),
             loadMapBtn: document.getElementById('loadMapBtn'),
             saveLocalBtn: document.getElementById('saveLocalBtn'),
@@ -1097,8 +1123,66 @@
             navigator.clipboard?.writeText(json);
         }
 
+        async function loadMission() {
+            const missionId = elements.missionSelect.value;
+            if (!missionId) {
+                alert('Please select a mission to load.');
+                return;
+            }
+            
+            const missionFile = MISSION_FILES[missionId];
+            if (!missionFile) {
+                alert('Mission file not found.');
+                return;
+            }
+            
+            try {
+                const response = await fetch(missionFile);
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                const config = await response.json();
+                applyConfig(config);
+                elements.jsonOutput.value = JSON.stringify(config, null, 2);
+                alert(`Loaded mission ${missionId}: ${config.name || 'Unnamed'}`);
+            } catch (err) {
+                console.error('Failed to load mission:', err);
+                alert(`Failed to load mission file.\nError: ${err.message}\n\nThe file may not exist yet. Create it by designing a layout and clicking "Save Mission".`);
+            }
+        }
+
+        async function saveMission() {
+            const missionId = elements.missionSelect.value;
+            if (!missionId) {
+                alert('Please select a mission to save to.');
+                return;
+            }
+            
+            const config = serializeConfig();
+            config.missionId = parseInt(missionId);
+            
+            const missionFile = MISSION_FILES[missionId];
+            const filename = missionFile.split('/').pop();
+            
+            // Since we can't write directly to the filesystem from the browser,
+            // we'll download the file and the user needs to save it to the correct location
+            const json = JSON.stringify(config, null, 2);
+            elements.jsonOutput.value = json;
+            
+            const blob = new Blob([json], { type: 'application/json' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = filename;
+            link.click();
+            URL.revokeObjectURL(link.href);
+            
+            alert(`Mission ${missionId} exported!\n\nSave the downloaded file to:\nsrc/web/public/missions/${filename}\n\nThen commit the changes to source control.`);
+        }
+
         function bindEvents() {
             window.addEventListener('resize', resizeCanvas);
+            elements.loadMissionBtn.addEventListener('click', loadMission);
+            elements.saveMissionBtn.addEventListener('click', saveMission);
             elements.loadMapBtn.addEventListener('click', () => loadMap(Number(elements.mapSelect.value)));
             elements.saveLocalBtn.addEventListener('click', saveLocal);
             elements.loadLocalBtn.addEventListener('click', loadLocal);

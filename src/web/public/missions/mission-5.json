@@ -1,0 +1,23 @@
+{
+  "missionId": 5,
+  "name": "FINAL OFFENSIVE",
+  "mapIndex": 2,
+  "difficulty": "extreme",
+  "weather": "clear",
+  "playerStart": { "x": 100, "y": 900 },
+  "airports": [
+    { "x": 500, "y": 200, "heading": 0, "faction": "enemy" },
+    { "x": 800, "y": 500, "heading": 1.57, "faction": "enemy" }
+  ],
+  "bases": [
+    { "x": 512, "y": 400, "size": "large", "faction": "enemy" },
+    { "x": 700, "y": 300, "size": "large", "faction": "enemy" },
+    { "x": 300, "y": 500, "size": "medium", "faction": "enemy" }
+  ],
+  "helipads": [],
+  "spawnZones": [
+    { "x": 512, "y": 400, "radius": 150, "types": ["TANK", "SAM_SITE", "BUILDING"], "count": 10 },
+    { "x": 700, "y": 300, "radius": 100, "types": ["TANK", "SAM_SITE"], "count": 5 },
+    { "x": 300, "y": 500, "radius": 80, "types": ["SAM_SITE", "BUILDING"], "count": 4 }
+  ]
+}

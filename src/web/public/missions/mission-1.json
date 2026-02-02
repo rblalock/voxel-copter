@@ -1,0 +1,16 @@
+{
+  "missionId": 1,
+  "name": "TRAINING GROUND",
+  "mapIndex": 1,
+  "difficulty": "easy",
+  "weather": "clear",
+  "playerStart": { "x": 512, "y": 512 },
+  "airports": [],
+  "bases": [
+    { "x": 400, "y": 300, "size": "small", "faction": "enemy" }
+  ],
+  "helipads": [],
+  "spawnZones": [
+    { "x": 400, "y": 300, "radius": 100, "types": ["TANK", "SAM_SITE", "BUILDING"], "count": 6 }
+  ]
+}

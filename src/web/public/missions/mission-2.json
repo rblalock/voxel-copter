@@ -1,0 +1,18 @@
+{
+  "missionId": 2,
+  "name": "VALLEY ASSAULT",
+  "mapIndex": 1,
+  "difficulty": "medium",
+  "weather": "clear",
+  "playerStart": { "x": 512, "y": 800 },
+  "airports": [
+    { "x": 300, "y": 300, "heading": 0, "faction": "enemy" }
+  ],
+  "bases": [
+    { "x": 600, "y": 400, "size": "medium", "faction": "enemy" }
+  ],
+  "helipads": [],
+  "spawnZones": [
+    { "x": 450, "y": 350, "radius": 120, "types": ["TANK", "SAM_SITE", "BUILDING"], "count": 8 }
+  ]
+}

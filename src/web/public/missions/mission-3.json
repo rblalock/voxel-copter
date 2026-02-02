@@ -1,0 +1,19 @@
+{
+  "missionId": 3,
+  "name": "MOUNTAIN STRIKE",
+  "mapIndex": 2,
+  "difficulty": "hard",
+  "weather": "clear",
+  "playerStart": { "x": 200, "y": 800 },
+  "airports": [
+    { "x": 700, "y": 300, "heading": 1.57, "faction": "enemy" }
+  ],
+  "bases": [
+    { "x": 500, "y": 400, "size": "large", "faction": "enemy" },
+    { "x": 650, "y": 500, "size": "medium", "faction": "enemy" }
+  ],
+  "helipads": [],
+  "spawnZones": [
+    { "x": 550, "y": 450, "radius": 150, "types": ["TANK", "SAM_SITE", "BUILDING"], "count": 11 }
+  ]
+}

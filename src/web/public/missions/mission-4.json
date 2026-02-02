@@ -1,0 +1,21 @@
+{
+  "missionId": 4,
+  "name": "SEARCH AND DESTROY",
+  "mapIndex": 3,
+  "difficulty": "hard",
+  "weather": "clear",
+  "playerStart": { "x": 512, "y": 512 },
+  "airports": [
+    { "x": 200, "y": 200, "heading": 0.78, "faction": "enemy" }
+  ],
+  "bases": [
+    { "x": 700, "y": 300, "size": "medium", "faction": "enemy" },
+    { "x": 300, "y": 700, "size": "medium", "faction": "enemy" }
+  ],
+  "helipads": [],
+  "spawnZones": [
+    { "x": 400, "y": 400, "radius": 100, "types": ["TANK", "SAM_SITE"], "count": 5 },
+    { "x": 700, "y": 300, "radius": 80, "types": ["TANK", "BUILDING"], "count": 4 },
+    { "x": 300, "y": 700, "radius": 80, "types": ["SAM_SITE", "BUILDING"], "count": 4 }
+  ]
+}

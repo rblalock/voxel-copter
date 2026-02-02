@@ -633,7 +633,8 @@
             {
                 id: 1,
                 name: "TRAINING GROUND",
-                map: 0,  // Rolling Hills
+                map: 0,  // Map 1
+                layoutFile: '/src/web/public/missions/mission-1.json',
                 briefing: "Welcome, pilot. This is a training exercise. Destroy all enemy targets to complete the mission. Watch out for SAM sites - they will fire missiles at you.",
                 briefingDelta: "Welcome, operator. This is your first field operation. Eliminate all enemy personnel in the area and secure the site.",
                 objectives: [
@@ -656,7 +657,8 @@
             {
                 id: 2,
                 name: "VALLEY ASSAULT",
-                map: 0,  // Rolling Hills
+                map: 0,  // Map 1
+                layoutFile: '/src/web/public/missions/mission-2.json',
                 briefing: "Intelligence reports enemy armor moving through the valley. Neutralize all tanks before they reach the base. SAM coverage is light.",
                 briefingDelta: "Enemy patrols are sweeping the valley. Clear all hostiles and dismantle their forward presence.",
                 objectives: [
@@ -679,7 +681,8 @@
             {
                 id: 3,
                 name: "MOUNTAIN STRIKE",
-                map: 1,  // Mountains
+                map: 1,  // Map 2
+                layoutFile: '/src/web/public/missions/mission-3.json',
                 briefing: "A heavily fortified enemy base has been located in the mountains. Multiple SAM sites protect the area. Use terrain for cover and take out air defenses first.",
                 briefingDelta: "Enemy forces have dug in across the ridgeline. Assault the position, neutralize all combatants, and destroy key structures.",
                 objectives: [
@@ -702,7 +705,8 @@
             {
                 id: 4,
                 name: "SEARCH AND DESTROY",
-                map: 2,  // Varied Terrain  
+                map: 2,  // Map 3
+                layoutFile: '/src/web/public/missions/mission-4.json',
                 briefing: "Enemy forces are scattered across the region. Hunt them down and eliminate all targets. Watch your ammo - resupply is not available.",
                 briefingDelta: "Multiple hostile squads are operating in the region. Search the area methodically and eliminate all enemy forces.",
                 objectives: [
@@ -725,7 +729,8 @@
             {
                 id: 5,
                 name: "FINAL OFFENSIVE",
-                map: 1,  // Mountains
+                map: 1,  // Map 2
+                layoutFile: '/src/web/public/missions/mission-5.json',
                 briefing: "This is it, pilot. The enemy's main command center must be destroyed. Expect heavy resistance. All weapons authorized. Good luck.",
                 briefingDelta: "Final assault. The enemy command center is heavily guarded. Break through, eliminate all defenders, and destroy the facility.",
                 objectives: [
@@ -3955,6 +3960,50 @@
             }
         }
 
+        // Cache for loaded mission layouts
+        const missionLayoutCache = {};
+
+        async function loadMissionLayout(layoutFile) {
+            // Check cache first
+            if (missionLayoutCache[layoutFile]) {
+                return missionLayoutCache[layoutFile];
+            }
+            
+            try {
+                const response = await fetch(layoutFile);
+                if (!response.ok) {
+                    console.warn(`Failed to load mission layout: ${layoutFile}`);
+                    return null;
+                }
+                const layout = await response.json();
+                missionLayoutCache[layoutFile] = layout;
+                return layout;
+            } catch (err) {
+                console.warn(`Error loading mission layout: ${layoutFile}`, err);
+                return null;
+            }
+        }
+
+        function applyMissionLayout(layout, mission) {
+            // Apply the layout from JSON file using existing applyCustomMissionConfig
+            applyCustomMissionConfig(layout);
+            
+            // Set player start position if specified
+            if (layout.playerStart) {
+                camera.x = layout.playerStart.x;
+                camera.y = layout.playerStart.y;
+            }
+            
+            // Apply weather if specified
+            if (layout.weather) {
+                weatherCondition = layout.weather;
+            }
+            
+            // Spawn mission targets based on mission definition (not layout)
+            // The layout defines WHERE things go, mission defines HOW MANY
+            spawnMissionTargets(mission);
+        }
+
         function startMission(missionIndex, options = {}) {
             currentMissionIndex = missionIndex;
             const baseMission = MISSIONS[missionIndex];
@@ -3974,7 +4023,7 @@
             // Load the correct map
             const mapIndex = activeAIMission && typeof aiMissionMapIndex === 'number' ? aiMissionMapIndex : mission.map;
             aiMissionMapIndex = null;
-            loadMapForMission(mapIndex, () => {
+            loadMapForMission(mapIndex, async () => {
                 // Reset player state
                 playerHealth = maxPlayerHealth;
                 score = 0;
@@ -3998,7 +4047,7 @@
                 countermeasures.chaff.count = 10;
                 countermeasures.flare.count = 10;
                 
-                // Reset camera
+                // Reset camera (may be overridden by layout)
                 camera.x = 512;
                 camera.y = 512;
                 camera.angle = 0;
@@ -4017,10 +4066,22 @@
                 screenFlashColor = null;
                 screenFlashTime = 0;
                 
-                // Spawn mission targets
+                // Spawn mission targets - try to load layout file first
                 if (activeAIMission) {
                     applyAIMission(activeAIMission);
+                } else if (baseMission.layoutFile) {
+                    // Load and apply the mission layout from JSON file
+                    const layout = await loadMissionLayout(baseMission.layoutFile);
+                    if (layout) {
+                        applyMissionLayout(layout, mission);
+                    } else {
+                        // Fallback to random generation if layout fails to load
+                        console.warn('Falling back to random generation');
+                        generateWorldStructures();
+                        spawnMissionTargets(mission);
+                    }
                 } else {
+                    // No layout file, use random generation
                     generateWorldStructures();
                     spawnMissionTargets(mission);
                 }
