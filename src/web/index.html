@@ -1527,6 +1527,10 @@
                 const ry = -dx * sinAngle - dy * cosAngle;
 
                 if (ry > 5 && ry < cam.distance) {
+                    // Check terrain occlusion for particles
+                    if (isProjectileOccluded(p, cam, dx, dy, ry)) {
+                        continue;
+                    }
                     const scaleX = (screenWidth / 2) / ry;
                     const scaleY = 240.0 / ry;
                     const screenX = screenWidth / 2 + rx * scaleX;
@@ -8263,7 +8267,7 @@
                 // Check if in front of camera
                 if (ry > 5 && ry < cam.distance) {
                     // Check terrain occlusion for enemy projectiles
-                    if (isTargetOccluded(ep, cam, dx, dy, ry)) {
+                    if (isProjectileOccluded(ep, cam, dx, dy, ry)) {
                         continue;
                     }
                     
@@ -8589,6 +8593,38 @@
             return false;  // Target is visible
         }
 
+        // Check if a projectile/explosion is occluded by terrain
+        function isProjectileOccluded(obj, cam, dx, dy, ry) {
+            // Quick check: is the object below terrain at its position?
+            const terrainHeight = getTerrainHeight(obj.x, obj.y);
+            if (obj.z < terrainHeight) {
+                return true;
+            }
+            
+            // Sample terrain along line of sight
+            const numSamples = Math.min(15, Math.max(5, Math.floor(ry / 30)));
+            const clearance = 2;
+            
+            for (let s = 1; s < numSamples; s++) {
+                const t = s / numSamples;
+                
+                let sampleX = cam.x + dx * t;
+                let sampleY = cam.y + dy * t;
+                
+                sampleX = ((sampleX % CONFIG.MAP_SIZE) + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
+                sampleY = ((sampleY % CONFIG.MAP_SIZE) + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
+                
+                const terrainAtSample = getTerrainHeight(sampleX, sampleY);
+                const expectedHeight = cam.height + (obj.z - cam.height) * t;
+                
+                if (terrainAtSample > expectedHeight + clearance) {
+                    return true;
+                }
+            }
+            
+            return false;
+        }
+
         // Check if a shadow on the ground is occluded by terrain between camera and shadow
         function isShadowOccluded(shadowX, shadowY, shadowZ, cam, dx, dy, ry) {
             // Sample terrain along the line from camera to shadow position
@@ -8794,6 +8830,10 @@
             const ry = -dx * sinAngle - dy * cosAngle;
 
             if (ry > 5 && ry < cam.distance) {
+                // Check terrain occlusion for parked helicopter
+                if (isProjectileOccluded(heli, cam, dx, dy, ry)) {
+                    return;
+                }
                 const scaleX = (screenWidth / 2) / ry;
                 const scaleY = 240.0 / ry;
                 const screenX = screenWidth / 2 + rx * scaleX;
@@ -10905,6 +10945,10 @@
                 
                 // Check if in front of camera
                 if (ry > 5 && ry < cam.distance) {
+                    // Check terrain occlusion for projectiles
+                    if (isProjectileOccluded(proj, cam, dx, dy, ry)) {
+                        continue;
+                    }
                     const scaleX = (screenWidth / 2) / ry;
                     const scaleY = 240.0 / ry;
                     const screenX = screenWidth / 2 + rx * scaleX;
@@ -11005,6 +11049,10 @@
                 const ry = -dx * sinAngle - dy * cosAngle;
                 
                 if (ry > 5 && ry < cam.distance) {
+                    // Check terrain occlusion for explosions
+                    if (isProjectileOccluded(exp, cam, dx, dy, ry)) {
+                        continue;
+                    }
                     const scaleX = (screenWidth / 2) / ry;
                     const scaleY = 240.0 / ry;
                     const screenX = screenWidth / 2 + rx * scaleX;
