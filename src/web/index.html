@@ -2003,8 +2003,10 @@
             osc.stop(now + 0.7);
         }
         
-        // Rotor/Engine Sound (looping)
+        // Rotor/Engine Sound (looping) - only for helicopter mode
         function startRotorSound() {
+            // Don't play rotor sound in Delta (soldier) mode
+            if (gameMode === GAME_MODES.DELTA) return;
             if (!soundEnabled || !audioCtx || rotorOscillator) return;
             
             try {
@@ -10644,17 +10646,19 @@
             ctx.ellipse(ix, iy, padW * 0.48, padH * 0.48, 0, 0, Math.PI * 2);
             ctx.stroke();
 
-            // H marking (compressed vertically for perspective)
-            const hHeight = padH * 0.65;
+            // H marking (compressed vertically for perspective, centered on pad)
+            const hHeight = padH * 0.55;
             const hWidth = Math.max(1, Math.floor(padW * 0.08));
             const hGap = padW * 0.18;
-            const hBarH = Math.max(1, Math.floor(padH * 0.18));
-            const hYOffset = Math.floor(padH * 0.05);
+            const hBarH = Math.max(1, Math.floor(padH * 0.15));
 
             ctx.fillStyle = marking;
-            ctx.fillRect(ix - hGap - hWidth / 2, iy - hHeight / 2 + hYOffset, hWidth, hHeight);
-            ctx.fillRect(ix + hGap - hWidth / 2, iy - hHeight / 2 + hYOffset, hWidth, hHeight);
-            ctx.fillRect(ix - hGap, iy - hBarH / 2 + hYOffset, hGap * 2, hBarH);
+            // Left vertical bar of H
+            ctx.fillRect(ix - hGap - hWidth / 2, iy - hHeight / 2, hWidth, hHeight);
+            // Right vertical bar of H
+            ctx.fillRect(ix + hGap - hWidth / 2, iy - hHeight / 2, hWidth, hHeight);
+            // Horizontal bar of H (centered)
+            ctx.fillRect(ix - hGap, iy - hBarH / 2, hGap * 2, hBarH);
 
             // Outer outline
             ctx.strokeStyle = marking;
