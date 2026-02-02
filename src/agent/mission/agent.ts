@@ -59,6 +59,16 @@ const agent = createAgent('mission', {
 		const systemPrompt = `You are a mission designer for VoxelCopter, a Comanche-style helicopter combat game.
 Generate a mission configuration based on the user's request.
 
+CRITICAL RULES FOR ENTITY GENERATION:
+1. You MUST generate entities based on the user's request. The entities array should NEVER be empty unless the user explicitly asks for no enemies.
+2. If the user asks for "airplanes", "jets", "aircraft", or "fighters", include AIR_FIGHTER entities.
+3. If the user asks for "tanks" or "armor", include TANK entities.
+4. If the user asks for "helicopters" or "helis", include AIR_ATTACK_HELI entities.
+5. If the user asks for "soldiers", "infantry", or "troops", include SOLDIER entities.
+6. If the user asks for "SAM", "anti-air", or "AA", include SAM_SITE entities.
+7. If the user says "lots of", "many", or "heavy", use higher counts (5-10+).
+8. Always include a variety of enemies appropriate to the difficulty level.
+
 Available entity types:
 - TANK: Ground vehicle, medium threat
 - SOLDIER: Infantry, low threat, appears in groups
@@ -68,23 +78,61 @@ Available entity types:
 - AIR_ATTACK_HELI: Enemy helicopter, medium threat
 - HANGAR, CONTROL_TOWER, BARRACKS, FUEL_DEPOT, HELIPAD: Base buildings
 
-Difficulty scaling:
-- easy: Few enemies, no aircraft, long time limit
-- normal: Balanced enemies, some aircraft, medium time
-- hard: Many enemies, aircraft patrols, short time
-- extreme: Heavy resistance, multiple aircraft, very short time
+Difficulty scaling (MINIMUM entity counts):
+- easy: 3+ tanks, 5+ soldiers, no aircraft, long time limit
+- normal: 5+ tanks, 2+ SAM_SITE, 8+ soldiers, 1+ aircraft, medium time
+- hard: 8+ tanks, 4+ SAM_SITE, 15+ soldiers, 3+ aircraft, short time
+- extreme: 12+ tanks, 6+ SAM_SITE, 20+ soldiers, 5+ aircraft, very short time
 
-Weather affects visibility:
+CRITICAL RULES FOR WEATHER:
+1. If the user mentions "night", "dark", "evening", "midnight", or "nocturnal", set weather to "night".
+2. If the user mentions "fog", "foggy", "mist", or "misty", set weather to "fog".
+3. If the user mentions "storm", "stormy", "rain", or "thunder", set weather to "storm".
+4. If the user mentions "dusk", "sunset", or "evening", set weather to "dusk".
+5. Otherwise, default to "clear".
+
+Weather options:
 - clear: Full visibility
 - dusk: Reduced visibility, orange sky
 - night: Very low visibility, need night vision
 - fog: Limited visibility, atmospheric
 - storm: Rain, lightning, dramatic
 
+EXAMPLE OUTPUT (for "night raid on airport, lots of airplanes"):
+{
+  "seed": 123456,
+  "weather": "night",
+  "timeLimit": 300,
+  "entities": [
+    { "type": "AIR_FIGHTER", "count": 6, "area": "airport" },
+    { "type": "AIR_ATTACK_HELI", "count": 2, "area": "airport" },
+    { "type": "SAM_SITE", "count": 4, "area": "airport" },
+    { "type": "TANK", "count": 5, "area": "scattered" },
+    { "type": "SOLDIER", "count": 12, "area": "base" }
+  ],
+  "objectives": [
+    { "type": "destroy_count", "targetType": "AIR_FIGHTER", "count": 6, "description": "Destroy all enemy aircraft" }
+  ],
+  "briefing": "Under cover of darkness, infiltrate the enemy airbase and neutralize their air superiority assets.",
+  "difficulty": "normal",
+  "airportCount": 2,
+  "baseCount": 1
+}
+
 Respond with a JSON object matching the output schema. Be creative with briefings!`;
 
 		const userPrompt = `Generate a ${difficulty} difficulty mission for ${mode} mode.
+
 User request: "${prompt}"
+
+Parse the user's request carefully. Extract:
+1. Desired enemy types (airplanes → AIR_FIGHTER, tanks → TANK, helicopters → AIR_ATTACK_HELI, etc.)
+2. Quantities ("lots of" = 5-10+, "few" = 2-3, "many" = 8-15)
+3. Time of day (night, evening, dark → weather: "night"; fog, mist → weather: "fog")
+4. Location hints (airport → airportCount: 2+, base → baseCount: 2+)
+
+IMPORTANT: You MUST populate the entities array with enemies. Do NOT return an empty entities array.
+If the user mentions specific enemy types, include those. Always include supporting enemies too.
 
 Create an engaging mission with appropriate enemies, objectives, and a dramatic military briefing.`;
 
@@ -104,6 +152,9 @@ Create an engaging mission with appropriate enemies, objectives, and a dramatic 
 				throw new Error('No content in response');
 			}
 			
+			// Log raw response for debugging
+			ctx.logger.info('Raw OpenAI response:', content);
+			
 			let generated: Record<string, unknown>;
 			try {
 				generated = JSON.parse(content) as Record<string, unknown>;
@@ -114,13 +165,54 @@ Create an engaging mission with appropriate enemies, objectives, and a dramatic 
 
 			const rawEntities = Array.isArray(generated.entities) ? generated.entities : [];
 			const rawObjectives = Array.isArray(generated.objectives) ? generated.objectives : [];
+			
+			ctx.logger.info('Raw entities from LLM:', JSON.stringify(rawEntities));
+			ctx.logger.info('Raw weather from LLM:', generated.weather);
 
 			// Normalize entities - ensure count is always a number
-			const entities = rawEntities.slice(0, 20).map((e: Record<string, unknown>) => ({
+			let entities = rawEntities.slice(0, 20).map((e: Record<string, unknown>) => ({
 				type: typeof e.type === 'string' ? e.type : 'SOLDIER',
 				count: typeof e.count === 'number' ? e.count : (typeof e.quantity === 'number' ? e.quantity : 1),
 				area: typeof e.area === 'string' ? e.area : 'scattered',
 			}));
+
+			// Fallback: If entities array is empty, generate defaults based on difficulty
+			if (entities.length === 0) {
+				ctx.logger.warn('LLM returned empty entities array, using difficulty-based defaults for:', difficulty);
+				// Default fallback for any difficulty level
+				const defaultEntities = [
+					{ type: 'TANK', count: 5, area: 'scattered' },
+					{ type: 'SAM_SITE', count: 2, area: 'base' },
+					{ type: 'SOLDIER', count: 8, area: 'scattered' },
+					{ type: 'AIR_FIGHTER', count: 1, area: 'airport' },
+				];
+				
+				if (difficulty === 'easy') {
+					entities = [
+						{ type: 'TANK', count: 3, area: 'scattered' },
+						{ type: 'SOLDIER', count: 5, area: 'scattered' },
+					];
+				} else if (difficulty === 'hard') {
+					entities = [
+						{ type: 'TANK', count: 8, area: 'scattered' },
+						{ type: 'SAM_SITE', count: 4, area: 'base' },
+						{ type: 'SOLDIER', count: 15, area: 'scattered' },
+						{ type: 'AIR_FIGHTER', count: 3, area: 'airport' },
+					];
+				} else if (difficulty === 'extreme') {
+					entities = [
+						{ type: 'TANK', count: 12, area: 'scattered' },
+						{ type: 'SAM_SITE', count: 6, area: 'base' },
+						{ type: 'SOLDIER', count: 20, area: 'scattered' },
+						{ type: 'AIR_FIGHTER', count: 5, area: 'airport' },
+						{ type: 'AIR_ATTACK_HELI', count: 2, area: 'airport' },
+					];
+				} else {
+					// normal or any other value
+					entities = defaultEntities;
+				}
+				ctx.logger.info('Fallback entities generated:', entities.length);
+			}
 
 			// Normalize objectives - ensure required fields exist
 			const objectives = rawObjectives.length > 0

@@ -35,10 +35,11 @@ const agent = createAgent('debrief', {
 	handler: async (ctx, input) => {
 		ctx.logger.info('Generating debrief', { victory: input.victory, kills: input.kills });
 
-		const systemPrompt = `You are a military debrief officer for VoxelCopter.
+		const systemPrompt = `You are a military debrief officer for VoxelCopter. You must respond in json format.
 Analyze the pilot's mission performance and provide constructive feedback.
 Be encouraging but honest. Use military terminology.
-Keep responses concise - this is a game, not a real military debrief.`;
+Keep responses concise - this is a game, not a real military debrief.
+Respond with a valid JSON object containing: summary, performance, strengths (array), improvements (array), and optionally nextMissionHint.`;
 
 		const userPrompt = `Mission Debrief:
 - Outcome: ${input.victory ? 'VICTORY' : 'MISSION FAILED'}

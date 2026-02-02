@@ -1,0 +1,1145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VoxelCopter - Map Editor</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            background: #1a1a2e;
+            color: #00ff00;
+            font-family: 'Courier New', monospace;
+            padding: 16px;
+        }
+        h1 {
+            text-align: center;
+            margin-bottom: 16px;
+            text-shadow: 0 0 10px #00ff00;
+        }
+        .toolbar {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            justify-content: center;
+            align-items: center;
+            padding: 12px;
+            background: rgba(0, 255, 0, 0.08);
+            border: 1px solid #00ff00;
+            border-radius: 6px;
+            margin-bottom: 12px;
+        }
+        .toolbar label {
+            font-size: 12px;
+            color: #88ff88;
+        }
+        select, button, input, textarea {
+            background: #111726;
+            color: #00ff00;
+            border: 1px solid #00ff00;
+            padding: 6px 8px;
+            font-family: inherit;
+        }
+        button {
+            cursor: pointer;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        button:hover {
+            background: rgba(0, 255, 0, 0.15);
+        }
+        .layout {
+            display: grid;
+            grid-template-columns: minmax(520px, 1fr) 360px;
+            gap: 12px;
+        }
+        .panel {
+            background: rgba(0, 50, 0, 0.25);
+            border: 1px solid #00ff00;
+            border-radius: 6px;
+            padding: 10px;
+        }
+        .panel h2 {
+            font-size: 14px;
+            margin-bottom: 8px;
+            border-bottom: 1px solid rgba(0, 255, 0, 0.4);
+            padding-bottom: 4px;
+        }
+        .map-wrapper {
+            position: relative;
+            width: 100%;
+            height: 640px;
+            background: #0a0a14;
+            border: 1px solid #00ff00;
+            border-radius: 6px;
+            overflow: hidden;
+        }
+        #mapCanvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+            image-rendering: pixelated;
+        }
+        .map-hud {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            border: 1px solid #00ff00;
+            padding: 6px 10px;
+            font-size: 12px;
+            color: #9dff9d;
+        }
+        .controls-row {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .checkbox-group {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        .checkbox-group label {
+            display: flex;
+            gap: 4px;
+            align-items: center;
+            font-size: 12px;
+        }
+        .spawn-list {
+            max-height: 200px;
+            overflow-y: auto;
+            border: 1px solid rgba(0, 255, 0, 0.4);
+            padding: 6px;
+            margin-bottom: 10px;
+        }
+        .spawn-item {
+            padding: 6px;
+            border-bottom: 1px dashed rgba(0, 255, 0, 0.2);
+            cursor: pointer;
+            font-size: 12px;
+        }
+        .spawn-item.active {
+            background: rgba(0, 255, 0, 0.15);
+        }
+        .properties-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 6px 8px;
+            font-size: 12px;
+            align-items: center;
+        }
+        .properties-grid input,
+        .properties-grid select {
+            width: 100%;
+            font-size: 12px;
+        }
+        .footer-status {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 12px;
+            padding: 8px 10px;
+            background: rgba(0, 0, 0, 0.6);
+            border: 1px solid #00ff00;
+            border-radius: 6px;
+            font-size: 12px;
+            color: #88ff88;
+        }
+        .badge {
+            display: inline-block;
+            padding: 2px 6px;
+            border: 1px solid #00ff00;
+            border-radius: 4px;
+            font-size: 11px;
+            color: #8aff8a;
+        }
+        .hint {
+            font-size: 11px;
+            color: #7fbf7f;
+            margin-top: 6px;
+            line-height: 1.4;
+        }
+        .small {
+            font-size: 11px;
+            color: #88ff88;
+        }
+        .divider {
+            height: 1px;
+            background: rgba(0, 255, 0, 0.2);
+            margin: 8px 0;
+        }
+        textarea {
+            width: 100%;
+            height: 120px;
+            resize: vertical;
+            font-size: 11px;
+            margin-top: 6px;
+        }
+    </style>
+</head>
+<body>
+    <h1>VoxelCopter Map Editor</h1>
+
+    <div class="toolbar">
+        <label>Map:
+            <select id="mapSelect"></select>
+        </label>
+        <button id="loadMapBtn">Load</button>
+        <button id="saveLocalBtn">Save</button>
+        <button id="loadLocalBtn">Load</button>
+        <button id="exportBtn">Export</button>
+        <button id="importBtn">Import</button>
+        <button id="copyBtn">Copy JSON</button>
+        <input type="file" id="importFile" accept="application/json" hidden>
+    </div>
+
+    <div class="layout">
+        <div class="panel">
+            <div class="controls-row" style="justify-content: space-between; margin-bottom: 8px;">
+                <div class="checkbox-group">
+                    <label><input type="checkbox" id="heightToggle">Heightmap</label>
+                    <label><input type="checkbox" id="gridToggle">Grid</label>
+                    <label><input type="checkbox" id="previewToggle">Preview</label>
+                </div>
+                <div class="controls-row">
+                    <label class="small">Height Alpha</label>
+                    <input type="range" id="heightAlpha" min="0" max="100" value="40">
+                </div>
+            </div>
+            <div class="map-wrapper">
+                <canvas id="mapCanvas"></canvas>
+                <div class="map-hud" id="cursorHud">Cursor: (0, 0) | Height: 0 | Slope: 0</div>
+            </div>
+            <div class="hint">
+                Left click to place/select markers. Drag to move. Right click to delete. Scroll to zoom. Shift+drag to pan.
+            </div>
+        </div>
+        <div class="panel">
+            <h2>Spawn Points</h2>
+            <div class="controls-row" style="margin-bottom: 6px;">
+                <label class="small">Placement Mode</label>
+                <select id="placeType">
+                    <option value="playerStart">Player Start</option>
+                    <option value="airport">Airport</option>
+                    <option value="base">Base</option>
+                    <option value="helipad">Helipad</option>
+                    <option value="enemyZone">Enemy Spawn Zone</option>
+                </select>
+            </div>
+            <div class="spawn-list" id="spawnList"></div>
+            <div class="divider"></div>
+            <h2>Properties</h2>
+            <div class="properties-grid" id="propertiesPanel"></div>
+            <div class="divider"></div>
+            <h2>Map Metadata</h2>
+            <div class="properties-grid">
+                <label>Name</label>
+                <input id="metaName" placeholder="Custom Mission">
+                <label>Difficulty</label>
+                <select id="metaDifficulty">
+                    <option value="easy">easy</option>
+                    <option value="medium" selected>medium</option>
+                    <option value="hard">hard</option>
+                    <option value="extreme">extreme</option>
+                </select>
+                <label>Weather</label>
+                <select id="metaWeather">
+                    <option value="clear" selected>clear</option>
+                    <option value="dusk">dusk</option>
+                    <option value="night">night</option>
+                    <option value="fog">fog</option>
+                    <option value="storm">storm</option>
+                </select>
+            </div>
+            <div class="divider"></div>
+            <h2>Preview Controls</h2>
+            <div class="properties-grid">
+                <label>Slope Threshold</label>
+                <input id="slopeThreshold" type="range" min="5" max="50" value="20">
+                <label>Footprint Scale</label>
+                <input id="footprintScale" type="range" min="50" max="200" value="100">
+            </div>
+        </div>
+    </div>
+
+    <div class="footer-status" id="statusBar">
+        <div>Map: <span id="statusMap" class="badge">--</span></div>
+        <div>Spawns: <span id="statusCount" class="badge">0</span></div>
+        <div>Zoom: <span id="statusZoom" class="badge">1.00x</span></div>
+    </div>
+
+    <textarea id="jsonOutput" readonly placeholder="Exported JSON will appear here."></textarea>
+
+    <script>
+        const CONFIG = {
+            MAP_SIZE: 1024,
+            MAP_SHIFT: 10,
+            LOCAL_KEY: 'voxelcopter_map_editor',
+            GRID_SIZE: 64,
+            SELECT_RADIUS: 12
+        };
+
+        const MAPS = [
+            { index: 1, name: 'Map 1', color: './public/maps/C1W.png', height: './public/maps/D1.png' },
+            { index: 2, name: 'Map 2', color: './public/maps/C2W.png', height: './public/maps/D2.png' },
+            { index: 3, name: 'Map 3', color: './public/maps/C3.png', height: './public/maps/D3.png' },
+            { index: 4, name: 'Map 4', color: './public/maps/C4.png', height: './public/maps/D4.png' },
+            { index: 5, name: 'Map 5', color: './public/maps/C5W.png', height: './public/maps/D5.png' },
+            { index: 6, name: 'Map 6', color: './public/maps/C6W.png', height: './public/maps/D6.png' },
+            { index: 7, name: 'Map 7', color: './public/maps/C7W.png', height: './public/maps/D7.png' },
+            { index: 8, name: 'Map 8', color: './public/maps/C8.png', height: './public/maps/D6.png' },
+            { index: 9, name: 'Map 9', color: './public/maps/C9W.png', height: './public/maps/D9.png' },
+            { index: 10, name: 'Map 10', color: './public/maps/C10W.png', height: './public/maps/D10.png' },
+            { index: 11, name: 'Map 11', color: './public/maps/C11W.png', height: './public/maps/D11.png' },
+            { index: 12, name: 'Map 12', color: './public/maps/C12W.png', height: './public/maps/D11.png' },
+            { index: 13, name: 'Map 13', color: './public/maps/C13.png', height: './public/maps/D13.png' },
+            { index: 14, name: 'Map 14', color: './public/maps/C14.png', height: './public/maps/D14.png' },
+            { index: 15, name: 'Map 15', color: './public/maps/C15.png', height: './public/maps/D15.png' },
+            { index: 16, name: 'Map 16', color: './public/maps/C16W.png', height: './public/maps/D16.png' },
+            { index: 17, name: 'Map 17', color: './public/maps/C17W.png', height: './public/maps/D17.png' },
+            { index: 18, name: 'Map 18', color: './public/maps/C18W.png', height: './public/maps/D18.png' },
+            { index: 19, name: 'Map 19', color: './public/maps/C19W.png', height: './public/maps/D19.png' },
+            { index: 20, name: 'Map 20', color: './public/maps/C20W.png', height: './public/maps/D20.png' },
+            { index: 21, name: 'Map 21', color: './public/maps/C21.png', height: './public/maps/D21.png' },
+            { index: 22, name: 'Map 22', color: './public/maps/C22W.png', height: './public/maps/D22.png' },
+            { index: 23, name: 'Map 23', color: './public/maps/C23W.png', height: './public/maps/D21.png' },
+            { index: 24, name: 'Map 24', color: './public/maps/C24W.png', height: './public/maps/D24.png' },
+            { index: 25, name: 'Map 25', color: './public/maps/C25W.png', height: './public/maps/D25.png' },
+            { index: 26, name: 'Map 26', color: './public/maps/C26W.png', height: './public/maps/D18.png' },
+            { index: 27, name: 'Map 27', color: './public/maps/C27W.png', height: './public/maps/D15.png' },
+            { index: 28, name: 'Map 28', color: './public/maps/C28W.png', height: './public/maps/D25.png' },
+            { index: 29, name: 'Map 29', color: './public/maps/C29W.png', height: './public/maps/D16.png' }
+        ];
+
+        const SPAWN_TYPES = {
+            playerStart: { label: 'Player Start', color: '#00ffea' },
+            airport: { label: 'Airport', color: '#ffaa00' },
+            base: { label: 'Base', color: '#00ff00' },
+            helipad: { label: 'Helipad', color: '#ff66ff' },
+            enemyZone: { label: 'Enemy Zone', color: '#ff3333' }
+        };
+
+        const state = {
+            mapIndex: 1,
+            map: MAPS[0],
+            colorImage: null,
+            heightImage: null,
+            colorData: null,
+            heightData: null,
+            width: CONFIG.MAP_SIZE,
+            height: CONFIG.MAP_SIZE,
+            zoom: 1,
+            offsetX: 0,
+            offsetY: 0,
+            dragging: false,
+            dragId: null,
+            panMode: false,
+            lastMouse: { x: 0, y: 0 },
+            spawns: [],
+            selectedId: null,
+            metadata: { name: '', difficulty: 'medium', weather: 'clear' },
+            previewOverlay: null,
+            previewDirty: true
+        };
+
+        const elements = {
+            mapCanvas: document.getElementById('mapCanvas'),
+            mapSelect: document.getElementById('mapSelect'),
+            loadMapBtn: document.getElementById('loadMapBtn'),
+            saveLocalBtn: document.getElementById('saveLocalBtn'),
+            loadLocalBtn: document.getElementById('loadLocalBtn'),
+            exportBtn: document.getElementById('exportBtn'),
+            importBtn: document.getElementById('importBtn'),
+            copyBtn: document.getElementById('copyBtn'),
+            importFile: document.getElementById('importFile'),
+            heightToggle: document.getElementById('heightToggle'),
+            gridToggle: document.getElementById('gridToggle'),
+            previewToggle: document.getElementById('previewToggle'),
+            heightAlpha: document.getElementById('heightAlpha'),
+            placeType: document.getElementById('placeType'),
+            spawnList: document.getElementById('spawnList'),
+            propertiesPanel: document.getElementById('propertiesPanel'),
+            metaName: document.getElementById('metaName'),
+            metaDifficulty: document.getElementById('metaDifficulty'),
+            metaWeather: document.getElementById('metaWeather'),
+            slopeThreshold: document.getElementById('slopeThreshold'),
+            footprintScale: document.getElementById('footprintScale'),
+            cursorHud: document.getElementById('cursorHud'),
+            statusMap: document.getElementById('statusMap'),
+            statusCount: document.getElementById('statusCount'),
+            statusZoom: document.getElementById('statusZoom'),
+            jsonOutput: document.getElementById('jsonOutput')
+        };
+
+        const mapCtx = elements.mapCanvas.getContext('2d');
+
+        function initMapOptions() {
+            elements.mapSelect.innerHTML = '';
+            for (const map of MAPS) {
+                const option = document.createElement('option');
+                option.value = map.index;
+                option.textContent = `${map.index} - ${map.name}`;
+                elements.mapSelect.appendChild(option);
+            }
+            elements.mapSelect.value = String(state.mapIndex);
+        }
+
+        function resizeCanvas() {
+            const rect = elements.mapCanvas.getBoundingClientRect();
+            elements.mapCanvas.width = rect.width * devicePixelRatio;
+            elements.mapCanvas.height = rect.height * devicePixelRatio;
+            mapCtx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+            draw();
+        }
+
+        function loadImage(src) {
+            return new Promise((resolve, reject) => {
+                const img = new Image();
+                img.onload = () => resolve(img);
+                img.onerror = reject;
+                img.src = src;
+            });
+        }
+
+        async function loadMap(index) {
+            const map = MAPS.find((m) => m.index === index) || MAPS[0];
+            state.map = map;
+            state.mapIndex = map.index;
+            elements.mapSelect.value = String(map.index);
+
+            try {
+                const [colorImage, heightImage] = await Promise.all([
+                    loadImage(map.color),
+                    loadImage(map.height)
+                ]);
+                state.colorImage = colorImage;
+                state.heightImage = heightImage;
+                state.width = colorImage.width;
+                state.height = colorImage.height;
+
+                const colorCanvas = document.createElement('canvas');
+                colorCanvas.width = colorImage.width;
+                colorCanvas.height = colorImage.height;
+                const colorCtx = colorCanvas.getContext('2d');
+                colorCtx.drawImage(colorImage, 0, 0);
+                state.colorData = colorCtx.getImageData(0, 0, colorCanvas.width, colorCanvas.height).data;
+
+                const heightCanvas = document.createElement('canvas');
+                heightCanvas.width = heightImage.width;
+                heightCanvas.height = heightImage.height;
+                const heightCtx = heightCanvas.getContext('2d');
+                heightCtx.drawImage(heightImage, 0, 0);
+                state.heightData = heightCtx.getImageData(0, 0, heightCanvas.width, heightCanvas.height).data;
+
+                state.previewDirty = true;
+                fitToView();
+                updateStatus();
+                draw();
+            } catch (err) {
+                console.error('Map load error:', err);
+                alert(`Failed to load map images for ${map.name}.\nError: ${err.message || err}\nPaths: ${map.color}, ${map.height}`);
+            }
+        }
+
+        function fitToView() {
+            const rect = elements.mapCanvas.getBoundingClientRect();
+            const scaleX = rect.width / state.width;
+            const scaleY = rect.height / state.height;
+            state.zoom = Math.min(scaleX, scaleY);
+            state.offsetX = (rect.width - state.width * state.zoom) / 2;
+            state.offsetY = (rect.height - state.height * state.zoom) / 2;
+        }
+
+        function getTerrainHeight(x, y) {
+            if (!state.heightData) return 0;
+            const ix = Math.floor(x) & (state.width - 1);
+            const iy = Math.floor(y) & (state.height - 1);
+            const index = (iy * state.width + ix) * 4;
+            return state.heightData[index];
+        }
+
+        function getTerrainColor(x, y) {
+            if (!state.colorData) return { r: 0, g: 0, b: 0 };
+            const ix = Math.floor(x) & (state.width - 1);
+            const iy = Math.floor(y) & (state.height - 1);
+            const index = (iy * state.width + ix) * 4;
+            return {
+                r: state.colorData[index],
+                g: state.colorData[index + 1],
+                b: state.colorData[index + 2]
+            };
+        }
+
+        function isWaterAt(x, y, height = null) {
+            const h = height !== null ? height : getTerrainHeight(x, y);
+            if (h < 12) return true;
+            const color = getTerrainColor(x, y);
+            return color.b > 110 && color.b > color.g + 20 && color.b > color.r + 20;
+        }
+
+        function estimateSlope(x, y, radius = 8) {
+            let maxDiff = 0;
+            const centerHeight = getTerrainHeight(x, y);
+
+            for (let angle = 0; angle < Math.PI * 2; angle += Math.PI / 4) {
+                const sx = x + Math.cos(angle) * radius;
+                const sy = y + Math.sin(angle) * radius;
+                const h = getTerrainHeight(sx, sy);
+                maxDiff = Math.max(maxDiff, Math.abs(h - centerHeight));
+            }
+
+            return maxDiff;
+        }
+
+        function screenToMap(x, y) {
+            return {
+                x: (x - state.offsetX) / state.zoom,
+                y: (y - state.offsetY) / state.zoom
+            };
+        }
+
+        function mapToScreen(x, y) {
+            return {
+                x: x * state.zoom + state.offsetX,
+                y: y * state.zoom + state.offsetY
+            };
+        }
+
+        function drawGrid() {
+            const step = CONFIG.GRID_SIZE;
+            mapCtx.strokeStyle = 'rgba(0, 255, 0, 0.2)';
+            mapCtx.lineWidth = 1;
+            mapCtx.beginPath();
+            for (let x = 0; x <= state.width; x += step) {
+                const start = mapToScreen(x, 0);
+                const end = mapToScreen(x, state.height);
+                mapCtx.moveTo(start.x, start.y);
+                mapCtx.lineTo(end.x, end.y);
+            }
+            for (let y = 0; y <= state.height; y += step) {
+                const start = mapToScreen(0, y);
+                const end = mapToScreen(state.width, y);
+                mapCtx.moveTo(start.x, start.y);
+                mapCtx.lineTo(end.x, end.y);
+            }
+            mapCtx.stroke();
+        }
+
+        function buildPreviewOverlay() {
+            if (!state.heightData) return;
+            const overlay = document.createElement('canvas');
+            overlay.width = state.width;
+            overlay.height = state.height;
+            const ctx = overlay.getContext('2d');
+            const imageData = ctx.createImageData(state.width, state.height);
+            const data = imageData.data;
+            const threshold = Number(elements.slopeThreshold.value || 20);
+            const step = 4;
+
+            for (let y = 0; y < state.height; y += step) {
+                for (let x = 0; x < state.width; x += step) {
+                    const slope = estimateSlope(x, y, 10);
+                    const isSteep = slope > threshold;
+                    const isFlat = slope <= threshold * 0.6 && !isWaterAt(x, y);
+                    for (let oy = 0; oy < step; oy++) {
+                        for (let ox = 0; ox < step; ox++) {
+                            const px = x + ox;
+                            const py = y + oy;
+                            if (px >= state.width || py >= state.height) continue;
+                            const idx = (py * state.width + px) * 4;
+                            if (isSteep) {
+                                data[idx] = 255;
+                                data[idx + 1] = 40;
+                                data[idx + 2] = 40;
+                                data[idx + 3] = 110;
+                            } else if (isFlat) {
+                                data[idx] = 40;
+                                data[idx + 1] = 255;
+                                data[idx + 2] = 40;
+                                data[idx + 3] = 70;
+                            }
+                        }
+                    }
+                }
+            }
+            ctx.putImageData(imageData, 0, 0);
+            state.previewOverlay = overlay;
+            state.previewDirty = false;
+        }
+
+        function drawSpawn(spawn) {
+            const pos = mapToScreen(spawn.x, spawn.y);
+            const color = SPAWN_TYPES[spawn.type]?.color || '#00ff00';
+            const selected = spawn.id === state.selectedId;
+            mapCtx.save();
+            mapCtx.translate(pos.x, pos.y);
+            mapCtx.strokeStyle = color;
+            mapCtx.fillStyle = color;
+            mapCtx.lineWidth = selected ? 2.5 : 1.5;
+
+            if (spawn.type === 'airport') {
+                const length = 90;
+                const width = 20;
+                mapCtx.rotate(spawn.heading || 0);
+                mapCtx.strokeRect(-length / 2, -width / 2, length, width);
+                mapCtx.beginPath();
+                mapCtx.moveTo(-length / 2, 0);
+                mapCtx.lineTo(length / 2, 0);
+                mapCtx.stroke();
+            } else if (spawn.type === 'base') {
+                const size = spawn.size === 'large' ? 50 : spawn.size === 'medium' ? 40 : 30;
+                mapCtx.strokeRect(-size / 2, -size / 2, size, size);
+            } else if (spawn.type === 'helipad') {
+                mapCtx.beginPath();
+                mapCtx.arc(0, 0, 18, 0, Math.PI * 2);
+                mapCtx.stroke();
+                mapCtx.fillText('H', -4, 4);
+            } else if (spawn.type === 'enemyZone') {
+                const radius = spawn.radius || 60;
+                mapCtx.beginPath();
+                mapCtx.arc(0, 0, radius, 0, Math.PI * 2);
+                mapCtx.stroke();
+            } else if (spawn.type === 'playerStart') {
+                mapCtx.beginPath();
+                mapCtx.moveTo(0, -12);
+                mapCtx.lineTo(4, -2);
+                mapCtx.lineTo(12, 0);
+                mapCtx.lineTo(4, 2);
+                mapCtx.lineTo(0, 12);
+                mapCtx.lineTo(-4, 2);
+                mapCtx.lineTo(-12, 0);
+                mapCtx.lineTo(-4, -2);
+                mapCtx.closePath();
+                mapCtx.stroke();
+            }
+
+            if (selected) {
+                mapCtx.beginPath();
+                mapCtx.arc(0, 0, 10, 0, Math.PI * 2);
+                mapCtx.stroke();
+            }
+            mapCtx.restore();
+        }
+
+        function drawPreviewFootprints() {
+            const scale = Number(elements.footprintScale.value || 100) / 100;
+            mapCtx.save();
+            mapCtx.globalAlpha = 0.5;
+            mapCtx.strokeStyle = '#00ff00';
+            mapCtx.lineWidth = 1;
+            for (const spawn of state.spawns) {
+                const pos = mapToScreen(spawn.x, spawn.y);
+                mapCtx.save();
+                mapCtx.translate(pos.x, pos.y);
+                if (spawn.type === 'airport') {
+                    mapCtx.rotate(spawn.heading || 0);
+                    mapCtx.strokeRect(-120 * scale, -24 * scale, 240 * scale, 48 * scale);
+                }
+                if (spawn.type === 'base') {
+                    const size = spawn.size === 'large' ? 100 : spawn.size === 'medium' ? 70 : 50;
+                    mapCtx.strokeRect(-size * scale / 2, -size * scale / 2, size * scale, size * scale);
+                }
+                if (spawn.type === 'helipad') {
+                    mapCtx.beginPath();
+                    mapCtx.arc(0, 0, 30 * scale, 0, Math.PI * 2);
+                    mapCtx.stroke();
+                }
+                if (spawn.type === 'enemyZone') {
+                    mapCtx.beginPath();
+                    mapCtx.arc(0, 0, (spawn.radius || 80) * scale, 0, Math.PI * 2);
+                    mapCtx.stroke();
+                }
+                mapCtx.restore();
+            }
+            mapCtx.restore();
+        }
+
+        function draw() {
+            const rect = elements.mapCanvas.getBoundingClientRect();
+            mapCtx.clearRect(0, 0, rect.width, rect.height);
+            if (!state.colorImage) return;
+
+            mapCtx.save();
+            mapCtx.translate(state.offsetX, state.offsetY);
+            mapCtx.scale(state.zoom, state.zoom);
+            mapCtx.drawImage(state.colorImage, 0, 0);
+            mapCtx.restore();
+
+            if (elements.heightToggle.checked && state.heightImage) {
+                mapCtx.save();
+                mapCtx.globalAlpha = Number(elements.heightAlpha.value) / 100;
+                mapCtx.translate(state.offsetX, state.offsetY);
+                mapCtx.scale(state.zoom, state.zoom);
+                mapCtx.drawImage(state.heightImage, 0, 0);
+                mapCtx.restore();
+            }
+
+            if (elements.previewToggle.checked) {
+                if (state.previewDirty || !state.previewOverlay) buildPreviewOverlay();
+                if (state.previewOverlay) {
+                    mapCtx.save();
+                    mapCtx.translate(state.offsetX, state.offsetY);
+                    mapCtx.scale(state.zoom, state.zoom);
+                    mapCtx.drawImage(state.previewOverlay, 0, 0);
+                    mapCtx.restore();
+                }
+                drawPreviewFootprints();
+            }
+
+            if (elements.gridToggle.checked) {
+                drawGrid();
+            }
+
+            for (const spawn of state.spawns) {
+                drawSpawn(spawn);
+            }
+        }
+
+        function createSpawn(type, x, y) {
+            return {
+                id: `${type}-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
+                type,
+                x,
+                y,
+                heading: 0,
+                faction: 'enemy',
+                size: 'medium',
+                radius: 90,
+                types: ['TANK', 'SOLDIER'],
+                count: 10
+            };
+        }
+
+        function selectSpawn(id) {
+            state.selectedId = id;
+            renderSpawnList();
+            renderProperties();
+            draw();
+        }
+
+        function renderSpawnList() {
+            elements.spawnList.innerHTML = '';
+            for (const spawn of state.spawns) {
+                const item = document.createElement('div');
+                item.className = 'spawn-item' + (spawn.id === state.selectedId ? ' active' : '');
+                item.textContent = `${SPAWN_TYPES[spawn.type]?.label || spawn.type} (${spawn.x.toFixed(0)}, ${spawn.y.toFixed(0)})`;
+                item.onclick = () => selectSpawn(spawn.id);
+                elements.spawnList.appendChild(item);
+            }
+            updateStatus();
+        }
+
+        function renderProperties() {
+            const spawn = state.spawns.find((s) => s.id === state.selectedId);
+            elements.propertiesPanel.innerHTML = '';
+            if (!spawn) {
+                elements.propertiesPanel.innerHTML = '<div class="small">Select a spawn point to edit.</div>';
+                return;
+            }
+
+            const addRow = (label, field) => {
+                const labelEl = document.createElement('label');
+                labelEl.textContent = label;
+                const fieldEl = field;
+                elements.propertiesPanel.appendChild(labelEl);
+                elements.propertiesPanel.appendChild(fieldEl);
+            };
+
+            const typeSelect = document.createElement('select');
+            for (const key of Object.keys(SPAWN_TYPES)) {
+                const option = document.createElement('option');
+                option.value = key;
+                option.textContent = SPAWN_TYPES[key].label;
+                typeSelect.appendChild(option);
+            }
+            typeSelect.value = spawn.type;
+            typeSelect.onchange = () => {
+                spawn.type = typeSelect.value;
+                renderSpawnList();
+                renderProperties();
+                draw();
+            };
+            addRow('Type', typeSelect);
+
+            const factionSelect = document.createElement('select');
+            ['enemy', 'friendly', 'neutral'].forEach((value) => {
+                const option = document.createElement('option');
+                option.value = value;
+                option.textContent = value;
+                factionSelect.appendChild(option);
+            });
+            factionSelect.value = spawn.faction || 'enemy';
+            factionSelect.onchange = () => {
+                spawn.faction = factionSelect.value;
+                draw();
+            };
+            addRow('Faction', factionSelect);
+
+            const headingInput = document.createElement('input');
+            headingInput.type = 'range';
+            headingInput.min = '0';
+            headingInput.max = (Math.PI * 2).toFixed(2);
+            headingInput.step = '0.01';
+            headingInput.value = spawn.heading || 0;
+            headingInput.oninput = () => {
+                spawn.heading = Number(headingInput.value);
+                draw();
+            };
+            addRow('Heading', headingInput);
+
+            if (spawn.type === 'base') {
+                const sizeSelect = document.createElement('select');
+                ['small', 'medium', 'large'].forEach((value) => {
+                    const option = document.createElement('option');
+                    option.value = value;
+                    option.textContent = value;
+                    sizeSelect.appendChild(option);
+                });
+                sizeSelect.value = spawn.size || 'medium';
+                sizeSelect.onchange = () => {
+                    spawn.size = sizeSelect.value;
+                    draw();
+                };
+                addRow('Size', sizeSelect);
+            }
+
+            if (spawn.type === 'enemyZone') {
+                const radiusInput = document.createElement('input');
+                radiusInput.type = 'number';
+                radiusInput.value = spawn.radius || 90;
+                radiusInput.onchange = () => {
+                    spawn.radius = Number(radiusInput.value) || 90;
+                    draw();
+                };
+                addRow('Radius', radiusInput);
+
+                const typesInput = document.createElement('input');
+                typesInput.value = (spawn.types || []).join(', ');
+                typesInput.onchange = () => {
+                    spawn.types = typesInput.value.split(',').map((t) => t.trim()).filter(Boolean);
+                };
+                addRow('Types', typesInput);
+
+                const countInput = document.createElement('input');
+                countInput.type = 'number';
+                countInput.value = spawn.count || 10;
+                countInput.onchange = () => {
+                    spawn.count = Number(countInput.value) || 0;
+                };
+                addRow('Count', countInput);
+            }
+        }
+
+        function updateStatus() {
+            elements.statusMap.textContent = `${state.mapIndex} - ${state.map?.name || ''}`;
+            elements.statusCount.textContent = state.spawns.length;
+            elements.statusZoom.textContent = `${state.zoom.toFixed(2)}x`;
+        }
+
+        function updateCursorHud(mapPos) {
+            const height = getTerrainHeight(mapPos.x, mapPos.y);
+            const slope = estimateSlope(mapPos.x, mapPos.y, 8).toFixed(1);
+            elements.cursorHud.textContent = `Cursor: (${mapPos.x.toFixed(0)}, ${mapPos.y.toFixed(0)}) | Height: ${height.toFixed(0)} | Slope: ${slope}`;
+        }
+
+        function findSpawnAt(mapPos) {
+            const radius = CONFIG.SELECT_RADIUS / state.zoom;
+            return state.spawns.find((spawn) => {
+                const dx = spawn.x - mapPos.x;
+                const dy = spawn.y - mapPos.y;
+                return Math.sqrt(dx * dx + dy * dy) <= radius;
+            });
+        }
+
+        function handleCanvasPointerDown(event) {
+            const rect = elements.mapCanvas.getBoundingClientRect();
+            const x = event.clientX - rect.left;
+            const y = event.clientY - rect.top;
+            const mapPos = screenToMap(x, y);
+
+            if (event.button === 2) {
+                const spawn = findSpawnAt(mapPos);
+                if (spawn) {
+                    state.spawns = state.spawns.filter((s) => s.id !== spawn.id);
+                    if (state.selectedId === spawn.id) state.selectedId = null;
+                    renderSpawnList();
+                    renderProperties();
+                    draw();
+                }
+                return;
+            }
+
+            state.panMode = event.shiftKey;
+            state.lastMouse = { x, y };
+            if (state.panMode) {
+                state.dragging = true;
+                return;
+            }
+
+            const existing = findSpawnAt(mapPos);
+            if (existing) {
+                state.dragging = true;
+                state.dragId = existing.id;
+                selectSpawn(existing.id);
+                return;
+            }
+
+            const type = elements.placeType.value;
+            const spawn = createSpawn(type, clamp(mapPos.x, 0, state.width), clamp(mapPos.y, 0, state.height));
+            if (type === 'playerStart') {
+                const existingPlayer = state.spawns.find((s) => s.type === 'playerStart');
+                if (existingPlayer) {
+                    existingPlayer.x = spawn.x;
+                    existingPlayer.y = spawn.y;
+                    selectSpawn(existingPlayer.id);
+                } else {
+                    state.spawns.push(spawn);
+                    selectSpawn(spawn.id);
+                }
+            } else {
+                state.spawns.push(spawn);
+                selectSpawn(spawn.id);
+            }
+            renderSpawnList();
+            draw();
+        }
+
+        function handleCanvasPointerMove(event) {
+            const rect = elements.mapCanvas.getBoundingClientRect();
+            const x = event.clientX - rect.left;
+            const y = event.clientY - rect.top;
+            const mapPos = screenToMap(x, y);
+            updateCursorHud(mapPos);
+
+            if (!state.dragging) return;
+
+            if (state.panMode) {
+                const dx = x - state.lastMouse.x;
+                const dy = y - state.lastMouse.y;
+                state.offsetX += dx;
+                state.offsetY += dy;
+                state.lastMouse = { x, y };
+                draw();
+                updateStatus();
+                return;
+            }
+
+            const spawn = state.spawns.find((s) => s.id === state.dragId);
+            if (spawn) {
+                spawn.x = clamp(mapPos.x, 0, state.width);
+                spawn.y = clamp(mapPos.y, 0, state.height);
+                renderSpawnList();
+                draw();
+            }
+        }
+
+        function handleCanvasPointerUp() {
+            state.dragging = false;
+            state.dragId = null;
+            state.panMode = false;
+        }
+
+        function handleWheel(event) {
+            event.preventDefault();
+            const rect = elements.mapCanvas.getBoundingClientRect();
+            const x = event.clientX - rect.left;
+            const y = event.clientY - rect.top;
+            const before = screenToMap(x, y);
+            const zoomFactor = event.deltaY < 0 ? 1.1 : 0.9;
+            state.zoom = clamp(state.zoom * zoomFactor, 0.3, 5);
+            const after = screenToMap(x, y);
+            state.offsetX += (after.x - before.x) * state.zoom;
+            state.offsetY += (after.y - before.y) * state.zoom;
+            draw();
+            updateStatus();
+        }
+
+        function clamp(value, min, max) {
+            return Math.min(max, Math.max(min, value));
+        }
+
+        function serializeConfig() {
+            const playerStart = state.spawns.find((s) => s.type === 'playerStart');
+            const airports = state.spawns.filter((s) => s.type === 'airport').map((s) => ({
+                x: Math.round(s.x),
+                y: Math.round(s.y),
+                heading: s.heading || 0,
+                faction: s.faction || 'enemy'
+            }));
+            const bases = state.spawns.filter((s) => s.type === 'base').map((s) => ({
+                x: Math.round(s.x),
+                y: Math.round(s.y),
+                size: s.size || 'medium',
+                faction: s.faction || 'enemy'
+            }));
+            const helipads = state.spawns.filter((s) => s.type === 'helipad').map((s) => ({
+                x: Math.round(s.x),
+                y: Math.round(s.y),
+                faction: s.faction || 'enemy'
+            }));
+            const spawnZones = state.spawns.filter((s) => s.type === 'enemyZone').map((s) => ({
+                x: Math.round(s.x),
+                y: Math.round(s.y),
+                radius: s.radius || 80,
+                types: s.types || ['TANK', 'SOLDIER'],
+                count: s.count || 10
+            }));
+
+            return {
+                mapIndex: state.mapIndex,
+                name: state.metadata.name || `Custom Mission ${state.mapIndex}`,
+                difficulty: state.metadata.difficulty || 'medium',
+                weather: state.metadata.weather || 'clear',
+                playerStart: playerStart ? { x: Math.round(playerStart.x), y: Math.round(playerStart.y) } : null,
+                airports,
+                bases,
+                helipads,
+                spawnZones
+            };
+        }
+
+        function applyConfig(config) {
+            state.mapIndex = config.mapIndex || 1;
+            state.metadata.name = config.name || '';
+            state.metadata.difficulty = config.difficulty || 'medium';
+            state.metadata.weather = config.weather || 'clear';
+            elements.metaName.value = state.metadata.name;
+            elements.metaDifficulty.value = state.metadata.difficulty;
+            elements.metaWeather.value = state.metadata.weather;
+
+            state.spawns = [];
+            if (config.playerStart) {
+                const spawn = createSpawn('playerStart', config.playerStart.x, config.playerStart.y);
+                state.spawns.push(spawn);
+            }
+            (config.airports || []).forEach((a) => {
+                const spawn = createSpawn('airport', a.x, a.y);
+                spawn.heading = a.heading || 0;
+                spawn.faction = a.faction || 'enemy';
+                state.spawns.push(spawn);
+            });
+            (config.bases || []).forEach((b) => {
+                const spawn = createSpawn('base', b.x, b.y);
+                spawn.size = b.size || 'medium';
+                spawn.faction = b.faction || 'enemy';
+                state.spawns.push(spawn);
+            });
+            (config.helipads || []).forEach((h) => {
+                const spawn = createSpawn('helipad', h.x, h.y);
+                spawn.faction = h.faction || 'enemy';
+                state.spawns.push(spawn);
+            });
+            (config.spawnZones || []).forEach((z) => {
+                const spawn = createSpawn('enemyZone', z.x, z.y);
+                spawn.radius = z.radius || 80;
+                spawn.types = z.types || ['TANK', 'SOLDIER'];
+                spawn.count = z.count || 10;
+                state.spawns.push(spawn);
+            });
+            state.selectedId = state.spawns[0]?.id || null;
+            renderSpawnList();
+            renderProperties();
+            loadMap(state.mapIndex);
+        }
+
+        function exportConfig() {
+            const config = serializeConfig();
+            const json = JSON.stringify(config, null, 2);
+            elements.jsonOutput.value = json;
+            const blob = new Blob([json], { type: 'application/json' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = `voxelcopter-map-${state.mapIndex}.json`;
+            link.click();
+            URL.revokeObjectURL(link.href);
+        }
+
+        function saveLocal() {
+            const config = serializeConfig();
+            localStorage.setItem(CONFIG.LOCAL_KEY, JSON.stringify(config));
+            elements.jsonOutput.value = JSON.stringify(config, null, 2);
+        }
+
+        function loadLocal() {
+            const raw = localStorage.getItem(CONFIG.LOCAL_KEY);
+            if (!raw) return alert('No saved configuration found.');
+            try {
+                const config = JSON.parse(raw);
+                applyConfig(config);
+                elements.jsonOutput.value = JSON.stringify(config, null, 2);
+            } catch (err) {
+                alert('Saved configuration is invalid.');
+            }
+        }
+
+        function importConfig(file) {
+            const reader = new FileReader();
+            reader.onload = () => {
+                try {
+                    const config = JSON.parse(reader.result);
+                    applyConfig(config);
+                    elements.jsonOutput.value = JSON.stringify(config, null, 2);
+                } catch (err) {
+                    alert('Invalid JSON file.');
+                }
+            };
+            reader.readAsText(file);
+        }
+
+        function copyJson() {
+            const json = JSON.stringify(serializeConfig(), null, 2);
+            elements.jsonOutput.value = json;
+            navigator.clipboard?.writeText(json);
+        }
+
+        function bindEvents() {
+            window.addEventListener('resize', resizeCanvas);
+            elements.loadMapBtn.addEventListener('click', () => loadMap(Number(elements.mapSelect.value)));
+            elements.saveLocalBtn.addEventListener('click', saveLocal);
+            elements.loadLocalBtn.addEventListener('click', loadLocal);
+            elements.exportBtn.addEventListener('click', exportConfig);
+            elements.importBtn.addEventListener('click', () => elements.importFile.click());
+            elements.importFile.addEventListener('change', (event) => {
+                if (event.target.files?.[0]) importConfig(event.target.files[0]);
+            });
+            elements.copyBtn.addEventListener('click', copyJson);
+            elements.heightToggle.addEventListener('change', draw);
+            elements.gridToggle.addEventListener('change', draw);
+            elements.previewToggle.addEventListener('change', draw);
+            elements.heightAlpha.addEventListener('input', draw);
+            elements.slopeThreshold.addEventListener('input', () => {
+                state.previewDirty = true;
+                draw();
+            });
+            elements.footprintScale.addEventListener('input', draw);
+            elements.metaName.addEventListener('input', () => {
+                state.metadata.name = elements.metaName.value;
+            });
+            elements.metaDifficulty.addEventListener('change', () => {
+                state.metadata.difficulty = elements.metaDifficulty.value;
+            });
+            elements.metaWeather.addEventListener('change', () => {
+                state.metadata.weather = elements.metaWeather.value;
+            });
+            elements.mapCanvas.addEventListener('contextmenu', (e) => e.preventDefault());
+            elements.mapCanvas.addEventListener('mousedown', handleCanvasPointerDown);
+            elements.mapCanvas.addEventListener('mousemove', handleCanvasPointerMove);
+            elements.mapCanvas.addEventListener('mouseup', handleCanvasPointerUp);
+            elements.mapCanvas.addEventListener('mouseleave', handleCanvasPointerUp);
+            elements.mapCanvas.addEventListener('wheel', handleWheel, { passive: false });
+        }
+
+        initMapOptions();
+        bindEvents();
+        resizeCanvas();
+        loadMap(state.mapIndex);
+        renderSpawnList();
+        renderProperties();
+    </script>
+</body>
+</html>

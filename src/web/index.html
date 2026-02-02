@@ -136,35 +136,35 @@
     </div>
     
     <select id="mapSelector">
-        <option value="1">1 - Rolling Hills</option>
-        <option value="2">2 - Mountains</option>
-        <option value="3">3 - Varied Terrain</option>
-        <option value="4">4 - Desert Canyon</option>
-        <option value="5">5 - Rocky Peaks</option>
-        <option value="6">6 - Green Valley</option>
-        <option value="7">7 - River Delta</option>
-        <option value="8">8 - Autumn Forest</option>
-        <option value="9">9 - Snow Mountains</option>
-        <option value="10">10 - Coastal Cliffs</option>
-        <option value="11">11 - Jungle Basin</option>
-        <option value="12">12 - Tropical Islands</option>
-        <option value="13">13 - Volcanic Land</option>
-        <option value="14">14 - Mars Surface</option>
-        <option value="15">15 - Alpine Meadows</option>
-        <option value="16">16 - Desert Dunes</option>
-        <option value="17">17 - Winter Tundra</option>
-        <option value="18">18 - Badlands</option>
-        <option value="19">19 - Canyon River</option>
-        <option value="20">20 - Mesa Plateau</option>
-        <option value="21">21 - Lake Country</option>
-        <option value="22">22 - Swamplands</option>
-        <option value="23">23 - Forest Lake</option>
-        <option value="24">24 - Night Desert</option>
-        <option value="25">25 - Alien World</option>
-        <option value="26">26 - Red Canyon</option>
-        <option value="27">27 - Spring Valley</option>
-        <option value="28">28 - Purple Haze</option>
-        <option value="29">29 - Sandy Shores</option>
+        <option value="1">1 - Map 1</option>
+        <option value="2">2 - Map 2</option>
+        <option value="3">3 - Map 3</option>
+        <option value="4">4 - Map 4</option>
+        <option value="5">5 - Map 5</option>
+        <option value="6">6 - Map 6</option>
+        <option value="7">7 - Map 7</option>
+        <option value="8">8 - Map 8</option>
+        <option value="9">9 - Map 9</option>
+        <option value="10">10 - Map 10</option>
+        <option value="11">11 - Map 11</option>
+        <option value="12">12 - Map 12</option>
+        <option value="13">13 - Map 13</option>
+        <option value="14">14 - Map 14</option>
+        <option value="15">15 - Map 15</option>
+        <option value="16">16 - Map 16</option>
+        <option value="17">17 - Map 17</option>
+        <option value="18">18 - Map 18</option>
+        <option value="19">19 - Map 19</option>
+        <option value="20">20 - Map 20</option>
+        <option value="21">21 - Map 21</option>
+        <option value="22">22 - Map 22</option>
+        <option value="23">23 - Map 23</option>
+        <option value="24">24 - Map 24</option>
+        <option value="25">25 - Map 25</option>
+        <option value="26">26 - Map 26</option>
+        <option value="27">27 - Map 27</option>
+        <option value="28">28 - Map 28</option>
+        <option value="29">29 - Map 29</option>
     </select>
     
     <div id="title">
@@ -249,7 +249,8 @@
             PAUSED: 'paused',
             VICTORY: 'victory',
             DEFEAT: 'defeat',
-            MISSION_GENERATOR: 'mission_generator'
+            MISSION_GENERATOR: 'mission_generator',
+            CUSTOM_MISSION: 'custom_mission'
         };
 
         const GAME_MODES = { COMANCHE: 'comanche', DELTA: 'delta' };
@@ -275,6 +276,8 @@
         let missionGeneratorInput = '';
         let missionGeneratorCursor = true;
         let missionGeneratorCursorTime = 0;
+        let customMissionConfig = null;
+        const CUSTOM_MISSION_KEY = 'voxelcopter_map_editor';
         
         const SETTINGS_KEY = 'voxelcopter_settings';
         const PROFILE_KEY = 'voxelcopter_profile';
@@ -1021,7 +1024,7 @@
                 heightOffset: 0,      // Sits directly on terrain
                 ai: {
                     type: 'sam',
-                    fireRate: 4000,      // Fire every 4 seconds
+                    fireRate: 8000,      // Fire every 8 seconds (increased from 4 for better balance)
                     range: 350,          // Detection range
                     missileSpeed: 1.5,   // Slower missile (was 8) - gives time to evade
                     missileDamage: 30
@@ -1091,35 +1094,35 @@
         // MAP DATA
         // ============================================
         const maps = [
-            { color: '/src/web/public/maps/C1W.png', height: '/src/web/public/maps/D1.png', name: 'Rolling Hills' },
-            { color: '/src/web/public/maps/C2W.png', height: '/src/web/public/maps/D2.png', name: 'Mountains' },
-            { color: '/src/web/public/maps/C3.png', height: '/src/web/public/maps/D3.png', name: 'Varied Terrain' },
-            { color: '/src/web/public/maps/C4.png', height: '/src/web/public/maps/D4.png', name: 'Desert Canyon' },
-            { color: '/src/web/public/maps/C5W.png', height: '/src/web/public/maps/D5.png', name: 'Rocky Peaks' },
-            { color: '/src/web/public/maps/C6W.png', height: '/src/web/public/maps/D6.png', name: 'Green Valley' },
-            { color: '/src/web/public/maps/C7W.png', height: '/src/web/public/maps/D7.png', name: 'River Delta' },
-            { color: '/src/web/public/maps/C8.png', height: '/src/web/public/maps/D6.png', name: 'Autumn Forest' },
-            { color: '/src/web/public/maps/C9W.png', height: '/src/web/public/maps/D9.png', name: 'Snow Mountains' },
-            { color: '/src/web/public/maps/C10W.png', height: '/src/web/public/maps/D10.png', name: 'Coastal Cliffs' },
-            { color: '/src/web/public/maps/C11W.png', height: '/src/web/public/maps/D11.png', name: 'Jungle Basin' },
-            { color: '/src/web/public/maps/C12W.png', height: '/src/web/public/maps/D11.png', name: 'Tropical Islands' },
-            { color: '/src/web/public/maps/C13.png', height: '/src/web/public/maps/D13.png', name: 'Volcanic Land' },
-            { color: '/src/web/public/maps/C14.png', height: '/src/web/public/maps/D14.png', name: 'Mars Surface' },
-            { color: '/src/web/public/maps/C15.png', height: '/src/web/public/maps/D15.png', name: 'Alpine Meadows' },
-            { color: '/src/web/public/maps/C16W.png', height: '/src/web/public/maps/D16.png', name: 'Desert Dunes' },
-            { color: '/src/web/public/maps/C17W.png', height: '/src/web/public/maps/D17.png', name: 'Winter Tundra' },
-            { color: '/src/web/public/maps/C18W.png', height: '/src/web/public/maps/D18.png', name: 'Badlands' },
-            { color: '/src/web/public/maps/C19W.png', height: '/src/web/public/maps/D19.png', name: 'Canyon River' },
-            { color: '/src/web/public/maps/C20W.png', height: '/src/web/public/maps/D20.png', name: 'Mesa Plateau' },
-            { color: '/src/web/public/maps/C21.png', height: '/src/web/public/maps/D21.png', name: 'Lake Country' },
-            { color: '/src/web/public/maps/C22W.png', height: '/src/web/public/maps/D22.png', name: 'Swamplands' },
-            { color: '/src/web/public/maps/C23W.png', height: '/src/web/public/maps/D21.png', name: 'Forest Lake' },
-            { color: '/src/web/public/maps/C24W.png', height: '/src/web/public/maps/D24.png', name: 'Night Desert' },
-            { color: '/src/web/public/maps/C25W.png', height: '/src/web/public/maps/D25.png', name: 'Alien World' },
-            { color: '/src/web/public/maps/C26W.png', height: '/src/web/public/maps/D18.png', name: 'Red Canyon' },
-            { color: '/src/web/public/maps/C27W.png', height: '/src/web/public/maps/D15.png', name: 'Spring Valley' },
-            { color: '/src/web/public/maps/C28W.png', height: '/src/web/public/maps/D25.png', name: 'Purple Haze' },
-            { color: '/src/web/public/maps/C29W.png', height: '/src/web/public/maps/D16.png', name: 'Sandy Shores' }
+            { color: '/src/web/public/maps/C1W.png', height: '/src/web/public/maps/D1.png', name: 'Map 1' },
+            { color: '/src/web/public/maps/C2W.png', height: '/src/web/public/maps/D2.png', name: 'Map 2' },
+            { color: '/src/web/public/maps/C3.png', height: '/src/web/public/maps/D3.png', name: 'Map 3' },
+            { color: '/src/web/public/maps/C4.png', height: '/src/web/public/maps/D4.png', name: 'Map 4' },
+            { color: '/src/web/public/maps/C5W.png', height: '/src/web/public/maps/D5.png', name: 'Map 5' },
+            { color: '/src/web/public/maps/C6W.png', height: '/src/web/public/maps/D6.png', name: 'Map 6' },
+            { color: '/src/web/public/maps/C7W.png', height: '/src/web/public/maps/D7.png', name: 'Map 7' },
+            { color: '/src/web/public/maps/C8.png', height: '/src/web/public/maps/D6.png', name: 'Map 8' },
+            { color: '/src/web/public/maps/C9W.png', height: '/src/web/public/maps/D9.png', name: 'Map 9' },
+            { color: '/src/web/public/maps/C10W.png', height: '/src/web/public/maps/D10.png', name: 'Map 10' },
+            { color: '/src/web/public/maps/C11W.png', height: '/src/web/public/maps/D11.png', name: 'Map 11' },
+            { color: '/src/web/public/maps/C12W.png', height: '/src/web/public/maps/D11.png', name: 'Map 12' },
+            { color: '/src/web/public/maps/C13.png', height: '/src/web/public/maps/D13.png', name: 'Map 13' },
+            { color: '/src/web/public/maps/C14.png', height: '/src/web/public/maps/D14.png', name: 'Map 14' },
+            { color: '/src/web/public/maps/C15.png', height: '/src/web/public/maps/D15.png', name: 'Map 15' },
+            { color: '/src/web/public/maps/C16W.png', height: '/src/web/public/maps/D16.png', name: 'Map 16' },
+            { color: '/src/web/public/maps/C17W.png', height: '/src/web/public/maps/D17.png', name: 'Map 17' },
+            { color: '/src/web/public/maps/C18W.png', height: '/src/web/public/maps/D18.png', name: 'Map 18' },
+            { color: '/src/web/public/maps/C19W.png', height: '/src/web/public/maps/D19.png', name: 'Map 19' },
+            { color: '/src/web/public/maps/C20W.png', height: '/src/web/public/maps/D20.png', name: 'Map 20' },
+            { color: '/src/web/public/maps/C21.png', height: '/src/web/public/maps/D21.png', name: 'Map 21' },
+            { color: '/src/web/public/maps/C22W.png', height: '/src/web/public/maps/D22.png', name: 'Map 22' },
+            { color: '/src/web/public/maps/C23W.png', height: '/src/web/public/maps/D21.png', name: 'Map 23' },
+            { color: '/src/web/public/maps/C24W.png', height: '/src/web/public/maps/D24.png', name: 'Map 24' },
+            { color: '/src/web/public/maps/C25W.png', height: '/src/web/public/maps/D25.png', name: 'Map 25' },
+            { color: '/src/web/public/maps/C26W.png', height: '/src/web/public/maps/D18.png', name: 'Map 26' },
+            { color: '/src/web/public/maps/C27W.png', height: '/src/web/public/maps/D15.png', name: 'Map 27' },
+            { color: '/src/web/public/maps/C28W.png', height: '/src/web/public/maps/D25.png', name: 'Map 28' },
+            { color: '/src/web/public/maps/C29W.png', height: '/src/web/public/maps/D16.png', name: 'Map 29' }
         ];
         
         let currentMap = {
@@ -1697,7 +1700,7 @@
         let comancheTriggerHeld = false;
 
         // Menu navigation state
-        const MAIN_MENU_OPTIONS = ['MODE', 'CAMPAIGN', 'FREE PLAY', 'AI MISSION', 'SETTINGS', 'ACHIEVEMENTS', 'LEADERBOARD', 'HOW TO PLAY'];
+        const MAIN_MENU_OPTIONS = ['MODE', 'CAMPAIGN', 'FREE PLAY', 'AI MISSION', 'MAP EDITOR', 'SETTINGS', 'ACHIEVEMENTS', 'LEADERBOARD', 'HOW TO PLAY'];
         const FREEPLAY_OPTIONS = ['LAUNCH FREE PLAY', 'BACK TO MENU'];
         const PAUSE_OPTIONS = ['RESUME [ESC]', 'RESTART MISSION', 'QUIT TO MENU'];
         const SETTINGS_ITEMS = [
@@ -2692,7 +2695,11 @@
                     aiMission = null;
                     currentMissionIndex = aiMissionBaseIndex;
                     playMenuConfirmSound();
-                    startTransition(GAME_STATES.BRIEFING, 600);
+                    // Auto-start AI mission immediately instead of going to briefing
+                    startTransition(GAME_STATES.PLAYING, 900, {
+                        hold: true,
+                        onSwitch: () => startMission(currentMissionIndex, { onReady: releaseTransition })
+                    });
                     return true;
                 }
                 if (e.code === 'ArrowUp') {
@@ -2854,6 +2861,21 @@
                     return true;
                 }
                 return true;  // Consume all keys in this state
+            } else if (gameState === GAME_STATES.CUSTOM_MISSION) {
+                if (e.code === 'Escape') {
+                    playMenuConfirmSound();
+                    customMissionConfig = null;
+                    startTransition(GAME_STATES.MENU, 400);
+                    return true;
+                }
+                if (e.code === 'Enter' && customMissionConfig) {
+                    playMenuConfirmSound();
+                    startTransition(GAME_STATES.PLAYING, 700, {
+                        onSwitch: () => startCustomMission()
+                    });
+                    return true;
+                }
+                return true;
             } else if (gameState === GAME_STATES.BRIEFING) {
                 if (e.code === 'Enter') {
                     playMenuConfirmSound();
@@ -3222,13 +3244,16 @@
                 missionGeneratorInput = '';
                 startTransition(GAME_STATES.MISSION_GENERATOR, 400);
             } else if (index === 4) {
+                // MAP EDITOR - load custom mission from localStorage or show error
+                loadCustomMissionFromStorage();
+            } else if (index === 5) {
                 settingsSelectionIndex = 0;
                 startTransition(GAME_STATES.SETTINGS, 600);
-            } else if (index === 5) {
-                startTransition(GAME_STATES.ACHIEVEMENTS, 600);
             } else if (index === 6) {
-                startTransition(GAME_STATES.LEADERBOARD, 600);
+                startTransition(GAME_STATES.ACHIEVEMENTS, 600);
             } else if (index === 7) {
+                startTransition(GAME_STATES.LEADERBOARD, 600);
+            } else if (index === 8) {
                 startTransition(GAME_STATES.HOWTO, 600);
             }
         }
@@ -3748,7 +3773,7 @@
             return maxDiff;
         }
 
-        function findFlatSpot(tries = 200, minHeight = 20, maxSlope = 10, avoidX = 512, avoidY = 512, minDist = 200) {
+        function findFlatSpot(tries = 200, minHeight = 20, maxSlope = 20, avoidX = 512, avoidY = 512, minDist = 200) {
             for (let i = 0; i < tries; i++) {
                 const x = Math.random() * CONFIG.MAP_SIZE;
                 const y = Math.random() * CONFIG.MAP_SIZE;
@@ -3765,14 +3790,15 @@
                 const slopeMedium = estimateSlope(x, y, 30);
                 const slopeLarge = estimateSlope(x, y, 50);
                 
-                // All sample radii must be within tolerance
-                if (slopeSmall > maxSlope || slopeMedium > maxSlope * 1.2 || slopeLarge > maxSlope * 1.5) continue;
+                // All sample radii must be within tolerance (relaxed multipliers for natural terrain)
+                if (slopeSmall > maxSlope || slopeMedium > maxSlope * 1.5 || slopeLarge > maxSlope * 2.0) continue;
 
                 // Check distance from avoid point (player start)
                 const dx = x - avoidX;
                 const dy = y - avoidY;
                 if (Math.sqrt(dx * dx + dy * dy) < minDist) continue;
 
+                console.log('Found flat spot at', x.toFixed(1), y.toFixed(1), 'slope:', slopeSmall.toFixed(1));
                 return { x, y, height };
             }
 
@@ -4107,6 +4133,221 @@
             startRotorSound();
             startWindSound();
             if (options.onReady) options.onReady();
+        }
+
+        function loadCustomMissionFromStorage() {
+            // Check if there's a custom mission saved in localStorage from map editor
+            const raw = localStorage.getItem(CUSTOM_MISSION_KEY);
+            if (!raw) {
+                startTransition(GAME_STATES.CUSTOM_MISSION, 400);
+                return;
+            }
+            try {
+                customMissionConfig = JSON.parse(raw);
+                startTransition(GAME_STATES.CUSTOM_MISSION, 400);
+            } catch (err) {
+                console.error('Failed to parse custom mission:', err);
+                customMissionConfig = null;
+                startTransition(GAME_STATES.CUSTOM_MISSION, 400);
+            }
+        }
+
+        function startCustomMission(options = {}) {
+            if (!customMissionConfig) return;
+
+            const config = customMissionConfig;
+            
+            // Show loading
+            const loadingEl = document.getElementById('loading');
+            loadingEl.style.display = 'block';
+            loadingEl.textContent = `LOADING ${config.name || 'CUSTOM MISSION'}...`;
+
+            // Load the map specified in config
+            const mapIndex = (config.mapIndex || 1) - 1;  // Convert 1-based to 0-based
+            loadMapForMission(mapIndex, () => {
+                // Reset player state
+                activeMission = {
+                    name: config.name || 'Custom Mission',
+                    difficulty: config.difficulty || 'medium',
+                    timeLimit: 0,  // No time limit for custom missions
+                    targets: {}
+                };
+                activeAIMission = null;
+                aiDebrief = null;
+                isGeneratingDebrief = false;
+
+                playerHealth = maxPlayerHealth;
+                score = 0;
+                isPlayerDead = false;
+                missionComplete = false;
+                defeatReason = '';
+                missionNoDamage = true;
+                lastMissionElapsed = 0;
+                resetSessionStats();
+
+                // Reset weapons
+                weaponState.cannon.ammo = Infinity;
+                weaponState.rockets.ammo = WEAPONS.rockets.maxAmmo;
+                weaponState.hellfire.ammo = WEAPONS.hellfire.maxAmmo;
+                weaponState.stinger.ammo = WEAPONS.stinger.maxAmmo;
+                currentWeaponIndex = 0;
+                currentWeapon = weaponOrder[0];
+
+                // Reset countermeasures
+                countermeasures.chaff.count = 10;
+                countermeasures.flare.count = 10;
+
+                // Set player start position
+                if (config.playerStart) {
+                    camera.x = config.playerStart.x;
+                    camera.y = config.playerStart.y;
+                } else {
+                    camera.x = 512;
+                    camera.y = 512;
+                }
+                camera.angle = 0;
+                resetPlayerForMode(gameMode);
+                resetTelemetry();
+
+                // Clear combat state
+                targets = [];
+                projectiles = [];
+                enemyProjectiles = [];
+                explosions = [];
+                particles = [];
+                particlePool = [];
+                missileWarning = false;
+                missileWarningTime = 0;
+                screenFlashColor = null;
+                screenFlashTime = 0;
+                screenShake = { x: 0, y: 0, intensity: 0, decay: 0.9, duration: 0 };
+                muzzleFlashTime = 0;
+                muzzleFlashIntensity = 0;
+                hitMarkerTime = 0;
+                hitMarkerIntensity = 0;
+                damageVignetteTime = 0;
+                damageVignetteIntensity = 0;
+
+                // Apply custom world structures
+                applyCustomMissionConfig(config);
+
+                // Apply weather if specified
+                if (config.weather) {
+                    weatherCondition = config.weather;
+                }
+
+                // No timer for custom missions
+                missionStartTime = 0;
+                missionTime = 0;
+                currentMissionIndex = -2;  // Indicate custom mission mode (-1 = free play, -2 = custom)
+
+                trackEvent('game_start', {
+                    mode: gameMode,
+                    missionId: 'custom',
+                    difficulty: config.difficulty || 'medium'
+                });
+
+                // Hide loading and start playing
+                loadingEl.style.display = 'none';
+                gameState = GAME_STATES.PLAYING;
+                startRotorSound();
+                startWindSound();
+                if (options.onReady) options.onReady();
+            });
+        }
+
+        function applyCustomMissionConfig(config) {
+            // Reset world structures
+            world.stamps = [];
+            world.airports = [];
+            world.bases = [];
+            world.helipads = [];
+            airportSpawnTimers = {};
+
+            // Generate airports from config
+            if (config.airports && config.airports.length > 0) {
+                for (const airport of config.airports) {
+                    const heading = airport.heading || Math.random() * Math.PI * 2;
+                    const faction = airport.faction === 'friendly' ? FACTIONS.FRIENDLY : FACTIONS.ENEMY;
+                    const result = generateAirport(airport.x, airport.y, heading, faction);
+                    if (result.airport) {
+                        world.stamps.push(...result.stamps);
+                    }
+                }
+            }
+
+            // Generate bases from config
+            if (config.bases && config.bases.length > 0) {
+                for (const base of config.bases) {
+                    const faction = base.faction === 'friendly' ? FACTIONS.FRIENDLY : FACTIONS.ENEMY;
+                    const size = base.size || 'medium';
+                    const result = generateBase(base.x, base.y, faction, size);
+                    world.stamps.push(...result.stamps);
+                }
+            }
+
+            // Generate helipads from config
+            if (config.helipads && config.helipads.length > 0) {
+                for (const helipad of config.helipads) {
+                    const faction = helipad.faction === 'friendly' ? FACTIONS.FRIENDLY : FACTIONS.ENEMY;
+                    // Helipads are simpler - just create a small landing area
+                    const result = generateHelipad(helipad.x, helipad.y, faction);
+                    if (result) {
+                        world.stamps.push(...result.stamps);
+                    }
+                }
+            }
+
+            // Apply all stamps to flatten terrain
+            if (world.stamps.length > 0) {
+                applyMissionStamps(world.stamps);
+            }
+
+            // Spawn enemies from spawn zones
+            if (config.spawnZones && config.spawnZones.length > 0) {
+                for (const zone of config.spawnZones) {
+                    const count = zone.count || 10;
+                    const radius = zone.radius || 80;
+                    const types = zone.types || ['TANK', 'SOLDIER'];
+
+                    for (let i = 0; i < count; i++) {
+                        // Random position within zone radius
+                        const angle = Math.random() * Math.PI * 2;
+                        const dist = Math.random() * radius;
+                        const x = zone.x + Math.cos(angle) * dist;
+                        const y = zone.y + Math.sin(angle) * dist;
+
+                        // Pick random type from allowed types
+                        const typeKey = types[Math.floor(Math.random() * types.length)].toUpperCase();
+                        if (TARGET_TYPES[typeKey]) {
+                            spawnTargetAt(typeKey, x, y, FACTIONS.ENEMY);
+                        }
+                    }
+                }
+            }
+        }
+
+        function generateHelipad(x, y, faction = FACTIONS.ENEMY) {
+            // Simple helipad - a flattened circular area
+            const helipad = {
+                id: 'helipad_' + Date.now() + '_' + Math.random(),
+                x,
+                y,
+                faction,
+                radius: 15
+            };
+            world.helipads.push(helipad);
+
+            // Create stamp for flattening
+            const stamps = [{
+                type: 'helipad',
+                x,
+                y,
+                radius: 20,
+                height: getTerrainHeight(x, y)
+            }];
+
+            return { helipad, stamps };
         }
         
         function loadMapForMission(mapIndex, callback) {
@@ -4451,7 +4692,7 @@
 
         function generateAirport(x, y, heading, faction = FACTIONS.ENEMY) {
             const id = 'airport_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
-            const runwayLength = 90;  // Reduced from 180 to fit naturally flat areas
+            const runwayLength = 60;  // Reduced from 90 to fit naturally flat areas better
             const runwayWidth = 20;
             
             // Get the terrain height - we rely on naturally flat spots now
@@ -4584,10 +4825,10 @@
             world.helipads = [];
             airportSpawnTimers = {};
 
-            // Generate 1-2 airports - allow 8 units height difference over sample radius
+            // Generate 1-2 airports - allow 15 units height difference over sample radius
             const airportCount = 1 + Math.floor(Math.random() * 2);
             for (let i = 0; i < airportCount; i++) {
-                const spot = findFlatSpot(300, 30, 8, 512, 512, 250 + i * 150);
+                const spot = findFlatSpot(300, 30, 15, 512, 512, 250 + i * 150);
                 if (spot) {
                     const heading = Math.random() * Math.PI * 2;
                     const result = generateAirport(spot.x, spot.y, heading);
@@ -4597,10 +4838,10 @@
                 }
             }
 
-            // Generate 2-4 bases - allow 12 units height difference for bases
+            // Generate 2-4 bases - allow 20 units height difference for bases
             const baseCount = 2 + Math.floor(Math.random() * 3);
             for (let i = 0; i < baseCount; i++) {
-                const spot = findFlatSpot(300, 20, 12, 512, 512, 200 + i * 100);
+                const spot = findFlatSpot(300, 20, 20, 512, 512, 200 + i * 100);
                 if (spot) {
                     const sizes = ['small', 'medium', 'large'];
                     const size = sizes[Math.floor(Math.random() * sizes.length)];
@@ -4633,7 +4874,7 @@
             airportSpawnTimers = {};
 
             for (let i = 0; i < (mission.airportCount || 1); i++) {
-                const spot = findFlatSpot(300, 30, 8, 512, 512, 250 + i * 150);
+                const spot = findFlatSpot(300, 30, 15, 512, 512, 250 + i * 150);
                 if (spot) {
                     const heading = Math.random() * Math.PI * 2;
                     const result = generateAirport(spot.x, spot.y, heading);
@@ -4644,7 +4885,7 @@
             }
 
             for (let i = 0; i < (mission.baseCount || 2); i++) {
-                const spot = findFlatSpot(300, 20, 12, 512, 512, 200 + i * 100);
+                const spot = findFlatSpot(300, 20, 20, 512, 512, 200 + i * 100);
                 if (spot) {
                     const sizes = ['small', 'medium', 'large'];
                     const size = sizes[Math.floor(Math.random() * sizes.length)];
@@ -6612,6 +6853,129 @@
             }
         }
 
+        function renderCustomMissionOverlay() {
+            menuButtons = [];
+
+            const centerX = screenWidth / 2;
+            const centerY = screenHeight / 2;
+            const boxWidth = 500;
+            const boxHeight = 350;
+            const boxX = centerX - boxWidth / 2;
+            const boxY = centerY - boxHeight / 2;
+
+            drawMenuPanel(boxX, boxY, boxWidth, boxHeight, 'MAP EDITOR MISSION');
+
+            ctx.font = '14px Courier New';
+            ctx.textAlign = 'center';
+
+            if (customMissionConfig) {
+                // Show mission details
+                ctx.fillStyle = '#0f0';
+                ctx.fillText('Custom mission loaded!', centerX, boxY + 60);
+
+                ctx.font = '16px Courier New';
+                ctx.fillStyle = '#0f0';
+                ctx.fillText(customMissionConfig.name || 'Unnamed Mission', centerX, boxY + 95);
+
+                ctx.font = '12px Courier New';
+                ctx.textAlign = 'left';
+                const detailsX = boxX + 40;
+                let detailsY = boxY + 130;
+
+                ctx.fillStyle = '#0a0';
+                ctx.fillText(`Map: Map ${customMissionConfig.mapIndex || 1}`, detailsX, detailsY);
+                detailsY += 25;
+                ctx.fillText(`Difficulty: ${(customMissionConfig.difficulty || 'medium').toUpperCase()}`, detailsX, detailsY);
+                detailsY += 25;
+                ctx.fillText(`Weather: ${(customMissionConfig.weather || 'clear').toUpperCase()}`, detailsX, detailsY);
+                detailsY += 25;
+
+                // Count objects
+                const airportCount = (customMissionConfig.airports || []).length;
+                const baseCount = (customMissionConfig.bases || []).length;
+                const helipadCount = (customMissionConfig.helipads || []).length;
+                const zoneCount = (customMissionConfig.spawnZones || []).length;
+
+                ctx.fillText(`Airports: ${airportCount}`, detailsX, detailsY);
+                ctx.fillText(`Bases: ${baseCount}`, detailsX + 150, detailsY);
+                detailsY += 25;
+                ctx.fillText(`Helipads: ${helipadCount}`, detailsX, detailsY);
+                ctx.fillText(`Spawn Zones: ${zoneCount}`, detailsX + 150, detailsY);
+
+                // Launch button
+                const launchBtnX = centerX - 60;
+                const launchBtnY = boxY + boxHeight - 90;
+                const launchBtnW = 120;
+                const launchBtnH = 36;
+
+                const launchHovered = hitTest({ x: launchBtnX, y: launchBtnY, width: launchBtnW, height: launchBtnH }, mouseX, mouseY);
+                ctx.fillStyle = launchHovered ? 'rgba(0, 100, 0, 0.8)' : 'rgba(0, 80, 0, 0.7)';
+                ctx.fillRect(launchBtnX, launchBtnY, launchBtnW, launchBtnH);
+                ctx.strokeStyle = '#0f0';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(launchBtnX, launchBtnY, launchBtnW, launchBtnH);
+
+                ctx.textAlign = 'center';
+                ctx.font = 'bold 16px Courier New';
+                ctx.fillStyle = '#0f0';
+                ctx.fillText('LAUNCH', launchBtnX + launchBtnW / 2, launchBtnY + 24);
+
+                menuButtons.push({
+                    x: launchBtnX, y: launchBtnY, width: launchBtnW, height: launchBtnH,
+                    onClick: () => {
+                        playMenuConfirmSound();
+                        startTransition(GAME_STATES.PLAYING, 700, {
+                            onSwitch: () => startCustomMission()
+                        });
+                    }
+                });
+
+                ctx.font = '12px Courier New';
+                ctx.fillStyle = '#0a0';
+                ctx.fillText('Press ENTER to launch, ESC to cancel', centerX, boxY + boxHeight - 30);
+            } else {
+                // No mission found
+                ctx.fillStyle = '#f00';
+                ctx.fillText('No custom mission found!', centerX, boxY + 80);
+
+                ctx.font = '12px Courier New';
+                ctx.fillStyle = '#0a0';
+                ctx.fillText('Use the Map Editor to create and save a mission.', centerX, boxY + 120);
+                ctx.fillText('Open: /src/web/mapeditor.html', centerX, boxY + 145);
+                ctx.fillText('Click "Save to Browser" to store your mission.', centerX, boxY + 170);
+
+                ctx.fillStyle = '#ff0';
+                ctx.fillText('Press ESC to return to menu', centerX, boxY + boxHeight - 30);
+            }
+
+            // Back button
+            const backBtnX = boxX + 20;
+            const backBtnY = boxY + boxHeight - 50;
+            const backBtnW = 80;
+            const backBtnH = 30;
+
+            const backHovered = hitTest({ x: backBtnX, y: backBtnY, width: backBtnW, height: backBtnH }, mouseX, mouseY);
+            ctx.fillStyle = backHovered ? 'rgba(0, 50, 0, 0.7)' : 'rgba(0, 30, 0, 0.6)';
+            ctx.fillRect(backBtnX, backBtnY, backBtnW, backBtnH);
+            ctx.strokeStyle = '#0a0';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(backBtnX, backBtnY, backBtnW, backBtnH);
+
+            ctx.textAlign = 'center';
+            ctx.font = '14px Courier New';
+            ctx.fillStyle = '#0a0';
+            ctx.fillText('BACK', backBtnX + backBtnW / 2, backBtnY + 20);
+
+            menuButtons.push({
+                x: backBtnX, y: backBtnY, width: backBtnW, height: backBtnH,
+                onClick: () => {
+                    playMenuConfirmSound();
+                    customMissionConfig = null;
+                    startTransition(GAME_STATES.MENU, 400);
+                }
+            });
+        }
+
         function renderCampaignOverlay() {
             menuButtons = [];
             const centerX = screenWidth / 2;
@@ -7664,6 +8028,8 @@
                 renderHowToOverlay();
             } else if (gameState === GAME_STATES.MISSION_GENERATOR) {
                 renderMissionGeneratorOverlay();
+            } else if (gameState === GAME_STATES.CUSTOM_MISSION) {
+                renderCustomMissionOverlay();
             } else if (gameState === GAME_STATES.BRIEFING) {
                 renderBriefingOverlay();
             } else if (gameState === GAME_STATES.PAUSED) {
