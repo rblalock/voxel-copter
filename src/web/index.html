@@ -5494,6 +5494,15 @@
             if (state.mag <= 0) return;
             if (now - state.lastFire < weapon.fireRate) return;
 
+            // For guided missiles (Javelin, Stinger), check if we have a valid lock
+            if (weapon.guided) {
+                const lockedTarget = getLockedTargetForMissile();
+                if (!lockedTarget) {
+                    // No lock - don't fire guided missiles without a target
+                    return;
+                }
+            }
+
             state.lastFire = now;
             state.mag--;
 
@@ -5501,6 +5510,9 @@
             const spreadAngle = camera.angle + (Math.random() - 0.5) * spread;
             const pitchFactor = (camera.horizon - screenHeight / 2) / 240.0;
             const spawnOffset = 6;
+            
+            // For guided missiles, get the locked target
+            const lockedTarget = weapon.guided ? getLockedTargetForMissile() : null;
 
             projectiles.push({
                 x: camera.x - Math.sin(spreadAngle) * spawnOffset,
@@ -5516,7 +5528,8 @@
                 color: weapon.color,
                 guided: weapon.guided || false,
                 airToAir: weapon.airToAir || false,
-                playerFired: true
+                playerFired: true,
+                lockedTargetId: lockedTarget?.id || null  // Store locked target ID for guided missiles
             });
 
             sessionStats.shotsFired += 1;
