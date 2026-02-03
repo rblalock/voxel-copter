@@ -36,6 +36,7 @@
         #fps {
             font-size: 18px;
             font-weight: bold;
+            display: none;
         }
         
         #altitude {
@@ -1478,7 +1479,7 @@
             heli: {
                 x: 512,
                 y: 512,
-                z: 80,
+                z: 25,  // Lower spawn height so it's near ground level
                 angle: 0,
                 bank: 0,
                 forwardSpeed: 0,
@@ -2130,6 +2131,7 @@
         let freePlaySelectionIndex = 0;
         let settingsSelectionIndex = 0;
         let pauseSelectionIndex = 0;
+        let leaderboardScrollOffset = 0;
         let menuButtons = [];
         let settingsControls = [];
         let pauseButtons = [];
@@ -3267,8 +3269,19 @@
                     return true;
                 }
             } else if (gameState === GAME_STATES.LEADERBOARD) {
+                if (e.code === 'ArrowUp') {
+                    leaderboardScrollOffset = Math.max(0, leaderboardScrollOffset - 1);
+                    playMenuNavigateSound();
+                    return true;
+                }
+                if (e.code === 'ArrowDown') {
+                    leaderboardScrollOffset += 1; // Will be clamped in render
+                    playMenuNavigateSound();
+                    return true;
+                }
                 if (e.code === 'Enter' || e.code === 'Escape') {
                     playMenuConfirmSound();
+                    leaderboardScrollOffset = 0; // Reset scroll when leaving
                     startTransition(GAME_STATES.MENU, 500);
                     return true;
                 }
@@ -4078,10 +4091,10 @@
                 // Apply bank input or return to level
                 if (bankInput !== 0) {
                     // Roll into the turn
-                    camera.bank += bankInput * HELI_PHYSICS.BANK_RATE * dt;
+                    camera.bank += bankInput * HELI_PHYSICS.BANK_RATE;
                 } else {
                     // Return to level flight
-                    camera.bank *= (1 - HELI_PHYSICS.BANK_RETURN * dt);
+                    camera.bank *= (1 - HELI_PHYSICS.BANK_RETURN);
                     if (Math.abs(camera.bank) < 0.01) camera.bank = 0;
                 }
                 
@@ -4094,17 +4107,33 @@
                 
                 // Forward/Backward speed control
                 if (keys['KeyW'] || keys['ArrowUp']) {
-                    camera.forwardSpeed += HELI_PHYSICS.ACCELERATION * boost * dt;
+                    camera.forwardSpeed += HELI_PHYSICS.ACCELERATION * boost;
                 } else if (keys['KeyS'] || keys['ArrowDown']) {
-                    camera.forwardSpeed -= HELI_PHYSICS.ACCELERATION * 0.5 * dt;
+                    camera.forwardSpeed -= HELI_PHYSICS.ACCELERATION * boost;  // Same speed as forward
                 } else {
                     // Gradual deceleration
-                    camera.forwardSpeed *= (1 - HELI_PHYSICS.DECELERATION * dt);
+                    camera.forwardSpeed *= (1 - HELI_PHYSICS.DECELERATION);
                 }
                 
-                // Clamp forward speed
-                camera.forwardSpeed = Math.max(-HELI_PHYSICS.MAX_FORWARD_SPEED * 0.3, 
+                // Clamp forward speed (same max in both directions)
+                camera.forwardSpeed = Math.max(-HELI_PHYSICS.MAX_FORWARD_SPEED * boost, 
                                                Math.min(HELI_PHYSICS.MAX_FORWARD_SPEED * boost, camera.forwardSpeed));
+                
+                // Q/E Strafe speed control (same as forward/backward)
+                if (keys['KeyQ']) {
+                    camera.lateralSpeed += HELI_PHYSICS.ACCELERATION * boost;  // Strafe left
+                } else if (keys['KeyE']) {
+                    camera.lateralSpeed -= HELI_PHYSICS.ACCELERATION * boost;  // Strafe right
+                } else {
+                    // Gradual deceleration + bank drift
+                    const bankDrift = -camera.bank * HELI_PHYSICS.LATERAL_DRIFT * Math.abs(camera.forwardSpeed);
+                    camera.lateralSpeed *= (1 - HELI_PHYSICS.DECELERATION);
+                    camera.lateralSpeed += bankDrift;
+                }
+                
+                // Clamp lateral speed
+                camera.lateralSpeed = Math.max(-HELI_PHYSICS.MAX_FORWARD_SPEED * boost, 
+                                               Math.min(HELI_PHYSICS.MAX_FORWARD_SPEED * boost, camera.lateralSpeed));
                 
                 // Turn rate based on bank angle (banking causes turning)
                 // More bank = faster turn, forward speed affects turn rate
@@ -4113,11 +4142,7 @@
                 camera.yawRate = camera.bank * HELI_PHYSICS.TURN_BANK_RATIO * effectiveSpeed * 15;
                 
                 // Apply yaw (heading change)
-                camera.angle += camera.yawRate * dt;
-                
-                // Lateral drift when banked (sideslip toward outside of turn)
-                // Positive bank (left roll) causes drift right (negative lateral in our coords)
-                camera.lateralSpeed = -camera.bank * HELI_PHYSICS.LATERAL_DRIFT * Math.abs(camera.forwardSpeed);
+                camera.angle += camera.yawRate;
             }
             
             // Apply movement (same for both modes)
@@ -4146,16 +4171,8 @@
             camera.verticalSpeed = Math.max(-climbSpeed * 0.7, Math.min(climbSpeed, camera.verticalSpeed));
             camera.height += camera.verticalSpeed * dt;
             
-            // Look Up/Down (horizon adjustment) - now also affects pitch visual
-            if (keys['KeyQ']) {
-                camera.horizon += CONFIG.HORIZON_SPEED * dt;
-                camera.pitch = Math.max(-0.5, camera.pitch - 0.02 * dt);
-            } else if (keys['KeyE']) {
-                camera.horizon -= CONFIG.HORIZON_SPEED * dt;
-                camera.pitch = Math.min(0.5, camera.pitch + 0.02 * dt);
-            } else {
-                camera.pitch *= Math.max(0, 1 - 0.05 * dt); // Return to level
-            }
+            // Pitch returns to level automatically
+            camera.pitch *= Math.max(0, 1 - 0.05 * dt);
             
             // Direct yaw control (J/L keys) - turn without banking
             if (keys['KeyJ']) {
@@ -7968,7 +7985,7 @@
             const centerX = screenWidth / 2;
             const centerY = screenHeight / 2;
             const boxWidth = 480;
-            const boxHeight = 360;
+            const boxHeight = 400;
             const boxX = centerX - boxWidth / 2;
             const boxY = centerY - 170;
             drawMenuPanel(boxX, boxY, boxWidth, boxHeight, 'CAMPAIGN OPERATIONS');
@@ -8003,10 +8020,6 @@
             drawMenuButton('BACK TO MAIN MENU', backRect, false, backHover);
             menuButtons.push({ ...backRect, onClick: () => startTransition(GAME_STATES.MENU, 500) });
 
-            ctx.font = '12px Courier New';
-            ctx.fillStyle = '#0a0';
-            ctx.textAlign = 'center';
-            ctx.fillText('ENTER TO BRIEFING  •  ESC TO MAIN MENU', centerX, boxY + boxHeight - 20);
         }
 
         function renderFreePlayOverlay() {
@@ -8128,7 +8141,7 @@
             const centerX = screenWidth / 2;
             const centerY = screenHeight / 2;
             const boxWidth = 720;
-            const boxHeight = 520;
+            const boxHeight = 580;
             const boxX = centerX - boxWidth / 2;
             const boxY = centerY - boxHeight / 2;
             drawMenuPanel(boxX, boxY, boxWidth, boxHeight, 'ACHIEVEMENTS & STATS');
@@ -8163,7 +8176,9 @@
 
                 ctx.font = '12px Courier New';
                 ctx.fillStyle = unlocked ? '#0c0' : '#050';
-                ctx.fillText(achievement.desc, x + 26, y + 16);
+                const maxDescLen = 35;
+                const descText = achievement.desc.length > maxDescLen ? achievement.desc.substring(0, maxDescLen - 2) + '..' : achievement.desc;
+                ctx.fillText(descText, x + 26, y + 16);
                 ctx.font = 'bold 13px Courier New';
             }
 
@@ -8228,7 +8243,7 @@
             const centerX = screenWidth / 2;
             const centerY = screenHeight / 2;
             const boxWidth = 520;
-            const boxHeight = 460;
+            const boxHeight = 500;
             const boxX = centerX - boxWidth / 2;
             const boxY = centerY - boxHeight / 2;
             drawMenuPanel(boxX, boxY, boxWidth, boxHeight, 'GLOBAL LEADERBOARD');
@@ -8248,13 +8263,29 @@
                 ctx.fillStyle = '#0f0';
                 ctx.fillText('TOP PILOTS', centerX, boxY + 95);
 
+                // Scrollable leaderboard
+                const visibleCount = 12; // How many entries to show at once
+                const totalEntries = stats.leaderboard.length;
+                const maxScroll = Math.max(0, totalEntries - visibleCount);
+                leaderboardScrollOffset = Math.max(0, Math.min(maxScroll, leaderboardScrollOffset));
+
                 ctx.font = '12px Courier New';
                 ctx.textAlign = 'left';
                 let y = boxY + 125;
                 const listX = boxX + 40;
                 const scoreX = boxX + boxWidth - 40;
 
-                for (let i = 0; i < Math.min(10, stats.leaderboard.length); i++) {
+                // Show scroll indicator if there are more entries
+                if (totalEntries > visibleCount) {
+                    ctx.textAlign = 'center';
+                    ctx.fillStyle = '#0a0';
+                    ctx.font = '11px Courier New';
+                    ctx.fillText(`Showing ${leaderboardScrollOffset + 1}-${Math.min(leaderboardScrollOffset + visibleCount, totalEntries)} of ${totalEntries}  (↑/↓ to scroll)`, centerX, boxY + 112);
+                    ctx.font = '12px Courier New';
+                    ctx.textAlign = 'left';
+                }
+
+                for (let i = leaderboardScrollOffset; i < Math.min(leaderboardScrollOffset + visibleCount, totalEntries); i++) {
                     const entry = stats.leaderboard[i];
                     const rank = i + 1;
                     ctx.fillStyle = rank <= 3 ? '#ff0' : '#0f0';
@@ -12827,12 +12858,12 @@
             ctx.closePath();
             ctx.fill();
             
-            // Heading readout
-            ctx.font = 'bold 12px Courier New';
-            ctx.fillStyle = '#0f0';
-            ctx.textAlign = 'center';
-            const headingStr = Math.round(heading).toString().padStart(3, '0');
-            ctx.fillText(headingStr + '°', screenWidth / 2, compassY + compassHeight + 12);
+            // Heading readout (removed - keep compass visual only)
+            // ctx.font = 'bold 12px Courier New';
+            // ctx.fillStyle = '#0f0';
+            // ctx.textAlign = 'center';
+            // const headingStr = Math.round(heading).toString().padStart(3, '0');
+            // ctx.fillText(headingStr + '°', screenWidth / 2, compassY + compassHeight + 12);
         }
         
         function renderAltitudeLadder() {
@@ -13483,7 +13514,7 @@
         function renderMinimap() {
             const mapSize = 120;
             const mapX = screenWidth - mapSize - 15;
-            const mapY = 15;
+            const mapY = 50;  // Below top bar
             const scale = mapSize / CONFIG.MAP_SIZE;
 
             ctx.fillStyle = 'rgba(0, 20, 0, 0.8)';
@@ -13804,7 +13835,8 @@
         // UI UPDATE
         // ============================================
         function updateUI() {
-            document.getElementById('fps').textContent = `FPS: ${fps}`;
+            // FPS counter removed from display
+            // document.getElementById('fps').textContent = `FPS: ${fps}`;
             // Hide the old UI elements since we have the HUD now
             document.getElementById('altitude').style.display = 'none';
             document.getElementById('speed').style.display = 'none';
