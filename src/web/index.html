@@ -4502,6 +4502,13 @@
         }
 
         function startMission(missionIndex, options = {}) {
+            // Validate mission index
+            if (typeof missionIndex !== 'number' || missionIndex < 0 || missionIndex >= MISSIONS.length) {
+                console.error(`Invalid mission index: ${missionIndex}. Available missions: 0-${MISSIONS.length - 1}`);
+                // Fall back to mission 0 or return to menu
+                startTransition(GAME_STATES.CAMPAIGN, 500);
+                return;
+            }
             currentMissionIndex = missionIndex;
             const baseMission = MISSIONS[missionIndex];
             const mission = pendingAIMission ? buildMissionFromAI(pendingAIMission, baseMission) : baseMission;

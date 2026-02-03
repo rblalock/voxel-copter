@@ -2191,7 +2191,7 @@
                 const config = await response.json();
                 applyConfig(config);
                 elements.jsonOutput.value = JSON.stringify(config, null, 2);
-                alert(`Loaded mission ${missionId}: ${config.name || 'Unnamed'}`);
+                console.log(`Loaded mission ${missionId}: ${config.name || 'Unnamed'}`);
             } catch (err) {
                 console.error('Failed to load mission:', err);
                 alert(`Failed to load mission file.\nError: ${err.message}\n\nThe file may not exist yet. Create it by designing a layout and clicking "Save Mission".`);
@@ -2211,8 +2211,7 @@
             const missionFile = MISSION_FILES[missionId];
             const filename = missionFile.split('/').pop();
             
-            // Since we can't write directly to the filesystem from the browser,
-            // we'll download the file and the user needs to save it to the correct location
+            // Download the JSON file - developer saves it to src/web/public/missions/
             const json = JSON.stringify(config, null, 2);
             elements.jsonOutput.value = json;
             
@@ -2223,7 +2222,7 @@
             link.click();
             URL.revokeObjectURL(link.href);
             
-            alert(`Mission ${missionId} exported!\n\nSave the downloaded file to:\nsrc/web/public/missions/${filename}\n\nThen commit the changes to source control.`);
+            console.log(`Mission ${missionId} exported as ${filename}`);
         }
 
         function bindEvents() {
