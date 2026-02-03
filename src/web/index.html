@@ -3100,6 +3100,45 @@
             // Start in title state - load first map for background
             gameState = GAME_STATES.TITLE;
             loadMap(0);
+            
+            // Check for playtest mission from map editor
+            checkPlaytestMission();
+        }
+        
+        // ============================================
+        // PLAYTEST MISSION HANDLING
+        // ============================================
+        function checkPlaytestMission() {
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.get('playtest') === '1') {
+                const missionData = localStorage.getItem('playtestMission');
+                if (missionData) {
+                    try {
+                        const config = JSON.parse(missionData);
+                        // Clear it so it doesn't persist
+                        localStorage.removeItem('playtestMission');
+                        // Start the playtest after a short delay to let map load
+                        setTimeout(() => {
+                            loadPlaytestMission(config);
+                        }, 500);
+                    } catch (e) {
+                        console.error('Failed to load playtest mission:', e);
+                    }
+                }
+            }
+        }
+        
+        function loadPlaytestMission(config) {
+            // Set custom mission config and start it
+            customMissionConfig = config;
+            
+            // Skip title screen and go directly to playing
+            startTransition(GAME_STATES.PLAYING, 900, {
+                hold: true,
+                onSwitch: () => {
+                    startCustomMission({ onReady: releaseTransition });
+                }
+            });
         }
         
         // ============================================

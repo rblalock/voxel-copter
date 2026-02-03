@@ -1,23 +1,69 @@
 {
   "missionId": 5,
   "name": "FINAL OFFENSIVE",
-  "mapIndex": 2,
+  "mapIndex": 1,
   "difficulty": "extreme",
-  "weather": "clear",
+  "weather": "stormy",
   "playerStart": { "x": 100, "y": 900 },
   "airports": [
-    { "x": 500, "y": 200, "heading": 0, "faction": "enemy" },
-    { "x": 800, "y": 500, "heading": 1.57, "faction": "enemy" }
+    { "x": 500, "y": 150, "heading": 0, "faction": "enemy" }
   ],
   "bases": [
-    { "x": 512, "y": 400, "size": "large", "faction": "enemy" },
-    { "x": 700, "y": 300, "size": "large", "faction": "enemy" },
-    { "x": 300, "y": 500, "size": "medium", "faction": "enemy" }
+    { "x": 512, "y": 300, "size": "large", "faction": "enemy" },
+    { "x": 700, "y": 450, "size": "medium", "faction": "enemy" },
+    { "x": 300, "y": 400, "size": "medium", "faction": "enemy" }
   ],
-  "helipads": [],
+  "helipads": [
+    { "x": 120, "y": 880, "faction": "friendly" }
+  ],
   "spawnZones": [
-    { "x": 512, "y": 400, "radius": 150, "types": ["TANK", "SAM_SITE", "BUILDING"], "count": 10 },
-    { "x": 700, "y": 300, "radius": 100, "types": ["TANK", "SAM_SITE"], "count": 5 },
-    { "x": 300, "y": 500, "radius": 80, "types": ["SAM_SITE", "BUILDING"], "count": 4 }
+    { "x": 512, "y": 320, "radius": 150, "types": ["TANK", "SAM_SITE"], "count": 6 },
+    { "x": 700, "y": 470, "radius": 100, "types": ["TANK", "SOLDIER"], "count": 4 },
+    { "x": 300, "y": 420, "radius": 100, "types": ["SAM_SITE", "BUILDING"], "count": 4 },
+    { "x": 500, "y": 180, "radius": 80, "types": ["SAM_SITE"], "count": 3 },
+    { "x": 400, "y": 550, "radius": 120, "types": ["SOLDIER"], "count": 8 },
+    { "x": 600, "y": 250, "radius": 60, "types": ["BUILDING"], "count": 4 }
+  ],
+  "objectives": [
+    { "type": "destroy_type", "targetType": "SAM_SITE", "count": 5, "description": "Neutralize air defenses" },
+    { "type": "reach_location", "x": 512, "y": 300, "radius": 100, "description": "Reach the command center" },
+    { "type": "destroy_all", "description": "Destroy all remaining targets" }
+  ],
+  "events": [
+    {
+      "trigger": "kill_count",
+      "count": 5,
+      "action": "show_message",
+      "message": "Air defenses weakening! Push forward!",
+      "duration": 3000
+    },
+    {
+      "trigger": "time_elapsed",
+      "time": 60,
+      "action": "spawn_enemies",
+      "enemies": [{ "type": "HELICOPTER", "x": 900, "y": 300, "count": 2, "spread": 50 }]
+    },
+    {
+      "trigger": "time_elapsed",
+      "time": 63,
+      "action": "show_message",
+      "message": "Enemy air support scrambled! Watch your six!",
+      "duration": 4000
+    },
+    {
+      "trigger": "time_elapsed",
+      "time": 120,
+      "action": "spawn_enemies",
+      "enemies": [{ "type": "TANK", "x": 200, "y": 300, "count": 3, "spread": 60 }]
+    },
+    {
+      "trigger": "enter_zone",
+      "x": 512,
+      "y": 300,
+      "radius": 150,
+      "action": "show_message",
+      "message": "You've reached the command center! Destroy everything!",
+      "duration": 4000
+    }
   ]
 }
