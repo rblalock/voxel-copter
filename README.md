@@ -134,6 +134,57 @@ router.post('/', myAgent.validator(), async (c) => {
 export default router;
 ```
 
+## Map Editor
+
+VoxelCopter includes a built-in map editor for customizing missions.
+
+### Accessing the Map Editor
+
+- **Development:** `http://localhost:3500/src/web/public/mapeditor.html`
+- **Production:** `http://localhost:3500/mapeditor.html`
+
+### For Developers: Editing Main Missions
+
+1. Open the map editor
+2. Select a mission from the **Mission** dropdown (Mission 1-5)
+3. Click **Load Mission** to load the existing mission data
+4. Edit the mission:
+   - **Spawns tab:** Place player start, airports, bases, helipads, enemy spawn zones
+   - **Objectives tab:** Define mission objectives (destroy all, destroy type, reach location, etc.)
+   - **Events tab:** Set up triggered events (timed spawns, messages, zone triggers)
+5. Click **Save Mission** to download the JSON file
+6. Save the downloaded file to `src/web/public/missions/mission-X.json` (overwrite the existing file)
+7. The dev server will hot-reload, or run `bun run build` to rebuild
+
+### For Players: Creating Custom Missions
+
+1. Open the map editor
+2. Select a map from the **Map** dropdown
+3. Design your mission using the Spawns, Objectives, and Events tabs
+4. Click **Save Local** to save to your browser's localStorage
+5. In the game, access your custom mission from the **Custom Map** menu
+
+### Map Editor Features
+
+| Tab | Features |
+|-----|----------|
+| **Spawns** | Player Start, Airports, Bases, Helipads, Enemy Spawn Zones |
+| **Objectives** | destroy_all, destroy_type, destroy_count, reach_location, survive_time, protect_target |
+| **Events** | Triggers: kill_count, time_elapsed, enter_zone, objective_complete |
+| | Actions: show_message, spawn_enemies, add_objective, complete_mission, fail_mission |
+
+### Validation
+
+Click **⚠ Validate** to check your mission for:
+- Missing player start position
+- Missing win conditions
+- Invalid objective configurations
+- Empty spawn zones
+
+### Playtest
+
+Click **▶ Playtest** to immediately test your mission in the game. This saves the mission to localStorage and opens the game in playtest mode.
+
 ## Learn More
 
 - [Agentuity Documentation](https://agentuity.dev)
