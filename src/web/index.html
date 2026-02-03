@@ -773,6 +773,301 @@
         ];
         
         // ============================================
+        // MISSION OBJECTIVE SYSTEM
+        // ============================================
+        // Objective types:
+        //   destroy_all     - Destroy all targets (default)
+        //   destroy_type    - Destroy X targets of a specific type { type: 'TANK', count: 5 }
+        //   destroy_count   - Destroy at least X targets total { count: 10 }
+        //   reach_location  - Reach a specific area { x, y, radius }
+        //   survive_time    - Survive for X seconds { duration: 60 }
+        //   protect_target  - Keep a friendly target alive { targetId }
+        
+        const objectiveState = {
+            objectives: [],      // Active objectives with progress
+            events: [],          // Pending event triggers
+            completed: [],       // Completed objective IDs
+            failed: [],          // Failed objective IDs
+            surviveStartTime: 0, // For survive_time objectives
+            protectedTargets: [] // Targets that must stay alive
+        };
+        
+        function initObjectives(mission) {
+            objectiveState.objectives = [];
+            objectiveState.events = [];
+            objectiveState.completed = [];
+            objectiveState.failed = [];
+            objectiveState.surviveStartTime = performance.now();
+            objectiveState.protectedTargets = [];
+            
+            if (!mission || !mission.objectives) return;
+            
+            mission.objectives.forEach((obj, index) => {
+                objectiveState.objectives.push({
+                    id: `obj_${index}`,
+                    ...obj,
+                    progress: 0,
+                    total: getObjectiveTotal(obj),
+                    complete: false,
+                    failed: false
+                });
+                
+                // Initialize protected targets
+                if (obj.type === 'protect_target' && obj.targetId) {
+                    objectiveState.protectedTargets.push(obj.targetId);
+                }
+            });
+            
+            // Initialize mission events
+            if (mission.events) {
+                mission.events.forEach((evt, index) => {
+                    objectiveState.events.push({
+                        id: `evt_${index}`,
+                        ...evt,
+                        triggered: false
+                    });
+                });
+            }
+        }
+        
+        function getObjectiveTotal(obj) {
+            switch (obj.type) {
+                case 'destroy_type':
+                    return obj.count || 1;
+                case 'destroy_count':
+                    return obj.count || 1;
+                case 'survive_time':
+                    return obj.duration || 60;
+                case 'destroy_all':
+                    return -1; // Dynamic total based on spawned targets
+                default:
+                    return 1;
+            }
+        }
+        
+        function updateObjectiveProgress(action, data = {}) {
+            if (missionComplete || isPlayerDead) return;
+            
+            objectiveState.objectives.forEach(obj => {
+                if (obj.complete || obj.failed) return;
+                
+                switch (obj.type) {
+                    case 'destroy_all':
+                        // Handled by checkWinCondition
+                        break;
+                        
+                    case 'destroy_type':
+                        if (action === 'target_destroyed' && data.type === obj.targetType) {
+                            obj.progress++;
+                            if (obj.progress >= obj.total) {
+                                obj.complete = true;
+                                objectiveState.completed.push(obj.id);
+                            }
+                        }
+                        break;
+                        
+                    case 'destroy_count':
+                        if (action === 'target_destroyed') {
+                            obj.progress++;
+                            if (obj.progress >= obj.total) {
+                                obj.complete = true;
+                                objectiveState.completed.push(obj.id);
+                            }
+                        }
+                        break;
+                        
+                    case 'reach_location':
+                        if (action === 'position_update') {
+                            const dx = data.x - obj.x;
+                            const dy = data.y - obj.y;
+                            const dist = Math.sqrt(dx * dx + dy * dy);
+                            const radius = obj.radius || 50;
+                            if (dist < radius) {
+                                obj.complete = true;
+                                objectiveState.completed.push(obj.id);
+                            }
+                        }
+                        break;
+                        
+                    case 'survive_time':
+                        if (action === 'time_update') {
+                            const elapsed = (performance.now() - objectiveState.surviveStartTime) / 1000;
+                            obj.progress = Math.min(elapsed, obj.total);
+                            if (elapsed >= obj.total) {
+                                obj.complete = true;
+                                objectiveState.completed.push(obj.id);
+                            }
+                        }
+                        break;
+                        
+                    case 'protect_target':
+                        if (action === 'target_destroyed' && data.id === obj.targetId) {
+                            obj.failed = true;
+                            objectiveState.failed.push(obj.id);
+                        }
+                        break;
+                }
+            });
+            
+            // Check event triggers
+            updateEventTriggers(action, data);
+        }
+        
+        function updateEventTriggers(action, data = {}) {
+            objectiveState.events.forEach(evt => {
+                if (evt.triggered) return;
+                
+                let shouldTrigger = false;
+                
+                switch (evt.trigger) {
+                    case 'kill_count':
+                        if (action === 'target_destroyed' && sessionStats.kills >= evt.count) {
+                            shouldTrigger = true;
+                        }
+                        break;
+                        
+                    case 'time_elapsed':
+                        if (action === 'time_update') {
+                            const elapsed = (performance.now() - missionStartTime) / 1000;
+                            if (elapsed >= evt.time) {
+                                shouldTrigger = true;
+                            }
+                        }
+                        break;
+                        
+                    case 'enter_zone':
+                        if (action === 'position_update') {
+                            const dx = data.x - evt.x;
+                            const dy = data.y - evt.y;
+                            const dist = Math.sqrt(dx * dx + dy * dy);
+                            if (dist < (evt.radius || 100)) {
+                                shouldTrigger = true;
+                            }
+                        }
+                        break;
+                        
+                    case 'objective_complete':
+                        if (objectiveState.completed.includes(evt.objectiveId)) {
+                            shouldTrigger = true;
+                        }
+                        break;
+                }
+                
+                if (shouldTrigger) {
+                    evt.triggered = true;
+                    executeEvent(evt);
+                }
+            });
+        }
+        
+        function executeEvent(evt) {
+            switch (evt.action) {
+                case 'spawn_enemies':
+                    if (evt.enemies) {
+                        evt.enemies.forEach(e => {
+                            for (let i = 0; i < (e.count || 1); i++) {
+                                const x = e.x + (Math.random() - 0.5) * (e.spread || 100);
+                                const y = e.y + (Math.random() - 0.5) * (e.spread || 100);
+                                spawnTargetAt(e.type || 'TANK', x, y);
+                            }
+                        });
+                    }
+                    break;
+                    
+                case 'show_message':
+                    if (evt.message) {
+                        showMissionMessage(evt.message, evt.duration || 3000);
+                    }
+                    break;
+                    
+                case 'add_objective':
+                    if (evt.objective) {
+                        const newObj = {
+                            id: `obj_dyn_${objectiveState.objectives.length}`,
+                            ...evt.objective,
+                            progress: 0,
+                            total: getObjectiveTotal(evt.objective),
+                            complete: false,
+                            failed: false
+                        };
+                        objectiveState.objectives.push(newObj);
+                    }
+                    break;
+                    
+                case 'complete_mission':
+                    endMission(true);
+                    break;
+                    
+                case 'fail_mission':
+                    endMission(false, evt.reason || 'Mission failed');
+                    break;
+            }
+        }
+        
+        // Mission message system
+        let missionMessage = null;
+        let missionMessageEnd = 0;
+        
+        function showMissionMessage(text, duration = 3000) {
+            missionMessage = text;
+            missionMessageEnd = performance.now() + duration;
+        }
+        
+        function renderMissionMessage() {
+            if (!missionMessage || performance.now() > missionMessageEnd) {
+                missionMessage = null;
+                return;
+            }
+            
+            const alpha = Math.min(1, (missionMessageEnd - performance.now()) / 500);
+            ctx.save();
+            ctx.globalAlpha = alpha;
+            ctx.font = 'bold 20px Courier New';
+            ctx.textAlign = 'center';
+            ctx.fillStyle = '#ff0';
+            ctx.strokeStyle = '#000';
+            ctx.lineWidth = 3;
+            ctx.strokeText(missionMessage, screenWidth / 2, screenHeight * 0.25);
+            ctx.fillText(missionMessage, screenWidth / 2, screenHeight * 0.25);
+            ctx.restore();
+        }
+        
+        function checkAllObjectivesComplete() {
+            // If any objective failed, mission fails
+            if (objectiveState.failed.length > 0) {
+                const failedObj = objectiveState.objectives.find(o => o.failed);
+                endMission(false, failedObj ? `FAILED: ${failedObj.description}` : 'Objective failed');
+                return;
+            }
+            
+            // Check if all objectives complete
+            const allComplete = objectiveState.objectives.every(obj => obj.complete);
+            if (allComplete && objectiveState.objectives.length > 0) {
+                endMission(true);
+            }
+        }
+        
+        function getObjectiveProgressText(obj) {
+            switch (obj.type) {
+                case 'destroy_all':
+                    const remaining = targets.filter(t => !t.destroyed).length;
+                    return remaining === 0 ? 'COMPLETE' : `${remaining} remaining`;
+                case 'destroy_type':
+                case 'destroy_count':
+                    return `${obj.progress}/${obj.total}`;
+                case 'survive_time':
+                    const remaining2 = Math.max(0, obj.total - obj.progress);
+                    return `${Math.ceil(remaining2)}s`;
+                case 'reach_location':
+                    return obj.complete ? 'REACHED' : 'IN PROGRESS';
+                case 'protect_target':
+                    return obj.failed ? 'FAILED' : 'PROTECTED';
+                default:
+                    return obj.complete ? 'COMPLETE' : 'IN PROGRESS';
+            }
+        }
+        
+        // ============================================
         // WEAPON DEFINITIONS
         // ============================================
         const WEAPONS = {
@@ -1797,6 +2092,7 @@
         // SCREEN/RENDERING STATE
         // ============================================
         let canvas, ctx, imageData, buf8, buf32;
+        let hiddenYBuffer;
         let screenWidth, screenHeight;
         
         // ============================================
@@ -3448,6 +3744,7 @@
             imageData = ctx.createImageData(screenWidth, screenHeight);
             buf8 = new Uint8ClampedArray(imageData.data.buffer);
             buf32 = new Uint32Array(imageData.data.buffer);
+            hiddenYBuffer = new Int32Array(screenWidth);
             
             // Adjust horizon for new height
             camera.horizon = screenHeight * 0.4;
@@ -3733,6 +4030,8 @@
                 handleSoldierInput(deltaTime);
                 return;
             }
+
+            const dt = Math.max(0, Math.min(2, deltaTime / 16.666));
             
             const boost = keys['Space'] ? CONFIG.BOOST_MULTIPLIER : 1;
             const climbSpeed = CONFIG.CLIMB_SPEED * boost;
@@ -3743,10 +4042,10 @@
                 
                 // Turn directly with A/D
                 if (keys['KeyA'] || keys['ArrowLeft']) {
-                    camera.angle += CONFIG.TURN_SPEED * boost;
+                    camera.angle += CONFIG.TURN_SPEED * boost * dt;
                 }
                 if (keys['KeyD'] || keys['ArrowRight']) {
-                    camera.angle -= CONFIG.TURN_SPEED * boost;
+                    camera.angle -= CONFIG.TURN_SPEED * boost * dt;
                 }
                 
                 // Forward/Backward movement
@@ -3779,10 +4078,10 @@
                 // Apply bank input or return to level
                 if (bankInput !== 0) {
                     // Roll into the turn
-                    camera.bank += bankInput * HELI_PHYSICS.BANK_RATE;
+                    camera.bank += bankInput * HELI_PHYSICS.BANK_RATE * dt;
                 } else {
                     // Return to level flight
-                    camera.bank *= (1 - HELI_PHYSICS.BANK_RETURN);
+                    camera.bank *= (1 - HELI_PHYSICS.BANK_RETURN * dt);
                     if (Math.abs(camera.bank) < 0.01) camera.bank = 0;
                 }
                 
@@ -3795,12 +4094,12 @@
                 
                 // Forward/Backward speed control
                 if (keys['KeyW'] || keys['ArrowUp']) {
-                    camera.forwardSpeed += HELI_PHYSICS.ACCELERATION * boost;
+                    camera.forwardSpeed += HELI_PHYSICS.ACCELERATION * boost * dt;
                 } else if (keys['KeyS'] || keys['ArrowDown']) {
-                    camera.forwardSpeed -= HELI_PHYSICS.ACCELERATION * 0.5;
+                    camera.forwardSpeed -= HELI_PHYSICS.ACCELERATION * 0.5 * dt;
                 } else {
                     // Gradual deceleration
-                    camera.forwardSpeed *= (1 - HELI_PHYSICS.DECELERATION);
+                    camera.forwardSpeed *= (1 - HELI_PHYSICS.DECELERATION * dt);
                 }
                 
                 // Clamp forward speed
@@ -3814,7 +4113,7 @@
                 camera.yawRate = camera.bank * HELI_PHYSICS.TURN_BANK_RATIO * effectiveSpeed * 15;
                 
                 // Apply yaw (heading change)
-                camera.angle += camera.yawRate;
+                camera.angle += camera.yawRate * dt;
                 
                 // Lateral drift when banked (sideslip toward outside of turn)
                 // Positive bank (left roll) causes drift right (negative lateral in our coords)
@@ -3826,44 +4125,44 @@
             const cosAngle = Math.cos(camera.angle);
             
             // Forward movement
-            camera.x -= sinAngle * camera.forwardSpeed;
-            camera.y -= cosAngle * camera.forwardSpeed;
+            camera.x -= sinAngle * camera.forwardSpeed * dt;
+            camera.y -= cosAngle * camera.forwardSpeed * dt;
             
             // Lateral movement (perpendicular to heading) - only in banking mode
-            camera.x -= cosAngle * camera.lateralSpeed;
-            camera.y += sinAngle * camera.lateralSpeed;
+            camera.x -= cosAngle * camera.lateralSpeed * dt;
+            camera.y += sinAngle * camera.lateralSpeed * dt;
             
             // Update display speed
             currentSpeed = camera.forwardSpeed;
             
             // Altitude Up/Down - helicopter climb
             if (keys['KeyR']) {
-                camera.verticalSpeed += climbSpeed * 0.06;
+                camera.verticalSpeed += climbSpeed * 0.06 * dt;
             } else if (keys['KeyF']) {
-                camera.verticalSpeed -= climbSpeed * 0.06;
+                camera.verticalSpeed -= climbSpeed * 0.06 * dt;
             } else {
-                camera.verticalSpeed *= 0.92; // Gradual level off
+                camera.verticalSpeed *= Math.max(0, 1 - 0.08 * dt); // Gradual level off
             }
             camera.verticalSpeed = Math.max(-climbSpeed * 0.7, Math.min(climbSpeed, camera.verticalSpeed));
-            camera.height += camera.verticalSpeed;
+            camera.height += camera.verticalSpeed * dt;
             
             // Look Up/Down (horizon adjustment) - now also affects pitch visual
             if (keys['KeyQ']) {
-                camera.horizon += CONFIG.HORIZON_SPEED;
-                camera.pitch = Math.max(-0.5, camera.pitch - 0.02);
+                camera.horizon += CONFIG.HORIZON_SPEED * dt;
+                camera.pitch = Math.max(-0.5, camera.pitch - 0.02 * dt);
             } else if (keys['KeyE']) {
-                camera.horizon -= CONFIG.HORIZON_SPEED;
-                camera.pitch = Math.min(0.5, camera.pitch + 0.02);
+                camera.horizon -= CONFIG.HORIZON_SPEED * dt;
+                camera.pitch = Math.min(0.5, camera.pitch + 0.02 * dt);
             } else {
-                camera.pitch *= 0.95; // Return to level
+                camera.pitch *= Math.max(0, 1 - 0.05 * dt); // Return to level
             }
             
             // Direct yaw control (J/L keys) - turn without banking
             if (keys['KeyJ']) {
-                camera.angle += HELI_PHYSICS.MAX_YAW_RATE;
+                camera.angle += HELI_PHYSICS.MAX_YAW_RATE * dt;
             }
             if (keys['KeyL']) {
-                camera.angle -= HELI_PHYSICS.MAX_YAW_RATE;
+                camera.angle -= HELI_PHYSICS.MAX_YAW_RATE * dt;
             }
             
             // Clamp values
@@ -4232,6 +4531,9 @@
                 // Start timer
                 missionStartTime = performance.now();
                 missionTime = mission.timeLimit || 0;
+                
+                // Initialize mission objectives tracking
+                initObjectives(mission);
                 
                 // Hide loading and start playing
                 loadingEl.style.display = 'none';
@@ -5938,7 +6240,7 @@
             return angle;
         }
         
-        function updateGuidedMissile(projectile) {
+        function updateGuidedMissile(projectile, dt) {
             // For player-fired guided missiles, use the locked target
             // For AI missiles, use nearest target
             let target;
@@ -5971,33 +6273,35 @@
                 const targetAngle = Math.atan2(-dx, -dy);
                 
                 // Gradually turn toward target (homing behavior)
-                const turnRate = 0.08;
+                const turnRate = 0.08 * dt;
                 const angleDiff = normalizeAngle(targetAngle - projectile.angle);
                 projectile.angle += Math.sign(angleDiff) * Math.min(Math.abs(angleDiff), turnRate);
             }
             
             // Move in current direction
-            projectile.x -= Math.sin(projectile.angle) * projectile.speed;
-            projectile.y -= Math.cos(projectile.angle) * projectile.speed;
+            projectile.x -= Math.sin(projectile.angle) * projectile.speed * dt;
+            projectile.y -= Math.cos(projectile.angle) * projectile.speed * dt;
             // Apply pitch (guided missiles adjust pitch toward target, but start with initial pitch)
             if (projectile.pitch !== undefined) {
-                projectile.z += projectile.pitch * projectile.speed;
+                projectile.z += projectile.pitch * projectile.speed * dt;
             }
         }
         
-        function updateProjectiles() {
+        function updateProjectiles(deltaTime) {
+            const dt = Math.max(0, Math.min(3, deltaTime / 16.666));
+            if (dt <= 0) return;
             for (let i = projectiles.length - 1; i >= 0; i--) {
                 const p = projectiles[i];
                 
                 // Guided missiles have special movement
                 if (p.guided) {
-                    updateGuidedMissile(p);
+                    updateGuidedMissile(p, dt);
                 } else {
                     // Move projectile forward
-                    p.x -= Math.sin(p.angle) * p.speed;
-                    p.y -= Math.cos(p.angle) * p.speed;
+                    p.x -= Math.sin(p.angle) * p.speed * dt;
+                    p.y -= Math.cos(p.angle) * p.speed * dt;
                     // Apply pitch to altitude
-                    p.z += p.pitch * p.speed;
+                    p.z += p.pitch * p.speed * dt;
                 }
                 
                 // Wrap around map
@@ -6006,10 +6310,11 @@
 
                 // Rocket/missile smoke trail
                 if (p.projectileType === 'missile' || p.projectileType === 'rocket') {
-                    spawnParticles(p.x, p.y, p.z, 'smoke', 1);
+                    const smokeCount = dt > 1.5 ? 2 : 1;
+                    spawnParticles(p.x, p.y, p.z, 'smoke', smokeCount);
                 }
                 
-                p.lifetime--;
+                p.lifetime -= dt;
                 
                 // Check terrain collision
                 const terrainHeight = getTerrainHeight(p.x, p.y);
@@ -6086,6 +6391,13 @@
                         score += target.points;
                         sessionStats.score += target.points;
                         sessionStats.kills += 1;
+                        
+                        // Update objective progress for target destruction
+                        updateObjectiveProgress('target_destroyed', { 
+                            type: target.type.toUpperCase(), 
+                            id: target.id 
+                        });
+                        
                         trackEvent('kill', {
                             targetType: target.type,
                             weapon: gameMode === GAME_MODES.DELTA ? soldierWeapon.current : currentWeapon,
@@ -6288,9 +6600,10 @@
             });
         }
         
-        function updateExplosions() {
+        function updateExplosions(deltaTime) {
+            const dt = Math.max(0, Math.min(3, deltaTime / 16.666));
             for (let i = explosions.length - 1; i >= 0; i--) {
-                explosions[i].lifetime--;
+                explosions[i].lifetime -= dt;
                 if (explosions[i].lifetime <= 0) {
                     explosions.splice(i, 1);
                 }
@@ -6719,24 +7032,26 @@
         // ============================================
         // ENEMY PROJECTILES
         // ============================================
-        function updateEnemyProjectiles() {
+        function updateEnemyProjectiles(deltaTime) {
+            const dt = Math.max(0, Math.min(3, deltaTime / 16.666));
+            if (dt <= 0) return;
             const now = performance.now();
             for (let i = enemyProjectiles.length - 1; i >= 0; i--) {
                 const ep = enemyProjectiles[i];
                 
                 if (ep.type === 'air_cannon' || ep.type === 'air_rocket' || ep.type === 'air_missile') {
-                    ep.x += ep.vx;
-                    ep.y += ep.vy;
-                    ep.z += ep.vz;
+                    ep.x += ep.vx * dt;
+                    ep.y += ep.vy * dt;
+                    ep.z += ep.vz * dt;
                 } else if (ep.type === 'infantry_bullet' || ep.type === 'tank_shell') {
-                    ep.x += Math.sin(ep.angle) * ep.speed;
-                    ep.y += Math.cos(ep.angle) * ep.speed;
-                    ep.z += ep.pitch * ep.speed;
+                    ep.x += Math.sin(ep.angle) * ep.speed * dt;
+                    ep.y += Math.cos(ep.angle) * ep.speed * dt;
+                    ep.z += ep.pitch * ep.speed * dt;
                 } else if (ep.type === 'sam_missile') {
                     // SAM missile has two phases: launch (vertical) and track (homing)
                     if (ep.phase === 'launch') {
                         // Vertical launch phase - go straight up
-                        ep.z += ep.vz * 0.06;
+                        ep.z += ep.vz * 0.06 * dt;
                         
                         // Switch to tracking when altitude reached
                         if (ep.z >= ep.launchAltitude) {
@@ -6765,17 +7080,17 @@
                             // Homing behavior with turn rate limit
                             const targetAngle = Math.atan2(dx, dy);
                             const currentAngle = ep.angle || targetAngle;
-                            const turnRate = 0.06;
+                            const turnRate = 0.06 * dt;
                             const angleDiff = normalizeAngle(targetAngle - currentAngle);
                             ep.angle = currentAngle + Math.sign(angleDiff) * Math.min(Math.abs(angleDiff), turnRate);
                             
                             // Move toward player
-                            ep.x += Math.sin(ep.angle) * ep.speed;
-                            ep.y += Math.cos(ep.angle) * ep.speed;
+                            ep.x += Math.sin(ep.angle) * ep.speed * dt;
+                            ep.y += Math.cos(ep.angle) * ep.speed * dt;
                             
                             // Gradually adjust altitude toward player
                             const dz = camera.height - ep.z;
-                            ep.z += dz * 0.03;
+                            ep.z += dz * 0.03 * dt;
                         }
                     }
                 } else {
@@ -6792,15 +7107,15 @@
                     if (dist > 0) {
                         const targetAngle = Math.atan2(dx, dy);
                         const currentAngle = ep.angle || targetAngle;
-                        const turnRate = 0.06;
+                        const turnRate = 0.06 * dt;
                         const angleDiff = normalizeAngle(targetAngle - currentAngle);
                         ep.angle = currentAngle + Math.sign(angleDiff) * Math.min(Math.abs(angleDiff), turnRate);
                         
-                        ep.x += Math.sin(ep.angle) * ep.speed;
-                        ep.y += Math.cos(ep.angle) * ep.speed;
+                        ep.x += Math.sin(ep.angle) * ep.speed * dt;
+                        ep.y += Math.cos(ep.angle) * ep.speed * dt;
                         
                         const dz = camera.height - ep.z;
-                        ep.z += dz * 0.03;
+                        ep.z += dz * 0.03 * dt;
                     }
                 }
                 
@@ -6813,7 +7128,7 @@
                         continue;
                     }
                 } else {
-                    ep.lifetime--;
+                    ep.lifetime -= dt;
                 }
                 
                 // Check hit player
@@ -6903,8 +7218,12 @@
             
             if (playerHealth <= 0) {
                 playerHealth = 0;
-                stopRotorSound();  // Stop rotor when destroyed
-                endMission(false, 'HELICOPTER DESTROYED');
+                if (gameMode === GAME_MODES.COMANCHE) {
+                    stopRotorSound();  // Stop rotor when destroyed
+                    endMission(false, 'HELICOPTER DESTROYED');
+                } else {
+                    endMission(false, 'OPERATOR DOWN');
+                }
             }
         }
         
@@ -7167,15 +7486,44 @@
 
         function drawMenuButton(label, rect, isSelected, isHovered) {
             const active = isSelected || isHovered;
-            ctx.strokeStyle = active ? '#0f0' : '#0a0';
-            ctx.lineWidth = 2;
-            ctx.fillStyle = active ? 'rgba(0, 80, 0, 0.7)' : 'rgba(0, 30, 0, 0.6)';
+            
+            // Subtle pulse effect for selected items
+            const pulse = isSelected ? Math.sin(performance.now() * 0.004) * 0.15 + 0.85 : 1;
+            
+            // Background with gradient effect for active state
+            if (active) {
+                const grad = ctx.createLinearGradient(rect.x, rect.y, rect.x, rect.y + rect.height);
+                grad.addColorStop(0, 'rgba(0, 100, 0, 0.8)');
+                grad.addColorStop(0.5, 'rgba(0, 70, 0, 0.7)');
+                grad.addColorStop(1, 'rgba(0, 50, 0, 0.8)');
+                ctx.fillStyle = grad;
+            } else {
+                ctx.fillStyle = 'rgba(0, 30, 0, 0.6)';
+            }
             ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+            
+            // Border with glow for selected
+            ctx.strokeStyle = active ? '#0f0' : '#0a0';
+            ctx.lineWidth = isSelected ? 3 : 2;
             ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
+            
+            // Selection indicator arrows
+            if (isSelected) {
+                ctx.fillStyle = '#0f0';
+                ctx.font = '14px Courier New';
+                ctx.textAlign = 'left';
+                ctx.fillText('>', rect.x + 8, rect.y + rect.height / 2 + 5);
+                ctx.textAlign = 'right';
+                ctx.fillText('<', rect.x + rect.width - 8, rect.y + rect.height / 2 + 5);
+            }
+            
+            // Label with brightness based on state
+            ctx.globalAlpha = pulse;
             ctx.fillStyle = active ? '#0f0' : '#0a0';
             ctx.font = 'bold 16px Courier New';
             ctx.textAlign = 'center';
             ctx.fillText(label, rect.x + rect.width / 2, rect.y + rect.height / 2 + 6);
+            ctx.globalAlpha = 1;
         }
 
         function drawModeToggleButton(rect, isSelected, isHovered) {
@@ -7246,6 +7594,7 @@
         }
 
         function renderTitleOverlay() {
+            ctx.save();
             menuButtons = [];
             const centerX = screenWidth / 2;
             const centerY = screenHeight / 2;
@@ -7277,9 +7626,11 @@
             ctx.font = '12px Courier New';
             ctx.fillStyle = '#0a0';
             ctx.fillText('© VoxelCopter Command — Tactical Interface Online', centerX, centerY + 70);
+            ctx.restore();
         }
 
         function renderMainMenuOverlay() {
+            ctx.save();
             menuButtons = [];
             const centerX = screenWidth / 2;
             const centerY = screenHeight / 2;
@@ -7330,6 +7681,7 @@
             if (menuSelectionIndex === 3) {
                 renderAIMissionUI();
             }
+            ctx.restore();
         }
 
         function renderAIMissionUI() {
@@ -7367,6 +7719,7 @@
         }
 
         function renderMissionGeneratorOverlay() {
+            ctx.save();
             // Clear menuButtons for this overlay - we'll add our own
             menuButtons = [];
             
@@ -7484,6 +7837,7 @@
                 ctx.fillStyle = '#0a0';
                 ctx.fillText('Press ENTER to generate, ESC to cancel', centerX, boxY + boxHeight - 25);
             }
+            ctx.restore();
         }
 
         function renderCustomMissionOverlay() {
@@ -8031,6 +8385,7 @@
         }
         
         function renderBriefingOverlay() {
+            ctx.save();
             const mission = getBriefingMission();
             const isDelta = gameMode === GAME_MODES.DELTA;
             const briefingText = isDelta
@@ -8151,6 +8506,7 @@
             ctx.fillStyle = '#888';
             const backLabel = pendingAIMission ? '[ESC] Back to Menu' : '[ESC] Back to Campaign';
             ctx.fillText(backLabel, centerX + 100, boxY + boxHeight - 25);
+            ctx.restore();
         }
         
         function renderPauseOverlay() {
@@ -8218,6 +8574,7 @@
         function renderVictoryOverlay() {
             const mission = getActiveMission();
             if (!mission) return;
+            ctx.save();
             
             // Semi-transparent dark background
             ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
@@ -8336,6 +8693,7 @@
             ctx.fillText('[ESC] Return to Menu', centerX, boxY + boxHeight - 15);
 
             renderDebriefPanel();
+            ctx.restore();
         }
 
         function renderDebriefPanel() {
@@ -8393,6 +8751,7 @@
         }
         
         function renderDefeatOverlay() {
+            ctx.save();
             // Semi-transparent red background
             ctx.fillStyle = 'rgba(50, 0, 0, 0.85)';
             ctx.fillRect(0, 0, screenWidth, screenHeight);
@@ -8446,6 +8805,7 @@
             ctx.fillText('[ESC] Return to Menu', centerX, boxY + boxHeight - 20);
 
             renderDebriefPanel();
+            ctx.restore();
         }
         
         function getDifficultyStars(difficulty) {
@@ -8521,10 +8881,11 @@
             buf32.fill(weather.skyColor);
             
             // Y-buffer for occlusion culling (stores lowest drawn Y for each column)
-            const hiddenY = new Int32Array(screenWidth);
-            for (let i = 0; i < screenWidth; i++) {
-                hiddenY[i] = screenHeight;
+            if (!hiddenYBuffer || hiddenYBuffer.length !== screenWidth) {
+                hiddenYBuffer = new Int32Array(screenWidth);
             }
+            const hiddenY = hiddenYBuffer;
+            hiddenY.fill(screenHeight);
             
             const sinAngle = Math.sin(renderCam.angle);
             const cosAngle = Math.cos(renderCam.angle);
@@ -8664,8 +9025,10 @@
                 // Render HUD
                 renderHUD();
                 
-                // Render mission timer
+                // Render objectives panel and mission timer
+                renderObjectivesPanel();
                 renderMissionTimer();
+                renderMissionMessage();
             }
             
             // Render rain effect for all screens (weather is global)
@@ -8702,7 +9065,9 @@
                 renderTargets(camera);
                 renderExplosions(camera);
                 renderHUD();
+                // Victory overlay first (has dark background)
                 renderVictoryOverlay();
+                // Leaderboard on top of overlay (top-right corner)
                 refreshGlobalStatsIfNeeded();
                 if (cachedGlobalStats) {
                     renderLeaderboard(cachedGlobalStats);
@@ -12257,6 +12622,98 @@
             }
         }
         
+        function renderObjectivesPanel() {
+            if (gameState !== GAME_STATES.PLAYING) return;
+            if (currentMissionIndex < 0) return; // No panel for free play
+            if (!objectiveState.objectives || objectiveState.objectives.length === 0) return;
+            
+            const panelX = 10;
+            const panelY = 55; // Below top bar
+            const panelWidth = 240;
+            const lineHeight = 20;
+            const padding = 10;
+            const headerHeight = 26;
+            const panelHeight = headerHeight + padding * 2 + objectiveState.objectives.length * lineHeight + 4;
+            
+            // Panel background with gradient
+            const grad = ctx.createLinearGradient(panelX, panelY, panelX, panelY + panelHeight);
+            grad.addColorStop(0, 'rgba(0, 25, 0, 0.9)');
+            grad.addColorStop(1, 'rgba(0, 15, 0, 0.85)');
+            ctx.fillStyle = grad;
+            ctx.fillRect(panelX, panelY, panelWidth, panelHeight);
+            
+            // Border with subtle glow
+            ctx.strokeStyle = '#0a0';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(panelX, panelY, panelWidth, panelHeight);
+            ctx.strokeStyle = 'rgba(0, 255, 0, 0.3)';
+            ctx.strokeRect(panelX - 1, panelY - 1, panelWidth + 2, panelHeight + 2);
+            
+            // Header with accent bar
+            ctx.fillStyle = 'rgba(0, 50, 0, 0.95)';
+            ctx.fillRect(panelX, panelY, panelWidth, headerHeight);
+            ctx.fillStyle = '#0f0';
+            ctx.fillRect(panelX, panelY + headerHeight - 2, panelWidth, 2);
+            
+            ctx.font = 'bold 13px Courier New';
+            ctx.fillStyle = '#0f0';
+            ctx.textAlign = 'left';
+            ctx.fillText('MISSION OBJECTIVES', panelX + padding, panelY + 17);
+            
+            // Objectives list
+            let y = panelY + headerHeight + padding + 14;
+            
+            for (const obj of objectiveState.objectives) {
+                // Status indicator with better icons
+                let statusIcon, statusColor, bgColor;
+                if (obj.complete) {
+                    statusIcon = '\u2713'; // Checkmark
+                    statusColor = '#0f0';
+                    bgColor = 'rgba(0, 100, 0, 0.3)';
+                } else if (obj.failed) {
+                    statusIcon = '\u2717'; // X mark
+                    statusColor = '#f00';
+                    bgColor = 'rgba(100, 0, 0, 0.3)';
+                } else {
+                    statusIcon = '\u25cb'; // Circle
+                    statusColor = '#888';
+                    bgColor = null;
+                }
+                
+                // Row background for completed/failed
+                if (bgColor) {
+                    ctx.fillStyle = bgColor;
+                    ctx.fillRect(panelX + 2, y - 12, panelWidth - 4, lineHeight - 2);
+                }
+                
+                // Status icon
+                ctx.font = '12px Courier New';
+                ctx.fillStyle = statusColor;
+                ctx.fillText(statusIcon, panelX + padding, y);
+                
+                // Objective description (truncated if needed)
+                const descMaxLen = 20;
+                let desc = obj.description || 'Unknown objective';
+                if (desc.length > descMaxLen) {
+                    desc = desc.substring(0, descMaxLen - 2) + '..';
+                }
+                
+                ctx.font = '11px Courier New';
+                ctx.fillStyle = obj.complete ? '#0a0' : (obj.failed ? '#800' : '#0c0');
+                ctx.fillText(desc, panelX + padding + 18, y);
+                
+                // Progress (right-aligned) with highlight
+                const progress = getObjectiveProgressText(obj);
+                ctx.textAlign = 'right';
+                ctx.font = 'bold 11px Courier New';
+                ctx.fillStyle = obj.complete ? '#0f0' : (obj.failed ? '#f00' : '#ff0');
+                ctx.fillText(progress, panelX + panelWidth - padding, y);
+                ctx.textAlign = 'left';
+                
+                y += lineHeight;
+            }
+        }
+        
         function renderMissionTimer() {
             const mission = getActiveMission();
             if (!mission || !mission.timeLimit) return;
@@ -13384,7 +13841,8 @@
         // GAME LOOP
         // ============================================
         function gameLoop(timestamp) {
-            const deltaTime = timestamp - lastTime;
+            const rawDelta = timestamp - lastTime;
+            const deltaTime = Math.min(50, Math.max(0, rawDelta));
             lastTime = timestamp;
             
             // FPS calculation
@@ -13424,14 +13882,14 @@
                     }
                     
                     // Update combat systems
-                    updateProjectiles();
+                    updateProjectiles(deltaTime);
                     checkProjectileHits();
-                    updateExplosions();
+                    updateExplosions(deltaTime);
                     updateParticles(deltaTime);
                     
                     // Update enemy AI and projectiles
                     updateEnemyAI(deltaTime, timestamp);
-                    updateEnemyProjectiles();
+                    updateEnemyProjectiles(deltaTime);
                     updateAirportSpawns(timestamp);
                     
                     // Update warning systems
@@ -13439,6 +13897,11 @@
                     
                     // Update targeting system
                     updateTargetingSystem(deltaTime);
+                    
+                    // Update objective progress for position and time-based objectives
+                    updateObjectiveProgress('position_update', { x: camera.x, y: camera.y });
+                    updateObjectiveProgress('time_update', {});
+                    checkAllObjectivesComplete();
                     
                     checkWinCondition();
                 }
