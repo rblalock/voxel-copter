@@ -2144,7 +2144,11 @@
                 name: state.metadata.name || `Custom Mission ${state.mapIndex}`,
                 difficulty: state.metadata.difficulty || 'medium',
                 weather: state.metadata.weather || 'clear',
-                playerStart: playerStart ? { x: Math.round(playerStart.x), y: Math.round(playerStart.y) } : null,
+                playerStart: playerStart ? { 
+                    x: Math.round(playerStart.x), 
+                    y: Math.round(playerStart.y),
+                    heading: playerStart.heading || 0
+                } : null,
                 airports,
                 bases,
                 helipads,
@@ -2167,6 +2171,7 @@
             state.spawns = [];
             if (config.playerStart) {
                 const spawn = createSpawn('playerStart', config.playerStart.x, config.playerStart.y);
+                spawn.heading = config.playerStart.heading || 0;
                 state.spawns.push(spawn);
             }
             (config.airports || []).forEach((a) => {

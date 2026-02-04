@@ -1,50 +1,246 @@
 {
-  "missionId": 4,
+  "mapIndex": 5,
   "name": "SEARCH AND DESTROY",
-  "mapIndex": 2,
   "difficulty": "hard",
-  "weather": "clear",
-  "playerStart": { "x": 512, "y": 512 },
+  "weather": "storm",
+  "playerStart": {
+    "x": 898,
+    "y": 101
+  },
   "airports": [
-    { "x": 200, "y": 200, "heading": 1.57, "faction": "enemy" }
+    {
+      "x": 251,
+      "y": 219,
+      "heading": 1.77,
+      "faction": "enemy"
+    }
   ],
   "bases": [
-    { "x": 750, "y": 300, "size": "medium", "faction": "enemy" },
-    { "x": 300, "y": 700, "size": "small", "faction": "enemy" }
+    {
+      "x": 307,
+      "y": 824,
+      "size": "medium",
+      "faction": "enemy"
+    },
+    {
+      "x": 162,
+      "y": 436,
+      "size": "medium",
+      "faction": "enemy"
+    }
   ],
   "helipads": [
-    { "x": 500, "y": 500, "faction": "friendly" }
+    {
+      "x": 428,
+      "y": 242,
+      "faction": "enemy"
+    }
   ],
   "spawnZones": [
-    { "x": 200, "y": 250, "radius": 80, "types": ["TANK"], "count": 2 },
-    { "x": 750, "y": 320, "radius": 100, "types": ["TANK", "SAM_SITE"], "count": 3 },
-    { "x": 300, "y": 720, "radius": 90, "types": ["TANK", "SOLDIER"], "count": 4 },
-    { "x": 600, "y": 200, "radius": 70, "types": ["SAM_SITE"], "count": 2 },
-    { "x": 400, "y": 400, "radius": 60, "types": ["BUILDING"], "count": 2 }
+    {
+      "x": 513,
+      "y": 548,
+      "radius": 90,
+      "types": [
+        "TANK",
+        "SOLDIER"
+      ],
+      "count": 10
+    }
+  ],
+  "units": [
+    {
+      "type": "SAM_SITE",
+      "x": 613,
+      "y": 320,
+      "faction": "enemy"
+    },
+    {
+      "type": "SAM_SITE",
+      "x": 270,
+      "y": 518,
+      "faction": "enemy"
+    },
+    {
+      "type": "SAM_SITE",
+      "x": 507,
+      "y": 750,
+      "faction": "enemy"
+    },
+    {
+      "type": "SAM_SITE",
+      "x": 704,
+      "y": 670,
+      "faction": "enemy"
+    },
+    {
+      "type": "SAM_SITE",
+      "x": 821,
+      "y": 586,
+      "faction": "enemy"
+    },
+    {
+      "type": "TANK",
+      "x": 723,
+      "y": 726,
+      "faction": "enemy"
+    },
+    {
+      "type": "TANK",
+      "x": 658,
+      "y": 691,
+      "faction": "enemy"
+    },
+    {
+      "type": "TANK",
+      "x": 353,
+      "y": 272,
+      "faction": "enemy"
+    },
+    {
+      "type": "TANK",
+      "x": 180,
+      "y": 526,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 719,
+      "y": 697,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 659,
+      "y": 649,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 602,
+      "y": 667,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 624,
+      "y": 716,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 671,
+      "y": 727,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 703,
+      "y": 758,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 728,
+      "y": 679,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 781,
+      "y": 726,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 741,
+      "y": 772,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 893,
+      "y": 909,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 887,
+      "y": 950,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 925,
+      "y": 931,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 911,
+      "y": 880,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 932,
+      "y": 893,
+      "faction": "enemy"
+    }
   ],
   "objectives": [
-    { "type": "destroy_count", "count": 10, "description": "Destroy at least 10 targets" },
-    { "type": "survive_time", "duration": 120, "description": "Survive for 2 minutes" }
+    {
+      "type": "destroy_count",
+      "description": "Destroy at least 10 targets",
+      "count": 10
+    },
+    {
+      "type": "survive_time",
+      "description": "Survive for 2 minutes",
+      "duration": 120
+    }
   ],
   "events": [
     {
       "trigger": "time_elapsed",
-      "time": 45,
       "action": "show_message",
+      "time": 45,
       "message": "Reinforcements deploying to sector!",
       "duration": 3000
     },
     {
       "trigger": "time_elapsed",
-      "time": 50,
       "action": "spawn_enemies",
-      "enemies": [{ "type": "TANK", "x": 100, "y": 500, "count": 2, "spread": 50 }]
+      "time": 50,
+      "enemies": [
+        {
+          "type": "TANK",
+          "x": 100,
+          "y": 500,
+          "count": 2,
+          "spread": 50
+        }
+      ]
     },
     {
       "trigger": "time_elapsed",
-      "time": 90,
       "action": "spawn_enemies",
-      "enemies": [{ "type": "HELICOPTER", "x": 900, "y": 100, "count": 1, "spread": 10 }]
+      "time": 90,
+      "enemies": [
+        {
+          "type": "HELICOPTER",
+          "x": 900,
+          "y": 100,
+          "count": 1,
+          "spread": 10
+        }
+      ]
+    },
+    {
+      "trigger": "objective_complete",
+      "action": "complete_mission",
+      "objectiveId": "obj-0-1770172143731"
     }
-  ]
+  ],
+  "missionId": 4
 }

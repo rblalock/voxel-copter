@@ -1,69 +1,492 @@
 {
-  "missionId": 5,
-  "name": "FINAL OFFENSIVE",
-  "mapIndex": 1,
+  "mapIndex": 15,
+  "name": "Custom Mission 15",
   "difficulty": "extreme",
-  "weather": "stormy",
-  "playerStart": { "x": 100, "y": 900 },
-  "airports": [
-    { "x": 500, "y": 150, "heading": 0, "faction": "enemy" }
-  ],
-  "bases": [
-    { "x": 512, "y": 300, "size": "large", "faction": "enemy" },
-    { "x": 700, "y": 450, "size": "medium", "faction": "enemy" },
-    { "x": 300, "y": 400, "size": "medium", "faction": "enemy" }
-  ],
-  "helipads": [
-    { "x": 120, "y": 880, "faction": "friendly" }
-  ],
-  "spawnZones": [
-    { "x": 512, "y": 320, "radius": 150, "types": ["TANK", "SAM_SITE"], "count": 6 },
-    { "x": 700, "y": 470, "radius": 100, "types": ["TANK", "SOLDIER"], "count": 4 },
-    { "x": 300, "y": 420, "radius": 100, "types": ["SAM_SITE", "BUILDING"], "count": 4 },
-    { "x": 500, "y": 180, "radius": 80, "types": ["SAM_SITE"], "count": 3 },
-    { "x": 400, "y": 550, "radius": 120, "types": ["SOLDIER"], "count": 8 },
-    { "x": 600, "y": 250, "radius": 60, "types": ["BUILDING"], "count": 4 }
+  "weather": "fog",
+  "playerStart": {
+    "x": 862,
+    "y": 106
+  },
+  "airports": [],
+  "bases": [],
+  "helipads": [],
+  "spawnZones": [],
+  "units": [
+    {
+      "type": "SOLDIER",
+      "x": 299,
+      "y": 614,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 356,
+      "y": 614,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 389,
+      "y": 620,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 407,
+      "y": 668,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 384,
+      "y": 737,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 360,
+      "y": 755,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 296,
+      "y": 763,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 274,
+      "y": 739,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 272,
+      "y": 705,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 269,
+      "y": 657,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 288,
+      "y": 654,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 298,
+      "y": 729,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 327,
+      "y": 763,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 343,
+      "y": 785,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 408,
+      "y": 710,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 423,
+      "y": 644,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 424,
+      "y": 599,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 434,
+      "y": 673,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 428,
+      "y": 729,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 410,
+      "y": 766,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 192,
+      "y": 348,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 190,
+      "y": 298,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 160,
+      "y": 253,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 195,
+      "y": 218,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 224,
+      "y": 190,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 282,
+      "y": 203,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 323,
+      "y": 239,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 296,
+      "y": 314,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 299,
+      "y": 364,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 331,
+      "y": 408,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 421,
+      "y": 423,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 458,
+      "y": 449,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 508,
+      "y": 449,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 529,
+      "y": 460,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 610,
+      "y": 506,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 655,
+      "y": 545,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 670,
+      "y": 607,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 655,
+      "y": 668,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 649,
+      "y": 718,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 630,
+      "y": 747,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 734,
+      "y": 671,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 716,
+      "y": 618,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 777,
+      "y": 644,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 761,
+      "y": 702,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 726,
+      "y": 732,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 766,
+      "y": 798,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 844,
+      "y": 803,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 907,
+      "y": 742,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 877,
+      "y": 594,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 888,
+      "y": 566,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 753,
+      "y": 490,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 708,
+      "y": 535,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 570,
+      "y": 554,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 420,
+      "y": 243,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 492,
+      "y": 314,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 527,
+      "y": 383,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 138,
+      "y": 537,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 94,
+      "y": 410,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 136,
+      "y": 271,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 57,
+      "y": 251,
+      "faction": "enemy"
+    },
+    {
+      "type": "SAM_SITE",
+      "x": 319,
+      "y": 646,
+      "faction": "enemy"
+    },
+    {
+      "type": "SAM_SITE",
+      "x": 330,
+      "y": 727,
+      "faction": "enemy"
+    },
+    {
+      "type": "SAM_SITE",
+      "x": 370,
+      "y": 668,
+      "faction": "enemy"
+    },
+    {
+      "type": "SAM_SITE",
+      "x": 365,
+      "y": 705,
+      "faction": "enemy"
+    },
+    {
+      "type": "SAM_SITE",
+      "x": 538,
+      "y": 727,
+      "faction": "enemy"
+    },
+    {
+      "type": "SAM_SITE",
+      "x": 551,
+      "y": 582,
+      "faction": "enemy"
+    },
+    {
+      "type": "SAM_SITE",
+      "x": 367,
+      "y": 442,
+      "faction": "enemy"
+    },
+    {
+      "type": "SAM_SITE",
+      "x": 248,
+      "y": 250,
+      "faction": "enemy"
+    },
+    {
+      "type": "SAM_SITE",
+      "x": 48,
+      "y": 158,
+      "faction": "enemy"
+    },
+    {
+      "type": "SAM_SITE",
+      "x": 57,
+      "y": 633,
+      "faction": "enemy"
+    },
+    {
+      "type": "SAM_SITE",
+      "x": 105,
+      "y": 752,
+      "faction": "enemy"
+    },
+    {
+      "type": "SAM_SITE",
+      "x": 256,
+      "y": 859,
+      "faction": "enemy"
+    },
+    {
+      "type": "SAM_SITE",
+      "x": 330,
+      "y": 872,
+      "faction": "enemy"
+    },
+    {
+      "type": "SAM_SITE",
+      "x": 634,
+      "y": 812,
+      "faction": "enemy"
+    },
+    {
+      "type": "SAM_SITE",
+      "x": 788,
+      "y": 859,
+      "faction": "enemy"
+    },
+    {
+      "type": "SAM_SITE",
+      "x": 877,
+      "y": 625,
+      "faction": "enemy"
+    },
+    {
+      "type": "SAM_SITE",
+      "x": 548,
+      "y": 408,
+      "faction": "enemy"
+    }
   ],
   "objectives": [
-    { "type": "destroy_type", "targetType": "SAM_SITE", "count": 5, "description": "Neutralize air defenses" },
-    { "type": "reach_location", "x": 512, "y": 300, "radius": 100, "description": "Reach the command center" },
-    { "type": "destroy_all", "description": "Destroy all remaining targets" }
+    {
+      "type": "destroy_all",
+      "description": "Destroy all enemy targets"
+    }
   ],
   "events": [
     {
-      "trigger": "kill_count",
-      "count": 5,
-      "action": "show_message",
-      "message": "Air defenses weakening! Push forward!",
-      "duration": 3000
-    },
-    {
-      "trigger": "time_elapsed",
-      "time": 60,
-      "action": "spawn_enemies",
-      "enemies": [{ "type": "HELICOPTER", "x": 900, "y": 300, "count": 2, "spread": 50 }]
-    },
-    {
-      "trigger": "time_elapsed",
-      "time": 63,
-      "action": "show_message",
-      "message": "Enemy air support scrambled! Watch your six!",
-      "duration": 4000
-    },
-    {
-      "trigger": "time_elapsed",
-      "time": 120,
-      "action": "spawn_enemies",
-      "enemies": [{ "type": "TANK", "x": 200, "y": 300, "count": 3, "spread": 60 }]
-    },
-    {
-      "trigger": "enter_zone",
-      "x": 512,
-      "y": 300,
-      "radius": 150,
-      "action": "show_message",
-      "message": "You've reached the command center! Destroy everything!",
-      "duration": 4000
+      "trigger": "objective_complete",
+      "action": "complete_mission",
+      "objectiveId": "obj-1770172563708-c392"
     }
-  ]
+  ],
+  "missionId": 5
 }

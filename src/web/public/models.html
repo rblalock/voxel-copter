@@ -436,9 +436,285 @@
             const exhaust = getSpriteColorWithFog('#2a2a2a', fogFactor, ambient, skyColor);
 
             const relAngle = normalizeAngle(heading - camera.angle);
-            const facingRight = Math.cos(relAngle) >= 0;
+            const sinRel = Math.sin(relAngle);
+            const cosRel = Math.cos(relAngle);
+
+            // Determine view type
+            const showFront = sinRel > 0.7;   // ~45° to ~135° - nose toward camera
+            const showBack = sinRel < -0.7;   // ~225° to ~315° - tail toward camera
+            const showSide = !showFront && !showBack;  // Side profile
+            const facingRight = cosRel >= 0;  // For side view mirroring
             const dir = facingRight ? 1 : -1;
 
+            if (showFront) {
+                // FRONT VIEW - Apache-style attack helicopter facing camera
+                ctx.save();
+                ctx.translate(ix, iy);
+
+                const fuseW = s * 0.28;  // Narrow fuselage (attack helicopters are slim)
+                const fuseH = s * 0.55;  // Taller than wide from front
+                const wingSpan = s * 0.9;  // Stub wings extend wide
+                const rotorRadX = s * 0.75;
+                const rotorRadY = s * 0.2;
+
+                // Rotor disc (top-down perspective ellipse above)
+                const rotorTime = performance.now() / 40;
+                ctx.fillStyle = rotor;
+                ctx.globalAlpha = 0.2;
+                ctx.beginPath();
+                ctx.ellipse(0, -fuseH * 0.9, rotorRadX, rotorRadY, 0, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Rotor blades
+                ctx.globalAlpha = 0.6;
+                for (let i = 0; i < 4; i++) {
+                    const angle = rotorTime + (i * Math.PI / 2);
+                    const bx = Math.cos(angle) * rotorRadX;
+                    const by = Math.sin(angle) * rotorRadY;
+                    const bladeW = Math.max(2, Math.floor(s * 0.05));
+                    ctx.fillRect(bx - bladeW / 2, -fuseH * 0.9 + by - 1, bladeW, 2);
+                }
+                ctx.globalAlpha = 1.0;
+
+                // Rotor mast
+                ctx.fillStyle = darker;
+                ctx.fillRect(-s * 0.03, -fuseH * 0.75, s * 0.06, s * 0.18);
+                
+                // Mast-mounted sensor dome (Comanche/EVE style)
+                ctx.fillStyle = getSpriteColorWithFog('#2a3a3a', fogFactor, ambient, skyColor);
+                ctx.beginPath();
+                ctx.arc(0, -fuseH * 1.0, s * 0.08, 0, Math.PI * 2);
+                ctx.fill();
+                // Sensor lens
+                ctx.fillStyle = getSpriteColorWithFog('#1a2a2a', fogFactor, ambient, skyColor);
+                ctx.beginPath();
+                ctx.arc(0, -fuseH * 0.98, s * 0.04, Math.PI * 0.8, Math.PI * 2.2);
+                ctx.fill();
+
+                // Engine housings (on top sides of fuselage)
+                ctx.fillStyle = dark;
+                ctx.fillRect(-fuseW - s * 0.12, -fuseH * 0.45, s * 0.14, s * 0.22);
+                ctx.fillRect(fuseW - s * 0.02, -fuseH * 0.45, s * 0.14, s * 0.22);
+
+                // Main fuselage body (narrow, angular)
+                ctx.fillStyle = body;
+                ctx.beginPath();
+                ctx.moveTo(-fuseW, -fuseH * 0.5);
+                ctx.lineTo(fuseW, -fuseH * 0.5);
+                ctx.lineTo(fuseW * 1.1, fuseH * 0.1);
+                ctx.lineTo(fuseW * 0.7, fuseH * 0.5);
+                ctx.lineTo(-fuseW * 0.7, fuseH * 0.5);
+                ctx.lineTo(-fuseW * 1.1, fuseH * 0.1);
+                ctx.closePath();
+                ctx.fill();
+
+                // Fuselage center line (angular detail)
+                ctx.fillStyle = darker;
+                ctx.beginPath();
+                ctx.moveTo(0, -fuseH * 0.5);
+                ctx.lineTo(s * 0.03, fuseH * 0.3);
+                ctx.lineTo(-s * 0.03, fuseH * 0.3);
+                ctx.closePath();
+                ctx.fill();
+
+                // Cockpit canopy (tandem seating)
+                ctx.fillStyle = glass;
+                ctx.beginPath();
+                ctx.moveTo(-fuseW * 0.5, -fuseH * 0.35);
+                ctx.lineTo(fuseW * 0.5, -fuseH * 0.35);
+                ctx.lineTo(fuseW * 0.4, fuseH * 0.15);
+                ctx.lineTo(-fuseW * 0.4, fuseH * 0.15);
+                ctx.closePath();
+                ctx.fill();
+
+                // Canopy frame
+                ctx.fillStyle = darker;
+                ctx.fillRect(-fuseW * 0.45, -fuseH * 0.12, fuseW * 0.9, s * 0.02);
+
+                // Glass highlight
+                ctx.fillStyle = glassHighlight;
+                ctx.beginPath();
+                ctx.moveTo(-fuseW * 0.35, -fuseH * 0.3);
+                ctx.lineTo(0, -fuseH * 0.3);
+                ctx.lineTo(-fuseW * 0.1, -fuseH * 0.15);
+                ctx.lineTo(-fuseW * 0.35, -fuseH * 0.15);
+                ctx.closePath();
+                ctx.fill();
+
+                // Stub wings with weapon pylons
+                ctx.fillStyle = dark;
+                ctx.fillRect(-wingSpan * 0.5, -fuseH * 0.05, wingSpan * 0.35, s * 0.08);
+                ctx.fillRect(fuseW + s * 0.02, -fuseH * 0.05, wingSpan * 0.35, s * 0.08);
+
+                // Weapons on pylons
+                ctx.fillStyle = darker;
+                ctx.fillRect(-wingSpan * 0.45, s * 0.02, s * 0.06, s * 0.15);
+                ctx.fillRect(-wingSpan * 0.32, s * 0.02, s * 0.06, s * 0.15);
+                ctx.fillRect(wingSpan * 0.26, s * 0.02, s * 0.06, s * 0.15);
+                ctx.fillRect(wingSpan * 0.39, s * 0.02, s * 0.06, s * 0.15);
+
+                // Chin turret
+                ctx.fillStyle = darker;
+                ctx.beginPath();
+                ctx.moveTo(-s * 0.08, fuseH * 0.35);
+                ctx.lineTo(s * 0.08, fuseH * 0.35);
+                ctx.lineTo(s * 0.05, fuseH * 0.55);
+                ctx.lineTo(-s * 0.05, fuseH * 0.55);
+                ctx.closePath();
+                ctx.fill();
+
+                // Gun barrel
+                ctx.fillStyle = exhaust;
+                ctx.fillRect(-s * 0.02, fuseH * 0.5, s * 0.04, s * 0.12);
+
+                // Landing gear
+                ctx.fillStyle = darker;
+                ctx.fillRect(-fuseW - s * 0.04, fuseH * 0.3, s * 0.04, s * 0.18);
+                ctx.fillRect(-fuseW - s * 0.08, fuseH * 0.45, s * 0.1, s * 0.03);
+                ctx.fillRect(fuseW, fuseH * 0.3, s * 0.04, s * 0.18);
+                ctx.fillRect(fuseW - s * 0.02, fuseH * 0.45, s * 0.1, s * 0.03);
+
+                ctx.restore();
+                return;
+            }
+
+            if (showBack) {
+                // BACK VIEW - tail/exhausts facing camera
+                ctx.save();
+                ctx.translate(ix, iy);
+
+                const fuseW = s * 0.28;
+                const fuseH = s * 0.55;
+                const wingSpan = s * 0.9;
+                const rotorRadX = s * 0.75;
+                const rotorRadY = s * 0.2;
+
+                // Rotor disc
+                const rotorTime = performance.now() / 40;
+                ctx.fillStyle = rotor;
+                ctx.globalAlpha = 0.2;
+                ctx.beginPath();
+                ctx.ellipse(0, -fuseH * 0.9, rotorRadX, rotorRadY, 0, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Rotor blades
+                ctx.globalAlpha = 0.6;
+                for (let i = 0; i < 4; i++) {
+                    const angle = rotorTime + (i * Math.PI / 2);
+                    const bx = Math.cos(angle) * rotorRadX;
+                    const by = Math.sin(angle) * rotorRadY;
+                    const bladeW = Math.max(2, Math.floor(s * 0.05));
+                    ctx.fillRect(bx - bladeW / 2, -fuseH * 0.9 + by - 1, bladeW, 2);
+                }
+                ctx.globalAlpha = 1.0;
+
+                // Rotor mast
+                ctx.fillStyle = darker;
+                ctx.fillRect(-s * 0.03, -fuseH * 0.75, s * 0.06, s * 0.18);
+
+                // Engine housings with exhausts
+                ctx.fillStyle = dark;
+                ctx.fillRect(-fuseW - s * 0.12, -fuseH * 0.45, s * 0.14, s * 0.22);
+                ctx.fillRect(fuseW - s * 0.02, -fuseH * 0.45, s * 0.14, s * 0.22);
+                
+                // Engine exhausts
+                ctx.fillStyle = exhaust;
+                ctx.fillRect(-fuseW - s * 0.1, -fuseH * 0.35, s * 0.1, s * 0.12);
+                ctx.fillRect(fuseW, -fuseH * 0.35, s * 0.1, s * 0.12);
+                // Exhaust glow
+                ctx.fillStyle = getSpriteColorWithFog('#5a4a3a', fogFactor, ambient, skyColor);
+                ctx.fillRect(-fuseW - s * 0.08, -fuseH * 0.32, s * 0.06, s * 0.06);
+                ctx.fillRect(fuseW + s * 0.02, -fuseH * 0.32, s * 0.06, s * 0.06);
+
+                // Main fuselage body (rear view)
+                ctx.fillStyle = body;
+                ctx.beginPath();
+                ctx.moveTo(-fuseW, -fuseH * 0.5);
+                ctx.lineTo(fuseW, -fuseH * 0.5);
+                ctx.lineTo(fuseW * 1.1, fuseH * 0.1);
+                ctx.lineTo(fuseW * 0.7, fuseH * 0.5);
+                ctx.lineTo(-fuseW * 0.7, fuseH * 0.5);
+                ctx.lineTo(-fuseW * 1.1, fuseH * 0.1);
+                ctx.closePath();
+                ctx.fill();
+
+                // Fuselage rear panel detail
+                ctx.fillStyle = darker;
+                ctx.fillRect(-fuseW * 0.6, -fuseH * 0.4, fuseW * 1.2, s * 0.04);
+                ctx.fillRect(-fuseW * 0.5, fuseH * 0.1, fuseW * 1.0, s * 0.03);
+
+                // Stub wings (from behind)
+                ctx.fillStyle = dark;
+                ctx.fillRect(-wingSpan * 0.5, -fuseH * 0.05, wingSpan * 0.35, s * 0.08);
+                ctx.fillRect(fuseW + s * 0.02, -fuseH * 0.05, wingSpan * 0.35, s * 0.08);
+
+                // Weapons on pylons (rear view)
+                ctx.fillStyle = darker;
+                ctx.fillRect(-wingSpan * 0.45, s * 0.02, s * 0.06, s * 0.15);
+                ctx.fillRect(-wingSpan * 0.32, s * 0.02, s * 0.06, s * 0.15);
+                ctx.fillRect(wingSpan * 0.26, s * 0.02, s * 0.06, s * 0.15);
+                ctx.fillRect(wingSpan * 0.39, s * 0.02, s * 0.06, s * 0.15);
+
+                // Tail boom (foreshortened)
+                ctx.fillStyle = dark;
+                ctx.fillRect(-s * 0.05, fuseH * 0.35, s * 0.1, s * 0.35);
+
+                // Tail fin with fenestron
+                ctx.fillStyle = darker;
+                ctx.beginPath();
+                ctx.moveTo(0, fuseH * 0.5);
+                ctx.lineTo(-s * 0.12, fuseH * 0.85);
+                ctx.lineTo(s * 0.12, fuseH * 0.85);
+                ctx.closePath();
+                ctx.fill();
+                
+                // Horizontal stabilizer
+                ctx.fillStyle = dark;
+                ctx.fillRect(-s * 0.28, fuseH * 0.68, s * 0.56, s * 0.05);
+
+                // Fenestron (enclosed tail rotor) - seen from behind
+                const fenRadBack = s * 0.11;
+                ctx.fillStyle = darker;
+                ctx.beginPath();
+                ctx.arc(0, fuseH * 0.72, fenRadBack * 1.15, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = body;
+                ctx.beginPath();
+                ctx.arc(0, fuseH * 0.72, fenRadBack * 0.8, 0, Math.PI * 2);
+                ctx.fill();
+                // Animated fan blades
+                const fenTimeBack = performance.now() / 20;
+                ctx.strokeStyle = rotor;
+                ctx.lineWidth = Math.max(1, s * 0.015);
+                for (let i = 0; i < 8; i++) {
+                    const fAngle = fenTimeBack + (i * Math.PI / 4);
+                    ctx.beginPath();
+                    ctx.moveTo(0, fuseH * 0.72);
+                    ctx.lineTo(
+                        Math.cos(fAngle) * fenRadBack * 0.7,
+                        fuseH * 0.72 + Math.sin(fAngle) * fenRadBack * 0.7
+                    );
+                    ctx.stroke();
+                }
+                ctx.lineWidth = 1;
+                // Center hub
+                ctx.fillStyle = exhaust;
+                ctx.beginPath();
+                ctx.arc(0, fuseH * 0.72, fenRadBack * 0.18, 0, Math.PI * 2);
+                ctx.fill();
+
+                // Landing skids
+                ctx.fillStyle = darker;
+                ctx.fillRect(-fuseW - s * 0.08, fuseH * 0.1, s * 0.06, s * 0.4);
+                ctx.fillRect(-fuseW - s * 0.12, fuseH * 0.45, s * 0.14, s * 0.04);
+                ctx.fillRect(fuseW + s * 0.02, fuseH * 0.1, s * 0.06, s * 0.4);
+                ctx.fillRect(fuseW - s * 0.02, fuseH * 0.45, s * 0.14, s * 0.04);
+
+                ctx.restore();
+                return;
+            }
+
+            // SIDE VIEW (with fenestron)
             ctx.save();
             ctx.translate(ix, iy);
             ctx.scale(dir, 1);
@@ -477,9 +753,44 @@
             ctx.fillStyle = dark;
             ctx.fillRect(-fuseLen * 0.35 - tailLen - s * 0.02, -s * 0.02, s * 0.18, s * 0.04);
 
-            // Tail rotor housing
+            // Fenestron (enclosed tail rotor) - Comanche/EVE style
+            const fenestronRadius = s * 0.1;
+            const fenestronX = -fuseLen * 0.35 - tailLen - s * 0.03;
+            const fenestronY = -finH + s * 0.08;
+            
+            // Fenestron shroud (circular enclosure)
             ctx.fillStyle = darker;
-            ctx.fillRect(-fuseLen * 0.35 - tailLen - s * 0.08, -finH + s * 0.02, s * 0.1, s * 0.08);
+            ctx.beginPath();
+            ctx.arc(fenestronX, fenestronY, fenestronRadius * 1.2, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Inner spinning fan
+            ctx.fillStyle = body;
+            ctx.beginPath();
+            ctx.arc(fenestronX, fenestronY, fenestronRadius * 0.85, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Fan blade hints (animated)
+            const fenTime = performance.now() / 20;
+            ctx.strokeStyle = rotor;
+            ctx.lineWidth = Math.max(1, s * 0.02);
+            for (let i = 0; i < 8; i++) {
+                const fAngle = fenTime + (i * Math.PI / 4);
+                ctx.beginPath();
+                ctx.moveTo(fenestronX, fenestronY);
+                ctx.lineTo(
+                    fenestronX + Math.cos(fAngle) * fenestronRadius * 0.75,
+                    fenestronY + Math.sin(fAngle) * fenestronRadius * 0.75
+                );
+                ctx.stroke();
+            }
+            ctx.lineWidth = 1;
+            
+            // Fenestron center hub
+            ctx.fillStyle = exhaust;
+            ctx.beginPath();
+            ctx.arc(fenestronX, fenestronY, fenestronRadius * 0.2, 0, Math.PI * 2);
+            ctx.fill();
 
             // Main fuselage (angular stealth shape)
             ctx.fillStyle = body;
@@ -580,6 +891,18 @@
                 const bladeW = Math.max(2, Math.floor(s * 0.06));
                 ctx.fillRect(bx - bladeW / 2, -fuseH * 0.7 + by - 1, bladeW, 2);
             }
+            ctx.globalAlpha = 1.0;
+
+            // Rotor hub/mast
+            ctx.fillStyle = darker;
+            ctx.fillRect(-s * 0.04, -fuseH * 0.8, s * 0.08, s * 0.12);
+            ctx.fillStyle = exhaust;
+            ctx.beginPath();
+            ctx.arc(0, -fuseH * 0.82, s * 0.05, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.restore();
+        }
             ctx.globalAlpha = 1.0;
 
             // Rotor hub/mast

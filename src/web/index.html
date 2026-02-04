@@ -4529,6 +4529,9 @@
             if (layout.playerStart) {
                 camera.x = layout.playerStart.x;
                 camera.y = layout.playerStart.y;
+                if (typeof layout.playerStart.heading === 'number') {
+                    camera.angle = layout.playerStart.heading;
+                }
             }
             
             // Apply weather if specified
@@ -4811,11 +4814,12 @@
                 if (config.playerStart) {
                     camera.x = config.playerStart.x;
                     camera.y = config.playerStart.y;
+                    camera.angle = typeof config.playerStart.heading === 'number' ? config.playerStart.heading : 0;
                 } else {
                     camera.x = 512;
                     camera.y = 512;
+                    camera.angle = 0;
                 }
-                camera.angle = 0;
                 resetPlayerForMode(gameMode);
                 resetTelemetry();
 
@@ -8847,30 +8851,46 @@
             const panelH = 250;
             const panelX = screenWidth / 2 - panelW / 2;
             const panelY = Math.min(screenHeight - panelH - 20, screenHeight * 0.65);
+            const contentPadding = 14;
+            const maxTextWidth = panelW - contentPadding * 2;
+            const panelBottom = panelY + panelH - contentPadding;
 
+            // Save context for clipping
+            ctx.save();
+
+            // Draw panel background
             ctx.fillStyle = 'rgba(0, 15, 0, 0.9)';
             ctx.fillRect(panelX, panelY, panelW, panelH);
             ctx.strokeStyle = '#0f0';
             ctx.lineWidth = 2;
             ctx.strokeRect(panelX, panelY, panelW, panelH);
 
+            // Create clipping region inside the panel
+            ctx.beginPath();
+            ctx.rect(panelX + contentPadding, panelY + contentPadding, panelW - contentPadding * 2, panelH - contentPadding * 2);
+            ctx.clip();
+
             ctx.font = 'bold 14px Courier New';
             ctx.fillStyle = '#0f0';
             ctx.textAlign = 'left';
-            ctx.fillText('POST-MISSION DEBRIEF', panelX + 14, panelY + 22);
+            ctx.fillText('POST-MISSION DEBRIEF', panelX + contentPadding, panelY + 22);
 
             if (isGeneratingDebrief && !aiDebrief) {
                 ctx.font = '12px Courier New';
                 ctx.fillStyle = '#ff0';
-                ctx.fillText('Generating debrief...', panelX + 14, panelY + 45);
+                ctx.fillText('Generating debrief...', panelX + contentPadding, panelY + 45);
+                ctx.restore();
                 return;
             }
 
-            if (!aiDebrief) return;
+            if (!aiDebrief) {
+                ctx.restore();
+                return;
+            }
 
             ctx.font = '12px Courier New';
             ctx.fillStyle = '#0c0';
-            const summaryLines = wrapText(aiDebrief.summary || '', panelW - 28);
+            const summaryLines = wrapText(aiDebrief.summary || '', maxTextWidth);
             ctx.font = '12px Courier New';
             let y = panelY + 45;
             
@@ -8884,29 +8904,37 @@
             // Show summary lines that fit, truncate last line with "..." if needed
             const linesToShow = Math.min(summaryLines.length, maxSummaryLines);
             for (let i = 0; i < linesToShow; i++) {
+                if (y > panelBottom) break; // Stop if exceeding panel bounds
                 let lineText = summaryLines[i];
                 // If this is the last line we can show and there are more lines, add ellipsis
                 if (i === linesToShow - 1 && summaryLines.length > linesToShow) {
                     lineText = lineText.substring(0, lineText.length - 3) + '...';
                 }
-                ctx.fillText(lineText, panelX + 14, y);
+                ctx.fillText(lineText, panelX + contentPadding, y);
                 y += lineHeight;
             }
 
-            ctx.fillStyle = '#0f0';
-            ctx.fillText(`Performance: ${String(aiDebrief.performance || 'average').toUpperCase()}`, panelX + 14, y + 4);
-            y += 22;
+            if (y <= panelBottom) {
+                ctx.fillStyle = '#0f0';
+                ctx.fillText(`Performance: ${String(aiDebrief.performance || 'average').toUpperCase()}`, panelX + contentPadding, y + 4);
+                y += 22;
+            }
 
             ctx.fillStyle = '#0c0';
             const strengths = Array.isArray(aiDebrief.strengths) ? aiDebrief.strengths : [];
             const improvements = Array.isArray(aiDebrief.improvements) ? aiDebrief.improvements : [];
-            if (strengths.length > 0) {
-                ctx.fillText(`Strengths: ${strengths.slice(0, 2).join('; ')}`, panelX + 14, y);
+            if (strengths.length > 0 && y <= panelBottom) {
+                const strengthsText = `Strengths: ${strengths.slice(0, 2).join('; ')}`;
+                ctx.fillText(strengthsText.substring(0, Math.floor(maxTextWidth / 7)), panelX + contentPadding, y);
                 y += 18;
             }
-            if (improvements.length > 0) {
-                ctx.fillText(`Improve: ${improvements.slice(0, 2).join('; ')}`, panelX + 14, y);
+            if (improvements.length > 0 && y <= panelBottom) {
+                const improveText = `Improve: ${improvements.slice(0, 2).join('; ')}`;
+                ctx.fillText(improveText.substring(0, Math.floor(maxTextWidth / 7)), panelX + contentPadding, y);
             }
+
+            // Restore context to remove clipping
+            ctx.restore();
         }
         
         function renderDefeatOverlay() {
