@@ -4,183 +4,180 @@
   "difficulty": "medium",
   "weather": "night",
   "playerStart": {
-    "x": 917,
-    "y": 123,
-    "heading": 1.72
+    "x": 913,
+    "y": 122,
+    "heading": 1.02
   },
   "airports": [],
   "bases": [],
-  "helipads": [
-    {
-      "x": 613,
-      "y": 708,
-      "faction": "enemy"
-    }
-  ],
+  "helipads": [],
   "spawnZones": [],
   "units": [
     {
-      "type": "TANK",
-      "x": 509,
-      "y": 676,
-      "faction": "enemy"
-    },
-    {
-      "type": "TANK",
-      "x": 546,
-      "y": 577,
-      "faction": "enemy"
-    },
-    {
-      "type": "TANK",
-      "x": 400,
-      "y": 481,
-      "faction": "enemy"
-    },
-    {
-      "type": "TANK",
-      "x": 288,
-      "y": 368,
-      "faction": "enemy"
-    },
-    {
-      "type": "TANK",
-      "x": 291,
-      "y": 166,
+      "type": "BUILDING",
+      "x": 538,
+      "y": 174,
       "faction": "enemy"
     },
     {
       "type": "SOLDIER",
-      "x": 541,
-      "y": 628,
-      "faction": "enemy"
-    },
-    {
-      "type": "SOLDIER",
-      "x": 548,
-      "y": 667,
-      "faction": "enemy"
-    },
-    {
-      "type": "SOLDIER",
-      "x": 588,
-      "y": 670,
-      "faction": "enemy"
-    },
-    {
-      "type": "SOLDIER",
-      "x": 654,
-      "y": 671,
-      "faction": "enemy"
-    },
-    {
-      "type": "SOLDIER",
-      "x": 517,
-      "y": 711,
-      "faction": "enemy"
-    },
-    {
-      "type": "SOLDIER",
-      "x": 463,
-      "y": 639,
-      "faction": "enemy"
-    },
-    {
-      "type": "SOLDIER",
-      "x": 348,
-      "y": 452,
-      "faction": "enemy"
-    },
-    {
-      "type": "SOLDIER",
-      "x": 248,
-      "y": 299,
-      "faction": "enemy"
-    },
-    {
-      "type": "SOLDIER",
-      "x": 259,
-      "y": 166,
-      "faction": "enemy"
-    },
-    {
-      "type": "SOLDIER",
-      "x": 314,
+      "x": 436,
       "y": 147,
       "faction": "enemy"
     },
     {
       "type": "SOLDIER",
-      "x": 931,
-      "y": 474,
+      "x": 399,
+      "y": 157,
       "faction": "enemy"
     },
     {
       "type": "SOLDIER",
-      "x": 846,
-      "y": 365,
+      "x": 290,
+      "y": 157,
       "faction": "enemy"
     },
     {
       "type": "SOLDIER",
-      "x": 849,
-      "y": 641,
+      "x": 242,
+      "y": 223,
       "faction": "enemy"
     },
     {
       "type": "SOLDIER",
-      "x": 745,
-      "y": 707,
+      "x": 274,
+      "y": 346,
       "faction": "enemy"
     },
     {
-      "type": "SAM_SITE",
-      "x": 673,
-      "y": 625,
+      "type": "SOLDIER",
+      "x": 338,
+      "y": 442,
       "faction": "enemy"
     },
     {
-      "type": "SAM_SITE",
-      "x": 434,
-      "y": 760,
+      "type": "TANK",
+      "x": 466,
+      "y": 559,
       "faction": "enemy"
     },
     {
-      "type": "SAM_SITE",
-      "x": 285,
-      "y": 476,
+      "type": "TANK",
+      "x": 429,
+      "y": 594,
       "faction": "enemy"
     },
     {
-      "type": "SAM_SITE",
-      "x": 171,
-      "y": 248,
+      "type": "TANK",
+      "x": 452,
+      "y": 651,
       "faction": "enemy"
     },
     {
-      "type": "SAM_SITE",
-      "x": 618,
-      "y": 408,
+      "type": "TANK",
+      "x": 522,
+      "y": 558,
+      "faction": "enemy"
+    },
+    {
+      "type": "TANK",
+      "x": 497,
+      "y": 657,
+      "faction": "enemy"
+    },
+    {
+      "type": "TANK",
+      "x": 540,
+      "y": 622,
       "faction": "enemy"
     },
     {
       "type": "BUILDING",
-      "x": 473,
-      "y": 160,
+      "x": 506,
+      "y": 687,
+      "faction": "enemy"
+    },
+    {
+      "type": "BUILDING",
+      "x": 572,
+      "y": 620,
+      "faction": "enemy"
+    },
+    {
+      "type": "BUILDING",
+      "x": 609,
+      "y": 670,
+      "faction": "enemy"
+    },
+    {
+      "type": "BUILDING",
+      "x": 675,
+      "y": 686,
+      "faction": "enemy"
+    },
+    {
+      "type": "SAM_SITE",
+      "x": 364,
+      "y": 928,
+      "faction": "enemy"
+    },
+    {
+      "type": "SAM_SITE",
+      "x": 521,
+      "y": 957,
+      "faction": "enemy"
+    },
+    {
+      "type": "SAM_SITE",
+      "x": 370,
+      "y": 378,
+      "faction": "enemy"
+    },
+    {
+      "type": "SAM_SITE",
+      "x": 870,
+      "y": 545,
+      "faction": "enemy"
+    },
+    {
+      "type": "SAM_SITE",
+      "x": 937,
+      "y": 460,
+      "faction": "enemy"
+    },
+    {
+      "type": "SAM_SITE",
+      "x": 777,
+      "y": 508,
+      "faction": "enemy"
+    },
+    {
+      "type": "SAM_SITE",
+      "x": 585,
+      "y": 466,
+      "faction": "enemy"
+    },
+    {
+      "type": "SAM_SITE",
+      "x": 865,
+      "y": 356,
       "faction": "enemy"
     }
   ],
   "objectives": [
     {
-      "type": "destroy_all",
-      "description": "Destroy all enemy targets"
+      "type": "reach_location",
+      "description": "Reach the extraction point",
+      "x": 569,
+      "y": 731,
+      "radius": 50
     }
   ],
   "events": [
     {
       "trigger": "objective_complete",
       "action": "complete_mission",
-      "objectiveId": "obj-1770171576227-61ec"
+      "objectiveId": "obj-1770174695767-b8c2"
     }
   ],
   "missionId": 3

@@ -447,7 +447,26 @@
             const playerName = (nameInput && nameInput.trim()) ? nameInput.trim() : 'Anonymous';
             lastLeaderboardName = playerName;
             localStorage.setItem('voxelcopter_playerName', playerName);
-            postStatsEvent({ type: 'high_score', score: finalScore, name: playerName });
+            
+            // Get current map index from selector
+            const mapSelectorEl = document.getElementById('mapSelector');
+            const currentMap = mapSelectorEl ? parseInt(mapSelectorEl.value) : 1;
+            
+            // Determine mission info
+            const missionNum = currentMissionIndex >= 0 ? currentMissionIndex + 1 : 0;
+            const missionName = currentMissionIndex >= 0 ? `Mission ${missionNum}` : 'Free Play';
+            
+            postStatsEvent({ 
+                type: 'high_score', 
+                score: finalScore, 
+                name: playerName,
+                mission: missionNum,
+                missionName: missionName,
+                map: currentMap,
+                mapName: `Map ${currentMap}`,
+                kills: sessionStats.kills,
+                missionsCompleted: missionComplete ? 1 : 0
+            });
         }
 
         function calculateAccuracy() {
@@ -470,24 +489,8 @@
         let onboardingStep = 0;
         const ONBOARDING_HINTS = [
             {
-                condition: () => gameMode === GAME_MODES.COMANCHE && telemetry.flightTime < 10,
-                text: 'Use ARROW KEYS to fly, SPACE to climb, SHIFT to descend'
-            },
-            {
-                condition: () => gameMode === GAME_MODES.COMANCHE && telemetry.shotsFired === 0 && telemetry.flightTime > 5,
+                condition: () => telemetry.flightTime < 30,
                 text: 'Press H for controls'
-            },
-            {
-                condition: () => gameMode === GAME_MODES.COMANCHE && isHeliLanded(playerState.heli) && telemetry.groundTime < 5,
-                text: 'You\'re landed! Press E to exit and fight on foot'
-            },
-            {
-                condition: () => gameMode === GAME_MODES.DELTA && canEnterHeli() && telemetry.groundTime > 10,
-                text: 'Press E to re-enter your helicopter'
-            },
-            {
-                condition: () => missileWarning && telemetry.missilesDodged === 0,
-                text: 'MISSILE! Press ; for CHAFF or \' for FLARES!'
             }
         ];
 
@@ -513,6 +516,7 @@
                 const count = Number.isFinite(rawCount) ? rawCount : 0;
                 if (typeKey === 'TANK') counts.tanks += count;
                 if (typeKey === 'SOLDIER') counts.soldiers += count;
+                if (typeKey === 'SNIPER') counts.soldiers += count;  // Snipers count as soldiers
                 if (typeKey === 'BUILDING') counts.buildings += count;
                 if (typeKey === 'SAM_SITE') counts.sams += count;
             }
@@ -549,7 +553,33 @@
             if (pendingAIMission) {
                 return buildMissionFromAI(pendingAIMission, baseMission);
             }
+            
+            // Try to merge cached layout data for more accurate briefing display
+            if (baseMission.layoutFile && missionLayoutCache[baseMission.layoutFile]) {
+                const layout = missionLayoutCache[baseMission.layoutFile];
+                // Create a merged mission object for display
+                const merged = { ...baseMission };
+                if (layout.objectives && layout.objectives.length > 0) {
+                    merged.objectives = layout.objectives;
+                }
+                if (layout.briefing) {
+                    merged.briefing = layout.briefing;
+                }
+                if (layout.name) {
+                    merged.name = layout.name;
+                }
+                return merged;
+            }
+            
             return baseMission;
+        }
+        
+        // Preload mission layout when entering briefing screen
+        async function preloadMissionLayout(missionIndex) {
+            const mission = MISSIONS[missionIndex];
+            if (mission && mission.layoutFile && !missionLayoutCache[mission.layoutFile]) {
+                await loadMissionLayout(mission.layoutFile);
+            }
         }
 
         function getCompletedObjectives() {
@@ -1194,23 +1224,42 @@
                 airToAir: true,
                 projectileType: 'missile',
                 key: 'Digit5'
+            },
+            c4: {
+                name: 'C4 Explosive',
+                damage: 400,
+                fireRate: 500,     // Delay between placing charges
+                spread: 0,
+                magSize: 1,        // One charge "in hand"
+                maxMags: 3,        // 3 total charges
+                projectileSpeed: 0,
+                color: '#ff4400',
+                auto: false,
+                explosive: true,
+                blastRadius: 60,
+                key: 'Digit6'
             }
         };
 
         const DAMAGE_MULTIPLIERS = {
-            pistol: { soldier: 1.0, tank: 0.05, building: 0.02, sam: 0.1, aircraft: 0.5 },
-            m4: { soldier: 1.0, tank: 0.1, building: 0.05, sam: 0.2, aircraft: 0.8 },
-            sniper: { soldier: 1.5, tank: 0.15, building: 0.08, sam: 0.3, aircraft: 1.0 },
+            // Soldier weapons - heavily nerfed vs vehicles (small arms don't do much to armor)
+            pistol: { soldier: 1.0, tank: 0.02, building: 0.02, sam: 0.05, aircraft: 0.08 },
+            m4: { soldier: 1.0, tank: 0.03, building: 0.03, sam: 0.08, aircraft: 0.12 },
+            sniper: { soldier: 1.5, tank: 0.06, building: 0.05, sam: 0.12, aircraft: 0.18 },
+            // Helicopter weapons - effective vs all targets
             cannon: { soldier: 1.0, tank: 0.5, building: 0.3, sam: 0.8, aircraft: 1.0 },
             rockets: { soldier: 2.0, tank: 1.0, building: 0.8, sam: 1.0, aircraft: 1.5 },
             hellfire: { soldier: 3.0, tank: 1.5, building: 1.0, sam: 1.2, aircraft: 2.0 },
-            stinger: { soldier: 1.0, tank: 0.3, building: 0.1, sam: 0.5, aircraft: 2.0 },
-            javelin: { soldier: 0.6, tank: 2.5, building: 0.6, sam: 1.2, aircraft: 0.4 }
+            // Anti-vehicle weapons - designed for specific targets
+            stinger: { soldier: 1.0, tank: 0.1, building: 0.05, sam: 0.3, aircraft: 2.0 },  // Anti-air
+            javelin: { soldier: 0.6, tank: 2.5, building: 0.6, sam: 1.2, aircraft: 0.4 },   // Anti-tank
+            c4: { soldier: 3.0, tank: 2.0, building: 2.5, sam: 2.0, aircraft: 0.5 }         // Anti-structure
         };
 
         function getTargetDamageCategory(target) {
             if (!target) return 'soldier';
             if (target.type === 'soldier') return 'soldier';
+            if (target.type === 'sniper') return 'soldier';  // Snipers take same damage as soldiers
             if (target.type === 'tank') return 'tank';
             if (target.type === 'sam') return 'sam';
             if (target.domain === DOMAINS.AIR) return 'aircraft';
@@ -1294,6 +1343,30 @@
                     bulletDamage: 8,
                     patrolRadius: 30,
                     patrolSpeed: 0.02
+                }
+            },
+            SNIPER: {
+                type: 'sniper',
+                health: 40,           // Lower health - snipers are fragile
+                maxHealth: 40,
+                points: 150,          // Higher value target
+                size: 12,
+                color: '#3a4a3a',     // Darker green (camouflaged)
+                domain: DOMAINS.GROUND,
+                faction: FACTIONS.ENEMY,
+                hitHeight: 12,
+                heightOffset: 7,
+                canShoot: true,
+                ai: {
+                    type: 'sniper',   // New AI type
+                    detectRange: 400, // Much longer detection range
+                    engageRange: 350, // Engages from much further away
+                    fireRate: 2500,   // Slow fire rate (bolt action)
+                    accuracy: 0.01,   // Very accurate
+                    bulletSpeed: 4.0, // High velocity rounds
+                    bulletDamage: 25, // High damage per shot
+                    patrolRadius: 15, // Barely moves - holds position
+                    patrolSpeed: 0.005  // Very slow when patrolling
                 }
             },
             BUILDING: {
@@ -1524,7 +1597,8 @@
                 sniper: { mag: 5, mags: 4, lastFire: 0 },
                 pistol: { mag: 15, mags: 3, lastFire: 0 },
                 javelin: { mag: 1, mags: 3, lastFire: 0 },
-                stinger: { mag: 1, mags: 4, lastFire: 0 }
+                stinger: { mag: 1, mags: 4, lastFire: 0 },
+                c4: { mag: 1, mags: 3, lastFire: 0 }
             },
             isReloading: false,
             reloadStartTime: 0,
@@ -1533,6 +1607,9 @@
             recoilOffset: 0,
             muzzleFlashTime: 0
         };
+        
+        // C4 charges placed in the world (can be detonated remotely)
+        let placedC4Charges = [];
 
         let soldierScope = {
             active: false,
@@ -2154,7 +2231,7 @@
         let comancheTriggerHeld = false;
 
         // Menu navigation state
-        const MAIN_MENU_OPTIONS = ['MODE', 'CAMPAIGN', 'FREE PLAY', 'AI MISSION', 'MAP EDITOR', 'SETTINGS', 'ACHIEVEMENTS', 'LEADERBOARD', 'HOW TO PLAY'];
+        const MAIN_MENU_OPTIONS = ['MODE', 'CAMPAIGN', 'RANDOM MISSION', 'FREE PLAY', 'AI MISSION', 'MAP EDITOR', 'SETTINGS', 'ACHIEVEMENTS', 'LEADERBOARD', 'HOW TO PLAY'];
         const FREEPLAY_OPTIONS = ['LAUNCH FREE PLAY', 'BACK TO MENU'];
         const PAUSE_OPTIONS = ['RESUME [ESC]', 'RESTART MISSION', 'QUIT TO MENU'];
         const SETTINGS_ITEMS = [
@@ -3050,6 +3127,7 @@
                         if (e.code === 'Digit3') switchSoldierWeapon('pistol');
                         if (e.code === 'Digit4') switchSoldierWeapon('javelin');
                         if (e.code === 'Digit5') switchSoldierWeapon('stinger');
+                        if (e.code === 'Digit6') switchSoldierWeapon('c4');
                         if (e.code === 'KeyR') startSoldierReload();
                         // Delta mode weapon cycling with Z/X
                         if (e.code === 'KeyZ') cycleSoldierWeapon(-1); // Previous weapon
@@ -3157,6 +3235,16 @@
                         const config = JSON.parse(missionData);
                         // Clear it so it doesn't persist
                         localStorage.removeItem('playtestMission');
+                        
+                        // Check for mode parameter
+                        const playtestMode = urlParams.get('mode');
+                        if (playtestMode === 'delta') {
+                            gameMode = GAME_MODES.DELTA;
+                        } else if (playtestMode === 'comanche') {
+                            gameMode = GAME_MODES.COMANCHE;
+                        }
+                        // If no mode specified, use current gameMode (default)
+                        
                         // Start the playtest after a short delay to let map load
                         setTimeout(() => {
                             loadPlaytestMission(config);
@@ -3250,7 +3338,10 @@
                     currentMissionIndex = parseInt(e.code.slice(-1)) - 1;
                     campaignSelectionIndex = currentMissionIndex;
                     playMenuConfirmSound();
-                    startTransition(GAME_STATES.BRIEFING, 600);
+                    // Preload mission layout for accurate briefing display
+                    preloadMissionLayout(currentMissionIndex).then(() => {
+                        startTransition(GAME_STATES.BRIEFING, 600);
+                    });
                     return true;
                 }
                 if (e.code === 'ArrowUp') {
@@ -3267,7 +3358,10 @@
                 }
                 if (e.code === 'Enter') {
                     playMenuConfirmSound();
-                    startTransition(GAME_STATES.BRIEFING, 600);
+                    // Preload mission layout for accurate briefing display
+                    preloadMissionLayout(currentMissionIndex).then(() => {
+                        startTransition(GAME_STATES.BRIEFING, 600);
+                    });
                     return true;
                 }
                 if (e.code === 'Escape') {
@@ -3771,23 +3865,30 @@
                 campaignSelectionIndex = Math.max(0, currentMissionIndex);
                 startTransition(GAME_STATES.CAMPAIGN, 600);
             } else if (index === 2) {
+                // RANDOM MISSION - pick random map and start mission
+                playMenuConfirmSound();
+                startTransition(GAME_STATES.PLAYING, 700, {
+                    hold: true,
+                    onSwitch: () => startRandomMission({ onReady: releaseTransition })
+                });
+            } else if (index === 3) {
                 freePlaySelectionIndex = 0;
                 startTransition(GAME_STATES.FREEPLAY, 600);
-            } else if (index === 3) {
+            } else if (index === 4) {
                 // AI MISSION - open mission generator
                 missionGeneratorInput = '';
                 startTransition(GAME_STATES.MISSION_GENERATOR, 400);
-            } else if (index === 4) {
+            } else if (index === 5) {
                 // MAP EDITOR - load custom mission from localStorage or show error
                 loadCustomMissionFromStorage();
-            } else if (index === 5) {
+            } else if (index === 6) {
                 settingsSelectionIndex = 0;
                 startTransition(GAME_STATES.SETTINGS, 600);
-            } else if (index === 6) {
-                startTransition(GAME_STATES.ACHIEVEMENTS, 600);
             } else if (index === 7) {
-                startTransition(GAME_STATES.LEADERBOARD, 600);
+                startTransition(GAME_STATES.ACHIEVEMENTS, 600);
             } else if (index === 8) {
+                startTransition(GAME_STATES.LEADERBOARD, 600);
+            } else if (index === 9) {
                 startTransition(GAME_STATES.HOWTO, 600);
             }
         }
@@ -4359,6 +4460,124 @@
                 Math.abs(heli.verticalSpeed) < 0.3;
             return agl <= 6 && slow && !heli.destroyed;
         }
+        
+        // ============================================
+        // RESUPPLY SYSTEM
+        // ============================================
+        const RESUPPLY = {
+            range: 50,              // Distance to helipad to resupply
+            interval: 500,          // ms between resupply ticks
+            lastResupply: 0,
+            ammoPerTick: 1,         // Amount refilled per tick
+            healthPerTick: 2        // Health restored per tick
+        };
+        
+        // Find nearest friendly helipad
+        function getNearestFriendlyHelipad(x, y) {
+            let nearest = null;
+            let nearestDist = Infinity;
+            
+            for (const helipad of world.helipads) {
+                if (helipad.faction !== FACTIONS.FRIENDLY && helipad.faction !== 'friendly') continue;
+                
+                const dx = helipad.x - x;
+                const dy = helipad.y - y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                
+                if (dist < nearestDist) {
+                    nearestDist = dist;
+                    nearest = { ...helipad, distance: dist };
+                }
+            }
+            
+            // Also check friendly bases for resupply
+            for (const base of world.bases) {
+                if (base.faction !== FACTIONS.FRIENDLY && base.faction !== 'friendly') continue;
+                
+                const dx = base.x - x;
+                const dy = base.y - y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                
+                // Bases have larger resupply range
+                if (dist < nearestDist) {
+                    nearestDist = dist;
+                    nearest = { ...base, distance: dist, isBase: true };
+                }
+            }
+            
+            return nearest;
+        }
+        
+        // Check if player is at a resupply point
+        function isAtResupplyPoint() {
+            const px = camera.x;
+            const py = camera.y;
+            const nearest = getNearestFriendlyHelipad(px, py);
+            
+            if (!nearest) return false;
+            
+            // Must be within range
+            const range = nearest.isBase ? RESUPPLY.range * 1.5 : RESUPPLY.range;
+            if (nearest.distance > range) return false;
+            
+            // In Comanche mode, must be landed
+            if (gameMode === GAME_MODES.COMANCHE) {
+                return isHeliLanded(playerState.heli);
+            }
+            
+            // In Delta mode, just need to be close
+            return true;
+        }
+        
+        // Perform resupply tick
+        function updateResupply(currentTime) {
+            if (!isAtResupplyPoint()) return;
+            if (currentTime - RESUPPLY.lastResupply < RESUPPLY.interval) return;
+            
+            RESUPPLY.lastResupply = currentTime;
+            let didResupply = false;
+            
+            if (gameMode === GAME_MODES.COMANCHE) {
+                // Resupply helicopter weapons
+                if (weaponState.rockets.ammo < WEAPONS.rockets.maxAmmo) {
+                    weaponState.rockets.ammo = Math.min(weaponState.rockets.ammo + RESUPPLY.ammoPerTick, WEAPONS.rockets.maxAmmo);
+                    didResupply = true;
+                }
+                if (weaponState.hellfire.ammo < WEAPONS.hellfire.maxAmmo) {
+                    weaponState.hellfire.ammo = Math.min(weaponState.hellfire.ammo + RESUPPLY.ammoPerTick, WEAPONS.hellfire.maxAmmo);
+                    didResupply = true;
+                }
+                if (weaponState.stinger.ammo < WEAPONS.stinger.maxAmmo) {
+                    weaponState.stinger.ammo = Math.min(weaponState.stinger.ammo + RESUPPLY.ammoPerTick, WEAPONS.stinger.maxAmmo);
+                    didResupply = true;
+                }
+                // Resupply countermeasures
+                if (countermeasures.chaff.count < 10) {
+                    countermeasures.chaff.count = Math.min(countermeasures.chaff.count + 1, 10);
+                    didResupply = true;
+                }
+                if (countermeasures.flare.count < 10) {
+                    countermeasures.flare.count = Math.min(countermeasures.flare.count + 1, 10);
+                    didResupply = true;
+                }
+            } else if (gameMode === GAME_MODES.DELTA) {
+                // Resupply soldier weapons (refill magazines)
+                for (const weaponKey of Object.keys(soldierWeapon.weapons)) {
+                    const state = soldierWeapon.weapons[weaponKey];
+                    const maxMags = WEAPONS_DELTA[weaponKey]?.maxMags || 5;
+                    if (state.mags < maxMags) {
+                        state.mags = Math.min(state.mags + 1, maxMags);
+                        didResupply = true;
+                    }
+                }
+            }
+            
+            // Heal player slowly at resupply point
+            if (playerHealth < maxPlayerHealth) {
+                playerHealth = Math.min(playerHealth + RESUPPLY.healthPerTick, maxPlayerHealth);
+                didResupply = true;
+            }
+        }
 
         function exitHeliToSoldier() {
             if (!isHeliLanded(playerState.heli)) return false;
@@ -4466,8 +4685,13 @@
             soldierWeapon.weapons.stinger.mag = WEAPONS_DELTA.stinger.magSize;
             soldierWeapon.weapons.stinger.mags = WEAPONS_DELTA.stinger.maxMags;
             soldierWeapon.weapons.stinger.lastFire = 0;
+            soldierWeapon.weapons.c4.mag = WEAPONS_DELTA.c4.magSize;
+            soldierWeapon.weapons.c4.mags = WEAPONS_DELTA.c4.maxMags;
+            soldierWeapon.weapons.c4.lastFire = 0;
             soldierWeapon.isReloading = false;
             soldierWeapon.reloadStartTime = 0;
+            // Clear any placed C4 charges
+            placedC4Charges = [];
             soldierWeapon.viewBob = 0;
             soldierWeapon.recoilOffset = 0;
             soldierWeapon.muzzleFlashTime = 0;
@@ -4537,6 +4761,24 @@
             // Apply weather if specified
             if (layout.weather) {
                 weatherCondition = layout.weather;
+            }
+            
+            // Override mission properties from layout if present
+            // This allows JSON files to define their own objectives, briefing, etc.
+            if (layout.objectives && layout.objectives.length > 0) {
+                mission.objectives = layout.objectives;
+            }
+            if (layout.briefing) {
+                mission.briefing = layout.briefing;
+            }
+            if (layout.name) {
+                mission.name = layout.name;
+            }
+            if (layout.difficulty) {
+                mission.difficulty = layout.difficulty;
+            }
+            if (layout.timeLimit !== undefined) {
+                mission.timeLimit = layout.timeLimit;
             }
             
             // Spawn mission targets based on mission definition (not layout)
@@ -4748,6 +4990,117 @@
             if (options.onReady) options.onReady();
         }
 
+        function startRandomMission(options = {}) {
+            // Pick a random map from the 29 available maps
+            const randomMapIndex = Math.floor(Math.random() * maps.length);
+            
+            // Store callback to execute after map loads
+            const onMapLoaded = () => {
+                // Use startFreePlay logic but with the random map already loaded
+                activeMission = null;
+                activeAIMission = null;
+                aiDebrief = null;
+                isGeneratingDebrief = false;
+                
+                // Reset player state
+                playerHealth = maxPlayerHealth;
+                score = 0;
+                isPlayerDead = false;
+                missionComplete = false;
+                defeatReason = '';
+                missionNoDamage = true;
+                lastMissionElapsed = 0;
+                resetSessionStats();
+                
+                // Reset weapons (full ammo)
+                weaponState.cannon.ammo = Infinity;
+                weaponState.rockets.ammo = WEAPONS.rockets.maxAmmo;
+                weaponState.hellfire.ammo = WEAPONS.hellfire.maxAmmo;
+                weaponState.stinger.ammo = WEAPONS.stinger.maxAmmo;
+                currentWeaponIndex = 0;
+                currentWeapon = weaponOrder[0];
+                
+                // Reset countermeasures
+                countermeasures.chaff.count = 10;
+                countermeasures.flare.count = 10;
+                
+                // Reset camera
+                camera.x = 512;
+                camera.y = 512;
+                camera.angle = 0;
+                resetPlayerForMode(gameMode);
+                resetTelemetry();
+                
+                // Clear combat state
+                targets = [];
+                projectiles = [];
+                enemyProjectiles = [];
+                explosions = [];
+                particles = [];
+                particlePool = [];
+                missileWarning = false;
+                missileWarningTime = 0;
+                targetingSystem.reset();
+                screenFlashColor = null;
+                screenFlashTime = 0;
+                screenShake = { x: 0, y: 0, intensity: 0, decay: 0.9, duration: 0 };
+                muzzleFlashTime = 0;
+                muzzleFlashIntensity = 0;
+                hitMarkerTime = 0;
+                hitMarkerIntensity = 0;
+                damageVignetteTime = 0;
+                damageVignetteIntensity = 0;
+                
+                const isDelta = gameMode === GAME_MODES.DELTA;
+
+                // Spawn random targets (slightly more than free play for challenge)
+                generateWorldStructures();
+                if (isDelta) {
+                    for (let i = 0; i < 12; i++) spawnTarget('SOLDIER');
+                    for (let i = 0; i < 3; i++) spawnTarget('BUILDING');
+                    for (let i = 0; i < 1; i++) spawnTarget('SAM_SITE');
+                } else {
+                    for (let i = 0; i < 5; i++) spawnTarget('TANK');
+                    for (let i = 0; i < 3; i++) spawnTarget('BUILDING');
+                    for (let i = 0; i < 3; i++) spawnTarget('SAM_SITE');
+                }
+                
+                // No time limit in random mission
+                missionStartTime = performance.now();
+                missionTime = 0;
+                currentMissionIndex = -1;  // Free play style
+                
+                trackEvent('game_start', {
+                    mode: gameMode,
+                    missionId: -1,
+                    missionType: 'random',
+                    mapIndex: randomMapIndex,
+                    difficulty: null
+                });
+                
+                // Start playing
+                document.getElementById('loading').style.display = 'none';
+                gameState = GAME_STATES.PLAYING;
+                startRotorSound();
+                startWindSound();
+                if (options.onReady) options.onReady();
+            };
+            
+            // Use a polling approach to detect when map is loaded
+            // loadMap sets loading display to 'none' when complete
+            loadMap(randomMapIndex);
+            
+            const checkMapLoaded = setInterval(() => {
+                const loadingEl = document.getElementById('loading');
+                if (loadingEl.style.display === 'none' || loadingEl.textContent.includes('ERROR')) {
+                    clearInterval(checkMapLoaded);
+                    if (!loadingEl.textContent.includes('ERROR')) {
+                        onMapLoaded();
+                    }
+                }
+            }, 50);
+        }
+
         function loadCustomMissionFromStorage() {
             // Check if there's a custom mission saved in localStorage from map editor
             const raw = localStorage.getItem(CUSTOM_MISSION_KEY);
@@ -4911,6 +5264,15 @@
                     }
                 }
             }
+            
+            // Always add a friendly "home base" helipad at player start
+            // This ensures there's always somewhere to resupply
+            const playerX = config.playerStart?.x || 512;
+            const playerY = config.playerStart?.y || 512;
+            const homeBaseResult = generateHelipad(playerX, playerY, FACTIONS.FRIENDLY);
+            if (homeBaseResult) {
+                world.stamps.push(...homeBaseResult.stamps);
+            }
 
             // Apply all stamps to flatten terrain
             if (world.stamps.length > 0) {
@@ -4962,6 +5324,12 @@
                 radius: 15
             };
             world.helipads.push(helipad);
+
+            // Also spawn a visible helipad target entity
+            const target = spawnTargetAt('HELIPAD', x, y, faction);
+            if (target) {
+                helipad.targetId = target.id;
+            }
 
             // Create stamp for flattening
             const stamps = [{
@@ -5024,12 +5392,17 @@
             const buildingCount = targetConfig.buildings || 0;
             const samCount = targetConfig.sams || 0;
 
-            // Spawn tanks or soldiers
+            // Spawn tanks
             for (let i = 0; i < tankCount; i++) {
                 spawnTarget('TANK');
             }
+            // Spawn soldiers (with ~10% chance of being snipers for variety)
             for (let i = 0; i < soldierCount; i++) {
-                spawnTarget('SOLDIER');
+                if (Math.random() < 0.1) {
+                    spawnTarget('SNIPER');
+                } else {
+                    spawnTarget('SOLDIER');
+                }
             }
             
             // Spawn buildings
@@ -5102,6 +5475,24 @@
                         lastFired: 0,
                         facingAngle: Math.random() * Math.PI * 2,
                         pose: 'stand'
+                    };
+                } else if (targetType.ai.type === 'sniper') {
+                    aiState = {
+                        type: 'sniper',
+                        state: 'overwatch',
+                        patrolCenter: { x: x, y: y },
+                        patrolRadius: targetType.ai.patrolRadius,
+                        patrolAngle: Math.random() * Math.PI * 2,
+                        patrolSpeed: targetType.ai.patrolSpeed,
+                        detectRange: targetType.ai.detectRange,
+                        engageRange: targetType.ai.engageRange,
+                        fireRate: targetType.ai.fireRate,
+                        accuracy: targetType.ai.accuracy,
+                        bulletSpeed: targetType.ai.bulletSpeed,
+                        bulletDamage: targetType.ai.bulletDamage,
+                        lastFired: 0,
+                        facingAngle: Math.random() * Math.PI * 2,
+                        pose: 'crouch'
                     };
                 } else if (targetType.ai.type === 'aircraft') {
                     aiState = {
@@ -5482,6 +5873,10 @@
                 }
             }
 
+            // Generate friendly helipad at player start position for resupply
+            const homeHelipad = generateHelipad(512, 512, FACTIONS.FRIENDLY);
+            world.stamps.push(...homeHelipad.stamps);
+
             // Apply all stamps
             if (world.stamps.length > 0) {
                 applyMissionStamps(world.stamps);
@@ -5526,6 +5921,10 @@
                 }
             }
 
+            // Generate friendly helipad at player start position for resupply
+            const homeHelipad = generateHelipad(512, 512, FACTIONS.FRIENDLY);
+            world.stamps.push(...homeHelipad.stamps);
+
             if (world.stamps.length > 0) {
                 applyMissionStamps(world.stamps);
             }
@@ -5548,8 +5947,16 @@
             if (!airport || airport.faction !== FACTIONS.ENEMY) return null;
 
             // Choose aircraft type based on role
-            const types = ['AIR_FIGHTER', 'AIR_ATTACK_HELI'];
-            const typeKey = types[Math.floor(Math.random() * types.length)];
+            // Transport planes are rarer (appear ~15% of the time)
+            const roll = Math.random();
+            let typeKey;
+            if (roll < 0.15) {
+                typeKey = 'AIR_TRANSPORT';
+            } else if (roll < 0.55) {
+                typeKey = 'AIR_FIGHTER';
+            } else {
+                typeKey = 'AIR_ATTACK_HELI';
+            }
 
             // Spawn at runway end
             const cos = Math.cos(airport.heading);
@@ -5796,7 +6203,7 @@
         }
         
         // Cycle through soldier weapons (Delta mode)
-        const soldierWeaponOrder = ['m4', 'sniper', 'pistol', 'javelin', 'stinger'];
+        const soldierWeaponOrder = ['m4', 'sniper', 'pistol', 'javelin', 'stinger', 'c4'];
         function cycleSoldierWeapon(direction) {
             const currentIndex = soldierWeaponOrder.indexOf(soldierWeapon.current);
             const newIndex = (currentIndex + direction + soldierWeaponOrder.length) % soldierWeaponOrder.length;
@@ -5966,6 +6373,144 @@
             const flashIntensity = weaponKey === 'sniper' ? 1.2 : weaponKey === 'm4' ? 0.9 : 0.7;
             triggerMuzzleFlash(flashIntensity * 0.6);
             soldierWeapon.muzzleFlashTime = 120;
+        }
+        
+        // ============================================
+        // C4 EXPLOSIVE SYSTEM
+        // ============================================
+        
+        // Place a C4 charge at the player's current position
+        function placeC4Charge() {
+            const state = soldierWeapon.weapons.c4;
+            const weapon = WEAPONS_DELTA.c4;
+            if (!state || !weapon) return false;
+            
+            // Check if we have charges left
+            const totalCharges = state.mag + state.mags;
+            if (totalCharges <= 0) return false;
+            
+            // Consume a charge
+            if (state.mag > 0) {
+                state.mag--;
+            } else if (state.mags > 0) {
+                state.mags--;
+            }
+            
+            // Get terrain height at player position
+            const terrainZ = getTerrainHeight(camera.x, camera.y);
+            
+            // Place the charge slightly in front of player on the ground
+            const placeOffset = 8;
+            const chargeX = camera.x - Math.sin(camera.angle) * placeOffset;
+            const chargeY = camera.y - Math.cos(camera.angle) * placeOffset;
+            const chargeZ = getTerrainHeight(chargeX, chargeY) + 2;
+            
+            placedC4Charges.push({
+                id: Date.now() + Math.random(),
+                x: chargeX,
+                y: chargeY,
+                z: chargeZ,
+                placedAt: performance.now(),
+                armed: true
+            });
+            
+            // Play placement sound (reuse an existing sound)
+            playMenuConfirmSound();
+            
+            return true;
+        }
+        
+        // Detonate all placed C4 charges
+        function detonateAllC4() {
+            if (placedC4Charges.length === 0) return false;
+            
+            const weapon = WEAPONS_DELTA.c4;
+            const blastRadius = weapon.blastRadius || 60;
+            const damage = weapon.damage;
+            
+            for (const charge of placedC4Charges) {
+                // Create explosion at charge location
+                explosions.push({
+                    x: charge.x,
+                    y: charge.y,
+                    z: charge.z,
+                    size: blastRadius,
+                    maxSize: blastRadius,
+                    lifetime: 40,
+                    maxLifetime: 40,
+                    type: 'c4'
+                });
+                
+                // Play explosion sound
+                playExplosionSound();
+                
+                // Screen shake
+                addScreenShake(8, 300);
+                
+                // Deal damage to all targets in blast radius
+                for (const target of targets) {
+                    if (target.destroyed) continue;
+                    
+                    const dx = target.x - charge.x;
+                    const dy = target.y - charge.y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    
+                    if (dist < blastRadius) {
+                        // Damage falls off with distance
+                        const falloff = 1 - (dist / blastRadius);
+                        const category = getTargetDamageCategory(target);
+                        const multiplier = DAMAGE_MULTIPLIERS.c4?.[category] || 1;
+                        const finalDamage = damage * falloff * multiplier;
+                        
+                        target.health = (target.health || 100) - finalDamage;
+                        
+                        if (target.health <= 0) {
+                            target.destroyed = true;
+                            target.destroyedTime = performance.now();
+                            score += target.points || 100;
+                            sessionStats.targetsDestroyed += 1;
+                            sessionStats.score = score;
+                            telemetry.targetsDestroyed += 1;
+                            
+                            // Add secondary explosion for destroyed target
+                            explosions.push({
+                                x: target.x,
+                                y: target.y,
+                                z: target.z || getTerrainHeight(target.x, target.y) + 5,
+                                size: 25,
+                                maxSize: 25,
+                                lifetime: 30,
+                                maxLifetime: 30,
+                                type: 'secondary'
+                            });
+                        }
+                    }
+                }
+            }
+            
+            // Clear all charges after detonation
+            placedC4Charges = [];
+            
+            return true;
+        }
+        
+        // Handle C4 weapon action (place or detonate)
+        function handleC4Action(now) {
+            const state = soldierWeapon.weapons.c4;
+            const weapon = WEAPONS_DELTA.c4;
+            
+            // Check fire rate cooldown
+            if (now - state.lastFire < weapon.fireRate) return;
+            state.lastFire = now;
+            
+            // If we have placed charges, detonate them
+            if (placedC4Charges.length > 0) {
+                detonateAllC4();
+                return;
+            }
+            
+            // Otherwise, place a new charge
+            placeC4Charge();
         }
         
         // ============================================
@@ -6744,6 +7289,8 @@
                     updateSamAI(target, currentTime);
                 } else if (target.ai.type === 'infantry') {
                     updateSoldierAI(target, deltaTime, currentTime);
+                } else if (target.ai.type === 'sniper') {
+                    updateSniperAI(target, deltaTime, currentTime);
                 } else if (target.ai.type === 'aircraft') {
                     updateAircraftAI(target, deltaTime, currentTime);
                 }
@@ -6935,6 +7482,80 @@
 
             const terrainHeight = getTerrainHeight(target.x, target.y);
             target.z = terrainHeight + TARGET_TYPES.SOLDIER.heightOffset;
+        }
+        
+        function updateSniperAI(target, deltaTime, currentTime) {
+            const ai = target.ai;
+
+            let dx = camera.x - target.x;
+            let dy = camera.y - target.y;
+            if (dx > CONFIG.MAP_SIZE / 2) dx -= CONFIG.MAP_SIZE;
+            if (dx < -CONFIG.MAP_SIZE / 2) dx += CONFIG.MAP_SIZE;
+            if (dy > CONFIG.MAP_SIZE / 2) dy -= CONFIG.MAP_SIZE;
+            if (dy < -CONFIG.MAP_SIZE / 2) dy += CONFIG.MAP_SIZE;
+
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            const sniperCam = { x: target.x, y: target.y, height: target.z };
+            const playerTarget = { x: camera.x, y: camera.y, z: camera.height };
+            const hasLineOfSight = !isTargetOccluded(playerTarget, sniperCam, dx, dy, dist);
+
+            // Snipers have longer detection range but stay in place
+            if (dist <= ai.detectRange && hasLineOfSight) {
+                ai.state = 'engage';
+            } else if (ai.state === 'engage' && (!hasLineOfSight || dist > ai.detectRange * 1.1)) {
+                ai.state = 'overwatch';  // Snipers go to overwatch instead of patrol
+            }
+
+            if (ai.state === 'patrol' || ai.state === 'overwatch') {
+                // Snipers barely move - they hold position
+                ai.patrolAngle += ai.patrolSpeed * deltaTime * 0.0005;  // Very slow rotation
+                target.x = ai.patrolCenter.x + Math.cos(ai.patrolAngle) * ai.patrolRadius * 0.5;
+                target.y = ai.patrolCenter.y + Math.sin(ai.patrolAngle) * ai.patrolRadius * 0.5;
+                ai.facingAngle = ai.patrolAngle;
+                ai.pose = 'crouch';  // Snipers stay crouched when not shooting
+            } else if (ai.state === 'engage') {
+                ai.facingAngle = Math.atan2(dx, dy);
+                
+                // Snipers DON'T advance - they stay at range
+                // Only fire when in optimal range (not too close)
+                const optimalRange = ai.engageRange * 0.8;  // Prefer longer range shots
+                
+                if (dist <= ai.engageRange && currentTime - ai.lastFired > ai.fireRate) {
+                    // Very accurate shot with small spread
+                    const spread = (Math.random() - 0.5) * ai.accuracy;
+                    const aimAngle = ai.facingAngle + spread;
+                    const dz = camera.height - target.z;
+                    let pitch = dist > 0 ? dz / dist : 0;
+                    pitch += (Math.random() - 0.5) * ai.accuracy * 0.2;  // Less vertical spread
+
+                    enemyProjectiles.push({
+                        x: target.x,
+                        y: target.y,
+                        z: target.z + 3,  // Lower firing position (prone/crouch)
+                        angle: aimAngle,
+                        pitch: pitch,
+                        speed: ai.bulletSpeed,
+                        damage: ai.bulletDamage,
+                        type: 'sniper_bullet',  // Different bullet type
+                        lifetime: 200,  // Longer range
+                        tracerColor: '#ff4400'  // Red tracer for sniper rounds
+                    });
+
+                    // Smaller muzzle flash (suppressed)
+                    spawnParticles(target.x, target.y, target.z + 3, 'muzzle_flash', 1);
+
+                    ai.lastFired = currentTime;
+                    ai.pose = 'shoot';
+                } else {
+                    ai.pose = 'crouch';
+                }
+            }
+
+            target.x = ((target.x % CONFIG.MAP_SIZE) + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
+            target.y = ((target.y % CONFIG.MAP_SIZE) + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
+
+            const terrainHeight = getTerrainHeight(target.x, target.y);
+            target.z = terrainHeight + TARGET_TYPES.SNIPER.heightOffset;
         }
 
         function updateAircraftAI(entity, deltaTime, currentTime) {
@@ -7578,7 +8199,12 @@
 
             const shouldFire = weapon.auto ? deltaTriggerHeld : deltaTriggerPressed;
             if (shouldFire) {
-                fireSoldierWeapon(weaponKey, now);
+                // C4 has special handling: place or detonate
+                if (weaponKey === 'c4') {
+                    handleC4Action(now);
+                } else {
+                    fireSoldierWeapon(weaponKey, now);
+                }
             }
 
             deltaTriggerPressed = false;
@@ -7811,8 +8437,8 @@
             ctx.textAlign = 'center';
             ctx.fillText('ARROW KEYS + ENTER', centerX, controlsY);
 
-            // Only show AI mission panel when AI MISSION menu item is selected (index 3)
-            if (menuSelectionIndex === 3) {
+            // Only show AI mission panel when AI MISSION menu item is selected (index 4)
+            if (menuSelectionIndex === 4) {
                 renderAIMissionUI();
             }
             ctx.restore();
@@ -8120,13 +8746,15 @@
                 ctx.fillStyle = i === campaignSelectionIndex ? '#0f0' : '#0a0';
                 ctx.textAlign = 'left';
                 const difficultyStars = getDifficultyStars(mission.difficulty);
-                ctx.fillText(`[${i + 1}] ${mission.name}`, rect.x + 10, y + 4);
+                ctx.fillText(`[${i + 1}] MISSION ${i + 1}`, rect.x + 10, y + 4);
                 ctx.textAlign = 'right';
                 ctx.fillStyle = i === campaignSelectionIndex ? '#ff0' : '#880';
                 ctx.fillText(difficultyStars, rect.x + rect.width - 10, y + 4);
-                menuButtons.push({ ...rect, onClick: () => {
+                menuButtons.push({ ...rect, onClick: async () => {
                     campaignSelectionIndex = i;
                     currentMissionIndex = i;
+                    // Preload mission layout for accurate briefing display
+                    await preloadMissionLayout(i);
                     startTransition(GAME_STATES.BRIEFING, 600);
                 }});
                 y += 40;
@@ -8381,7 +9009,7 @@
                 ctx.fillText('TOP PILOTS', centerX, boxY + 95);
 
                 // Scrollable leaderboard
-                const visibleCount = 12; // How many entries to show at once
+                const visibleCount = 9; // Reduced to fit mission/map info per entry
                 const totalEntries = stats.leaderboard.length;
                 const maxScroll = Math.max(0, totalEntries - visibleCount);
                 leaderboardScrollOffset = Math.max(0, Math.min(maxScroll, leaderboardScrollOffset));
@@ -8413,7 +9041,18 @@
                     ctx.fillStyle = '#0c0';
                     ctx.fillText(entry.score.toLocaleString(), scoreX, y);
                     ctx.textAlign = 'left';
-                    y += 24;
+                    
+                    // Show mission/map info below each entry
+                    ctx.font = '10px Courier New';
+                    ctx.fillStyle = '#666';
+                    const missionInfo = entry.mission ? `Mission ${entry.mission}` : 'Free Play';
+                    const mapInfo = entry.map ? `Map ${entry.map}` : '?';
+                    const killsInfo = entry.kills !== undefined ? `${entry.kills} kills` : '';
+                    const detailText = killsInfo ? `${missionInfo} • ${mapInfo} • ${killsInfo}` : `${missionInfo} • ${mapInfo}`;
+                    ctx.fillText(detailText, listX + 30, y + 12);
+                    ctx.font = '12px Courier New';
+                    
+                    y += 38; // Increased spacing to fit the extra line
                 }
 
                 if (stats.leaderboard.length === 0) {
@@ -9164,6 +9803,9 @@
                 renderTargets(renderCam);
                 renderParkedHelicopter(renderCam);
                 
+                // Render placed C4 charges
+                renderC4Charges(renderCam);
+                
                 // Render projectiles
                 renderProjectiles(renderCam);
                 
@@ -9814,9 +10456,17 @@
                             drawFuelDepot(screenX, screenY, size, depotColor, fogFactor, weather.ambient, weather.skyColor);
                         } else if (target.type === 'helipad') {
                             const helipadColor = getDamagedBuildingColor(target.color, healthPercent);
+                            // Draw glow effect for friendly helipads (resupply points)
+                            if (target.faction === FACTIONS.FRIENDLY || target.faction === 'friendly') {
+                                drawResupplyGlow(screenX, screenY, size, fogFactor);
+                            }
                             drawHelipad(screenX, screenY, size, helipadColor, fogFactor, weather.ambient, weather.skyColor);
                         } else if (target.type === 'soldier') {
                             drawSoldier(screenX, screenY, size, target.color, target.ai?.pose, fogFactor, weather.ambient, weather.skyColor);
+                        } else if (target.type === 'sniper') {
+                            // Snipers use soldier model but with different color and prone pose preference
+                            const sniperPose = target.ai?.pose === 'shoot' ? 'shoot' : 'crouch';  // Snipers prefer crouched/prone
+                            drawSoldier(screenX, screenY, size, target.color, sniperPose, fogFactor, weather.ambient, weather.skyColor);
                         } else if (target.type === 'air_fighter') {
                             drawFighterJet(screenX, screenY, size, target.color, target.ai?.heading || 0, fogFactor, weather.ambient, weather.skyColor);
                         } else if (target.type === 'air_transport') {
@@ -12063,6 +12713,46 @@
             ctx.ellipse(ix, iy, padW * 0.43, padH * 0.43, 0, 0, Math.PI * 2);
             ctx.stroke();
         }
+
+        function drawResupplyGlow(x, y, size, fogFactor = 0) {
+            // Subtle pulsing glow effect for friendly resupply points
+            const ix = Math.floor(x);
+            const iy = Math.floor(y);
+            const time = performance.now() / 1000;
+            
+            // Pulse between 0.15 and 0.35 alpha
+            const pulse = 0.25 + Math.sin(time * 2) * 0.1;
+            const alpha = Math.max(0.05, pulse * (1 - fogFactor * 0.7));
+            
+            // Glow radius slightly larger than helipad
+            const glowRadius = size * 0.6;
+            const glowHeight = size * 0.25;  // Flattened ellipse for ground perspective
+            
+            // Draw multiple overlapping ellipses for soft glow effect
+            // Outer glow (faint, large)
+            ctx.globalAlpha = alpha * 0.4;
+            ctx.fillStyle = '#88ff88';
+            ctx.beginPath();
+            ctx.ellipse(ix, iy, glowRadius * 1.4, glowHeight * 1.4, 0, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Middle glow
+            ctx.globalAlpha = alpha * 0.6;
+            ctx.fillStyle = '#aaffaa';
+            ctx.beginPath();
+            ctx.ellipse(ix, iy, glowRadius * 1.1, glowHeight * 1.1, 0, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Inner glow (brighter, smaller)
+            ctx.globalAlpha = alpha * 0.8;
+            ctx.fillStyle = '#ccffcc';
+            ctx.beginPath();
+            ctx.ellipse(ix, iy, glowRadius * 0.8, glowHeight * 0.8, 0, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Reset alpha
+            ctx.globalAlpha = 1.0;
+        }
         
         function drawSAMSite(x, y, size, color, fogFactor = 0, ambient = 1, skyColor = CONFIG.SKY_COLOR) {
             ctx.imageSmoothingEnabled = false;
@@ -12139,6 +12829,77 @@
                 g: Math.max(0, base.g - amount),
                 b: Math.max(0, base.b - amount)
             });
+        }
+        
+        // ============================================
+        // C4 CHARGES RENDERING
+        // ============================================
+        function renderC4Charges(cam) {
+            if (placedC4Charges.length === 0) return;
+            
+            const sinAngle = Math.sin(cam.angle);
+            const cosAngle = Math.cos(cam.angle);
+            const now = performance.now();
+            
+            for (const charge of placedC4Charges) {
+                // Calculate relative position
+                let dx = charge.x - cam.x;
+                let dy = charge.y - cam.y;
+                
+                // Handle map wrapping
+                if (dx > CONFIG.MAP_SIZE / 2) dx -= CONFIG.MAP_SIZE;
+                if (dx < -CONFIG.MAP_SIZE / 2) dx += CONFIG.MAP_SIZE;
+                if (dy > CONFIG.MAP_SIZE / 2) dy -= CONFIG.MAP_SIZE;
+                if (dy < -CONFIG.MAP_SIZE / 2) dy += CONFIG.MAP_SIZE;
+                
+                // Rotate to camera space
+                const rx = dx * cosAngle - dy * sinAngle;
+                const ry = -dx * sinAngle - dy * cosAngle;
+                
+                // Check if in front of camera and close enough to see
+                if (ry > 5 && ry < 300) {
+                    const scaleX = (screenWidth / 2) / ry;
+                    const scaleY = 240.0 / ry;
+                    const screenX = screenWidth / 2 + rx * scaleX;
+                    
+                    // Apply bank tilt
+                    const bankTiltFactor = Math.sin(cam.bank || 0) * 0.3;
+                    const columnOffset = screenX - screenWidth / 2;
+                    const bankOffset = columnOffset * bankTiltFactor;
+                    const screenY = (cam.height - charge.z) * scaleY + cam.horizon + bankOffset;
+                    
+                    // Size based on distance
+                    const size = Math.max(4, 20 * scaleY);
+                    
+                    // Blinking armed indicator
+                    const blinkPhase = Math.sin((now - charge.placedAt) * 0.01) > 0;
+                    
+                    // Draw C4 block (olive drab rectangle)
+                    ctx.fillStyle = '#4a4a2a';
+                    ctx.fillRect(screenX - size * 0.6, screenY - size * 0.3, size * 1.2, size * 0.6);
+                    
+                    // Border
+                    ctx.strokeStyle = '#2a2a1a';
+                    ctx.lineWidth = 1;
+                    ctx.strokeRect(screenX - size * 0.6, screenY - size * 0.3, size * 1.2, size * 0.6);
+                    
+                    // Blinking red LED when armed
+                    if (blinkPhase) {
+                        ctx.fillStyle = '#ff0000';
+                        ctx.beginPath();
+                        ctx.arc(screenX, screenY - size * 0.1, size * 0.12, 0, Math.PI * 2);
+                        ctx.fill();
+                        
+                        // Glow effect
+                        ctx.shadowColor = '#ff0000';
+                        ctx.shadowBlur = 8;
+                        ctx.beginPath();
+                        ctx.arc(screenX, screenY - size * 0.1, size * 0.08, 0, Math.PI * 2);
+                        ctx.fill();
+                        ctx.shadowBlur = 0;
+                    }
+                }
+            }
         }
         
         // ============================================
@@ -12558,8 +13319,15 @@
             ctx.font = '9px Courier New';
             ctx.fillStyle = '#0a0';
             ctx.textAlign = 'left';
-            ctx.fillText('[1]M4 [2]SNP [3]PST', weaponPanelX + 12, weaponPanelY + 68);
-            ctx.fillText('[4]JAV [5]STG [R]RLD', weaponPanelX + 12, weaponPanelY + 80);
+            ctx.fillText('[1]M4 [2]SNP [3]PST [4]JAV', weaponPanelX + 12, weaponPanelY + 68);
+            ctx.fillText('[5]STG [6]C4 [R]RLD', weaponPanelX + 12, weaponPanelY + 80);
+            
+            // Show C4 status if C4 is selected
+            if (soldierWeapon.current === 'c4' && placedC4Charges.length > 0) {
+                ctx.font = 'bold 10px Courier New';
+                ctx.fillStyle = '#ff4400';
+                ctx.fillText(`[FIRE TO DETONATE ${placedC4Charges.length}]`, weaponPanelX + 12, weaponPanelY + 92);
+            }
 
             const compassPanelW = 220;
             const compassPanelH = 60;
@@ -12631,6 +13399,20 @@
             
             // Targeting overlay for Delta mode (same system as Comanche)
             renderTargetingOverlay();
+            
+            // C4 charges indicator (always visible when charges placed)
+            if (placedC4Charges.length > 0 && soldierWeapon.current !== 'c4') {
+                const blinkOn = Math.floor(performance.now() / 400) % 2 === 0;
+                if (blinkOn) {
+                    ctx.font = 'bold 12px Courier New';
+                    ctx.fillStyle = '#ff4400';
+                    ctx.textAlign = 'left';
+                    ctx.fillText(`C4 ARMED: ${placedC4Charges.length} [6]`, 10, screenHeight - 100);
+                }
+            }
+            
+            // Resupply indicator
+            renderResupplyIndicator();
         }
         
         function renderHUD() {
@@ -12987,10 +13769,6 @@
                     ctx.fillStyle = '#ff0';
                     ctx.textAlign = 'center';
                     ctx.fillText('TIP: ' + hint.text, screenWidth / 2, screenHeight - 170);
-
-                    ctx.font = '10px Courier New';
-                    ctx.fillStyle = '#aa0';
-                    ctx.fillText('(Press F1 to hide tips)', screenWidth / 2, screenHeight - 150);
                     return;
                 }
             }
@@ -13002,7 +13780,9 @@
             if (!objectiveState.objectives || objectiveState.objectives.length === 0) return;
             
             const panelX = 10;
-            const panelY = 55; // Below top bar
+            // In Delta mode, position below the weapon panel (which ends at ~105px)
+            // In Comanche mode, position below the standard HUD elements
+            const panelY = (gameMode === GAME_MODES.DELTA) ? 115 : 55;
             const panelWidth = 240;
             const lineHeight = 20;
             const padding = 10;
@@ -13421,6 +14201,48 @@
             
             // === TARGETING SYSTEM OVERLAY ===
             renderTargetingOverlay();
+            
+            // === RESUPPLY INDICATOR ===
+            renderResupplyIndicator();
+        }
+        
+        function renderResupplyIndicator() {
+            const nearest = getNearestFriendlyHelipad(camera.x, camera.y);
+            if (!nearest) return;
+            
+            const range = nearest.isBase ? RESUPPLY.range * 1.5 : RESUPPLY.range;
+            const atResupply = isAtResupplyPoint();
+            
+            // Show distance to nearest friendly base if within 200 units
+            if (nearest.distance < 200) {
+                const cx = screenWidth / 2;
+                const cy = screenHeight - 140;
+                
+                if (atResupply) {
+                    // Resupplying indicator
+                    const blinkOn = Math.floor(performance.now() / 300) % 2 === 0;
+                    ctx.font = 'bold 16px Courier New';
+                    ctx.textAlign = 'center';
+                    ctx.fillStyle = blinkOn ? '#00ff00' : '#00aa00';
+                    ctx.fillText('>>> RESUPPLYING <<<', cx, cy);
+                    ctx.font = '12px Courier New';
+                    ctx.fillStyle = '#0a0';
+                    ctx.fillText('Ammo and health restoring...', cx, cy + 18);
+                } else if (nearest.distance < 100) {
+                    // Close to base but not resupplying (need to land in Comanche)
+                    ctx.font = 'bold 14px Courier New';
+                    ctx.textAlign = 'center';
+                    ctx.fillStyle = '#ffaa00';
+                    if (gameMode === GAME_MODES.COMANCHE) {
+                        ctx.fillText('LAND TO RESUPPLY', cx, cy);
+                    } else {
+                        ctx.fillText('MOVE CLOSER TO RESUPPLY', cx, cy);
+                    }
+                    ctx.font = '11px Courier New';
+                    ctx.fillStyle = '#aa8800';
+                    ctx.fillText(`Distance: ${Math.round(nearest.distance)}m`, cx, cy + 15);
+                }
+            }
         }
         
         function renderTargetingOverlay() {
@@ -14272,6 +15094,9 @@
                     
                     // Update targeting system
                     updateTargetingSystem(deltaTime);
+                    
+                    // Update resupply at friendly base
+                    updateResupply(timestamp);
                     
                     // Update objective progress for position and time-based objectives
                     updateObjectiveProgress('position_update', { x: camera.x, y: camera.y });

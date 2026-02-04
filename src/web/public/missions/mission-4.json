@@ -5,7 +5,8 @@
   "weather": "storm",
   "playerStart": {
     "x": 898,
-    "y": 101
+    "y": 101,
+    "heading": 0
   },
   "airports": [
     {

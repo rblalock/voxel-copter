@@ -450,6 +450,7 @@
             // Individual units
             unit_TANK: { label: 'Tank', color: '#8b9a6b', isUnit: true, unitType: 'TANK' },
             unit_SOLDIER: { label: 'Soldier', color: '#7a8b5a', isUnit: true, unitType: 'SOLDIER' },
+            unit_SNIPER: { label: 'Sniper', color: '#4a5a3a', isUnit: true, unitType: 'SNIPER' },
             unit_SAM_SITE: { label: 'SAM Site', color: '#5a7a5a', isUnit: true, unitType: 'SAM_SITE' },
             unit_BUILDING: { label: 'Building', color: '#9b7a5a', isUnit: true, unitType: 'BUILDING' },
             unit_HANGAR: { label: 'Hangar', color: '#7a7a7a', isUnit: true, unitType: 'HANGAR' },
@@ -773,10 +774,25 @@
                 const size = spawn.size === 'large' ? 50 : spawn.size === 'medium' ? 40 : 30;
                 mapCtx.strokeRect(-size / 2, -size / 2, size, size);
             } else if (spawn.type === 'helipad') {
+                // Draw large filled circle for high visibility
+                mapCtx.fillStyle = '#ff00ff';
+                mapCtx.globalAlpha = 0.5;
                 mapCtx.beginPath();
-                mapCtx.arc(0, 0, 18, 0, Math.PI * 2);
+                mapCtx.arc(0, 0, 25, 0, Math.PI * 2);
+                mapCtx.fill();
+                mapCtx.globalAlpha = 1.0;
+                // Draw thick circle outline
+                mapCtx.strokeStyle = '#ff00ff';
+                mapCtx.lineWidth = 3;
+                mapCtx.beginPath();
+                mapCtx.arc(0, 0, 25, 0, Math.PI * 2);
                 mapCtx.stroke();
-                mapCtx.fillText('H', -4, 4);
+                // Draw 'H' with large bold font
+                mapCtx.font = 'bold 20px Courier New';
+                mapCtx.fillStyle = '#ffffff';
+                mapCtx.textAlign = 'center';
+                mapCtx.textBaseline = 'middle';
+                mapCtx.fillText('H', 0, 0);
             } else if (spawn.type === 'enemyZone') {
                 const radius = spawn.radius || 60;
                 mapCtx.beginPath();
@@ -1552,6 +1568,7 @@
                         <select onchange="updateEventEnemy('type', this.value)">
                             <option value="TANK" ${(evt.enemies?.[0]?.type || 'TANK') === 'TANK' ? 'selected' : ''}>Tank</option>
                             <option value="SOLDIER" ${evt.enemies?.[0]?.type === 'SOLDIER' ? 'selected' : ''}>Soldier</option>
+                            <option value="SNIPER" ${evt.enemies?.[0]?.type === 'SNIPER' ? 'selected' : ''}>Sniper</option>
                             <option value="SAM_SITE" ${evt.enemies?.[0]?.type === 'SAM_SITE' ? 'selected' : ''}>SAM Site</option>
                             <option value="HELICOPTER" ${evt.enemies?.[0]?.type === 'HELICOPTER' ? 'selected' : ''}>Helicopter</option>
                         </select>
@@ -1868,7 +1885,13 @@
             `).join('');
         }
         
-        function playtestMission() {
+        function playtestMission(selectedMode = null) {
+            // If no mode specified, show mode selection dialog
+            if (!selectedMode) {
+                showPlaytestModeDialog();
+                return;
+            }
+            
             // Validate first
             const isValid = validateMission();
             
@@ -1884,9 +1907,93 @@
             // Store in localStorage for the game to pick up
             localStorage.setItem('playtestMission', JSON.stringify(config));
             
-            // Open the game in a new tab with playtest flag (use root URL)
-            const gameUrl = window.location.origin + '/?playtest=1';
+            // Open the game in a new tab with playtest flag and mode
+            const gameUrl = window.location.origin + `/?playtest=1&mode=${selectedMode}`;
             window.open(gameUrl, '_blank');
+        }
+        
+        function showPlaytestModeDialog() {
+            // Create modal overlay
+            const overlay = document.createElement('div');
+            overlay.id = 'playtestModeOverlay';
+            overlay.style.cssText = `
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background: rgba(0, 0, 0, 0.8);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                z-index: 10000;
+            `;
+            
+            const dialog = document.createElement('div');
+            dialog.style.cssText = `
+                background: #111;
+                border: 2px solid #0f0;
+                padding: 20px;
+                min-width: 300px;
+                text-align: center;
+            `;
+            
+            dialog.innerHTML = `
+                <h3 style="color: #0f0; margin: 0 0 20px 0; font-family: 'Courier New', monospace;">SELECT GAME MODE</h3>
+                <div style="display: flex; flex-direction: column; gap: 10px;">
+                    <button onclick="selectPlaytestMode('comanche')" style="
+                        background: #030;
+                        color: #0f0;
+                        border: 1px solid #0f0;
+                        padding: 15px 20px;
+                        cursor: pointer;
+                        font-family: 'Courier New', monospace;
+                        font-size: 14px;
+                    ">
+                        🚁 COMANCHE<br>
+                        <span style="font-size: 11px; color: #0a0;">Attack Helicopter Combat</span>
+                    </button>
+                    <button onclick="selectPlaytestMode('delta')" style="
+                        background: #030;
+                        color: #0f0;
+                        border: 1px solid #0f0;
+                        padding: 15px 20px;
+                        cursor: pointer;
+                        font-family: 'Courier New', monospace;
+                        font-size: 14px;
+                    ">
+                        🎯 DELTA FORCE<br>
+                        <span style="font-size: 11px; color: #0a0;">On-foot FPS Combat</span>
+                    </button>
+                    <button onclick="closePlaytestModeDialog()" style="
+                        background: #300;
+                        color: #f00;
+                        border: 1px solid #f00;
+                        padding: 10px;
+                        cursor: pointer;
+                        font-family: 'Courier New', monospace;
+                        margin-top: 10px;
+                    ">Cancel</button>
+                </div>
+            `;
+            
+            overlay.appendChild(dialog);
+            document.body.appendChild(overlay);
+            
+            // Close on click outside
+            overlay.addEventListener('click', (e) => {
+                if (e.target === overlay) closePlaytestModeDialog();
+            });
+        }
+        
+        function selectPlaytestMode(mode) {
+            closePlaytestModeDialog();
+            playtestMission(mode);
+        }
+        
+        function closePlaytestModeDialog() {
+            const overlay = document.getElementById('playtestModeOverlay');
+            if (overlay) overlay.remove();
         }
 
         function updateCursorHud(mapPos) {
