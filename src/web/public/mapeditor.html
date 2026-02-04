@@ -265,16 +265,12 @@
                 <option value="">-- Custom --</option>
             </select>
         </label>
-        <button id="loadMissionBtn">Load Mission</button>
-        <button id="saveMissionBtn">Save Mission</button>
+        <button id="saveMissionBtn" style="display:none;">Save Mission</button>
         <span style="color: #555;">|</span>
         <label>Map:
             <select id="mapSelect"></select>
         </label>
-        <button id="loadMapBtn">Load Map</button>
         <span style="color: #555;">|</span>
-        <button id="saveLocalBtn">Save Local</button>
-        <button id="loadLocalBtn">Load Local</button>
         <button id="exportBtn">Export</button>
         <button id="importBtn">Import</button>
         <button id="copyBtn">Copy JSON</button>
@@ -501,12 +497,8 @@
         const elements = {
             mapCanvas: document.getElementById('mapCanvas'),
             missionSelect: document.getElementById('missionSelect'),
-            loadMissionBtn: document.getElementById('loadMissionBtn'),
             saveMissionBtn: document.getElementById('saveMissionBtn'),
             mapSelect: document.getElementById('mapSelect'),
-            loadMapBtn: document.getElementById('loadMapBtn'),
-            saveLocalBtn: document.getElementById('saveLocalBtn'),
-            loadLocalBtn: document.getElementById('loadLocalBtn'),
             exportBtn: document.getElementById('exportBtn'),
             importBtn: document.getElementById('importBtn'),
             copyBtn: document.getElementById('copyBtn'),
@@ -2528,25 +2520,14 @@
 
         function bindEvents() {
             window.addEventListener('resize', resizeCanvas);
-            elements.loadMissionBtn.addEventListener('click', () => {
-                if (state.isDirty) {
-                    if (!confirm('You have unsaved changes. Load new mission anyway?')) {
-                        return;
-                    }
-                }
-                loadMission();
-            });
-            elements.saveMissionBtn.addEventListener('click', saveMission);
-            elements.loadMapBtn.addEventListener('click', () => {
-                if (state.isDirty) {
-                    if (!confirm('You have unsaved changes. Load new map anyway?')) {
-                        return;
-                    }
-                }
-                loadMap(Number(elements.mapSelect.value));
-            });
-            elements.saveLocalBtn.addEventListener('click', saveLocal);
-            elements.loadLocalBtn.addEventListener('click', loadLocal);
+            
+            // Show Save Mission button only in dev mode (localhost)
+            const isDevMode = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+            if (isDevMode) {
+                elements.saveMissionBtn.style.display = '';
+                elements.saveMissionBtn.addEventListener('click', saveMission);
+            }
+            
             elements.exportBtn.addEventListener('click', exportConfig);
             elements.importBtn.addEventListener('click', () => {
                 if (state.isDirty) {
