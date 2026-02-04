@@ -5132,14 +5132,18 @@
             }
 
             // Use provided baseHeight (for airport buildings on flattened terrain) or get from terrain
-            // For buildings without baseHeight, sample terrain in a grid and use MAXIMUM height to prevent embedding
+            // For buildings and ground units, sample terrain in a grid and use MAXIMUM height to prevent embedding
             let terrainHeight;
             if (baseHeight !== null) {
                 terrainHeight = baseHeight;
-            } else if (buildingTypes.includes(template.type)) {
-                // Sample terrain in a grid and use the MAXIMUM height to prevent embedding
+            } else if (template.domain !== DOMAINS.AIR) {
+                // Sample terrain in a grid and use the MAXIMUM height to prevent embedding on slopes
+                // Buildings use larger sample radius, mobile units use smaller radius based on their size
                 let maxHeight = getTerrainHeight(x, y);
-                const sampleRadius = template.size * 0.5 || 10;
+                const isBuilding = buildingTypes.includes(template.type);
+                const sampleRadius = isBuilding 
+                    ? (template.size * 0.5 || 10)  // Buildings: larger radius
+                    : (template.size * 0.3 || 5);  // Mobile units (soldiers, tanks, SAMs): smaller radius
                 for (let ox = -sampleRadius; ox <= sampleRadius; ox += sampleRadius) {
                     for (let oy = -sampleRadius; oy <= sampleRadius; oy += sampleRadius) {
                         const sx = ((x + ox) % CONFIG.MAP_SIZE + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
@@ -8788,7 +8792,7 @@
             if (!aiDebrief && !isGeneratingDebrief) return;
 
             const panelW = 460;
-            const panelH = 170;
+            const panelH = 250;
             const panelX = screenWidth / 2 - panelW / 2;
             const panelY = Math.min(screenHeight - panelH - 20, screenHeight * 0.65);
 
@@ -8817,9 +8821,24 @@
             const summaryLines = wrapText(aiDebrief.summary || '', panelW - 28);
             ctx.font = '12px Courier New';
             let y = panelY + 45;
-            for (const line of summaryLines.slice(0, 2)) {
-                ctx.fillText(line, panelX + 14, y);
-                y += 18;
+            
+            // Calculate how many summary lines can fit before other content
+            // Reserve space: Performance (22px) + Strengths (18px) + Improve (18px) + bottom padding (15px) = ~73px
+            const lineHeight = 18;
+            const reservedSpace = 73;
+            const availableForSummary = panelH - 45 - reservedSpace; // 45px is header offset
+            const maxSummaryLines = Math.floor(availableForSummary / lineHeight);
+            
+            // Show summary lines that fit, truncate last line with "..." if needed
+            const linesToShow = Math.min(summaryLines.length, maxSummaryLines);
+            for (let i = 0; i < linesToShow; i++) {
+                let lineText = summaryLines[i];
+                // If this is the last line we can show and there are more lines, add ellipsis
+                if (i === linesToShow - 1 && summaryLines.length > linesToShow) {
+                    lineText = lineText.substring(0, lineText.length - 3) + '...';
+                }
+                ctx.fillText(lineText, panelX + 14, y);
+                y += lineHeight;
             }
 
             ctx.fillStyle = '#0f0';
