@@ -168,10 +168,27 @@ VoxelCopter includes a built-in map editor for customizing missions.
 
 | Tab | Features |
 |-----|----------|
-| **Spawns** | Player Start, Airports, Bases, Helipads, Enemy Spawn Zones |
+| **Spawns** | Player Start, Airports, Bases, Helipads, Enemy Spawn Zones, Individual Units |
 | **Objectives** | destroy_all, destroy_type, destroy_count, reach_location, survive_time, protect_target |
 | **Events** | Triggers: kill_count, time_elapsed, enter_zone, objective_complete |
 | | Actions: show_message, spawn_enemies, add_objective, complete_mission, fail_mission |
+
+**Spawnable Entity Types:**
+- **Zones:** Enemy Spawn Zone (random placement of multiple units within radius)
+- **Structures:** Base (auto-generates buildings + units), Airport, Helipad
+- **Individual Units:** Tank, Soldier, SAM Site
+- **Individual Structures:** Building, Hangar, Barracks, Fuel Depot, Control Tower
+
+### Preview Controls
+
+| Control | Description |
+|---------|-------------|
+| **Heightmap** | Toggle terrain height visualization (darker = lower, lighter = higher) |
+| **Grid** | Toggle coordinate grid overlay |
+| **Preview** | Toggle terrain analysis showing steep (red) vs flat (green) areas |
+| **Height Alpha** | Adjust heightmap transparency (0-100%) |
+| **Slope Threshold** | Terrain angle cutoff for steep/flat classification (5-50). Higher = more terrain considered flat |
+| **Footprint Scale** | Preview size of structure footprints (50-200%). 100% = actual in-game size |
 
 ### Validation
 
