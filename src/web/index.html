@@ -285,8 +285,6 @@
         let aiMissionBaseIndex = 0;
         let aiMissionMapIndex = null;
         let isGeneratingMission = false;
-        let aiDebrief = null;
-        let isGeneratingDebrief = false;
         let missionGeneratorInput = '';
         let missionGeneratorCursor = true;
         let missionGeneratorCursorTime = 0;
@@ -641,43 +639,6 @@
             return null;
         }
 
-        async function requestDebrief(victory) {
-            const mission = getActiveMission();
-            if (!mission) return null;
-
-            const debriefData = {
-                missionBriefing: mission.briefing || 'Standard combat mission',
-                kills: sessionStats.kills,
-                deaths: sessionStats.deaths,
-                accuracy: calculateAccuracy(),
-                timeElapsed: (performance.now() - missionStartTime) / 1000,
-                timeLimit: mission.timeLimit || 0,
-                objectivesCompleted: getCompletedObjectives(),
-                objectivesTotal: getTotalObjectives(),
-                damageTaken: Math.round((1 - playerHealth / maxPlayerHealth) * 100),
-                victory,
-                difficulty: mission.difficulty || 'normal'
-            };
-
-            try {
-                const response = await fetch('/api/mission/debrief', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(debriefData)
-                });
-
-                if (response.ok) {
-                    const data = await response.json();
-                    if (data.success) {
-                        return data.debrief;
-                    }
-                }
-            } catch (e) {
-                console.warn('Failed to get debrief.');
-            }
-            return null;
-        }
-        
         // ============================================
         // MISSION DEFINITIONS
         // ============================================
@@ -801,8 +762,63 @@
                 difficulty: 'extreme',
                 timeLimit: 360,  // 6 minutes
                 rewards: { score: 5000 }
+            },
+            {
+                id: 6,
+                name: "SHADOW STRIKE",
+                map: 9,  // Map 10
+                layoutFile: '/src/web/public/missions/mission-6.json',
+                briefing: "COMANCHE mode not available for this mission.",
+                briefingDelta: "Operator, this is a stealth infiltration. An enemy forward operating base houses their regional command center. Your mission: infiltrate the base perimeter, reach the control tower, and destroy it. Extraction point will be marked after the target is destroyed. Avoid detection if possible - a full alert will bring heavy reinforcements.",
+                objectives: [
+                    { type: 'destroy_type', targetType: 'CONTROL_TOWER', count: 1, description: 'Destroy the Command Center' },
+                    { type: 'reach_location', x: 110, y: 110, radius: 50, description: 'Extract to the insertion point' }
+                ],
+                targets: { tanks: 0, buildings: 0, sams: 0 },
+                targetsDelta: { soldiers: 20, buildings: 5, sams: 8 },
+                difficulty: 'hard',
+                timeLimit: 600,  // 10 minutes
+                rewards: { score: 5000 },
+                deltaOnly: true
             }
         ];
+
+        function getCampaignMissionIndices() {
+            const isDelta = gameMode === GAME_MODES.DELTA;
+            const indices = [];
+            for (let i = 0; i < MISSIONS.length; i++) {
+                const mission = MISSIONS[i];
+                if (mission.deltaOnly && !isDelta) continue;
+                indices.push(i);
+            }
+            return indices;
+        }
+
+        function getCampaignSelectionIndexFromMission(missionIndex) {
+            const indices = getCampaignMissionIndices();
+            const idx = indices.indexOf(missionIndex);
+            return idx >= 0 ? idx : 0;
+        }
+
+        function getCampaignMissionIndexFromSelection(selectionIndex) {
+            const indices = getCampaignMissionIndices();
+            if (indices.length === 0) return 0;
+            const clamped = Math.max(0, Math.min(indices.length - 1, selectionIndex));
+            return indices[clamped];
+        }
+
+        function syncCampaignSelectionForMode() {
+            const indices = getCampaignMissionIndices();
+            if (indices.length === 0) {
+                campaignSelectionIndex = 0;
+                currentMissionIndex = 0;
+                return;
+            }
+            if (!indices.includes(currentMissionIndex)) {
+                currentMissionIndex = indices[0];
+            }
+            campaignSelectionIndex = getCampaignSelectionIndexFromMission(currentMissionIndex);
+        }
         
         // ============================================
         // MISSION OBJECTIVE SYSTEM
@@ -1239,6 +1255,19 @@
                 explosive: true,
                 blastRadius: 60,
                 key: 'Digit6'
+            },
+            airstrike: {
+                name: 'Airstrike',
+                damage: 0,
+                fireRate: 0,
+                spread: 0,
+                magSize: 1,
+                maxMags: 2,
+                projectileSpeed: 0,
+                color: '#66ccff',
+                auto: false,
+                type: 'support',
+                key: 'Digit7'
             }
         };
 
@@ -1254,7 +1283,8 @@
             // Anti-vehicle weapons - designed for specific targets
             stinger: { soldier: 1.0, tank: 0.1, building: 0.05, sam: 0.3, aircraft: 2.0 },  // Anti-air
             javelin: { soldier: 0.6, tank: 2.5, building: 0.6, sam: 1.2, aircraft: 0.4 },   // Anti-tank
-            c4: { soldier: 3.0, tank: 2.0, building: 2.5, sam: 2.0, aircraft: 0.5 }         // Anti-structure
+            c4: { soldier: 3.0, tank: 2.0, building: 2.5, sam: 2.0, aircraft: 0.5 },        // Anti-structure
+            airstrike: { soldier: 1.6, tank: 1.4, building: 1.3, sam: 1.3, aircraft: 0.4 }
         };
 
         function getTargetDamageCategory(target) {
@@ -1599,7 +1629,8 @@
                 pistol: { mag: 15, mags: 3, lastFire: 0 },
                 javelin: { mag: 1, mags: 3, lastFire: 0 },
                 stinger: { mag: 1, mags: 4, lastFire: 0 },
-                c4: { mag: 1, mags: 3, lastFire: 0 }
+                c4: { mag: 1, mags: 3, lastFire: 0 },
+                airstrike: { mag: 1, mags: 2, lastFire: 0 }
             },
             isReloading: false,
             reloadStartTime: 0,
@@ -1611,6 +1642,16 @@
         
         // C4 charges placed in the world (can be detonated remotely)
         let placedC4Charges = [];
+
+        const airstrikeState = {
+            designating: false,
+            targetX: null,
+            targetY: null,
+            targetZ: null,
+            planesInbound: [],
+            lastCallTime: 0,
+            inboundMessageUntil: 0
+        };
 
         let soldierScope = {
             active: false,
@@ -1646,6 +1687,11 @@
         let maxPlayerHealth = 100;
         let isPlayerDead = false;
         let missionComplete = false;
+
+        // Alert system for infiltration gameplay (Delta mode)
+        let alertLevel = 0;  // 0=undetected, 1=suspicious, 2=alert, 3=full alarm
+        let alertTimer = 0;
+        const ALERT_DURATION = 30000;  // ms
 
         let world = {
             stamps: [],
@@ -2887,6 +2933,7 @@
             gameMode = gameMode === GAME_MODES.COMANCHE ? GAME_MODES.DELTA : GAME_MODES.COMANCHE;
             settings.defaultMode = gameMode;
             saveSettings();
+            syncCampaignSelectionForMode();
         }
 
         // ============================================
@@ -3130,6 +3177,7 @@
                         if (e.code === 'Digit4') switchSoldierWeapon('javelin');
                         if (e.code === 'Digit5') switchSoldierWeapon('stinger');
                         if (e.code === 'Digit6') switchSoldierWeapon('c4');
+                        if (e.code === 'Digit7') switchSoldierWeapon('airstrike');
                         if (e.code === 'KeyR') startSoldierReload();
                         // Delta mode weapon cycling with Z/X
                         if (e.code === 'KeyZ') cycleSoldierWeapon(-1); // Previous weapon
@@ -3336,25 +3384,33 @@
                     return true;
                 }
             } else if (gameState === GAME_STATES.CAMPAIGN) {
-                if (e.code >= 'Digit1' && e.code <= 'Digit5') {
-                    currentMissionIndex = parseInt(e.code.slice(-1)) - 1;
-                    campaignSelectionIndex = currentMissionIndex;
-                    playMenuConfirmSound();
-                    // Preload mission layout for accurate briefing display
-                    preloadMissionLayout(currentMissionIndex).then(() => {
-                        startTransition(GAME_STATES.BRIEFING, 600);
-                    });
-                    return true;
+                if (e.code.startsWith('Digit')) {
+                    const availableMissions = getCampaignMissionIndices();
+                    const selection = parseInt(e.code.slice(5), 10);
+                    if (!Number.isNaN(selection) && selection >= 1 && selection <= availableMissions.length) {
+                        campaignSelectionIndex = selection - 1;
+                        currentMissionIndex = availableMissions[campaignSelectionIndex];
+                        playMenuConfirmSound();
+                        // Preload mission layout for accurate briefing display
+                        preloadMissionLayout(currentMissionIndex).then(() => {
+                            startTransition(GAME_STATES.BRIEFING, 600);
+                        });
+                        return true;
+                    }
                 }
                 if (e.code === 'ArrowUp') {
+                    const availableMissions = getCampaignMissionIndices();
+                    if (availableMissions.length === 0) return true;
                     campaignSelectionIndex = Math.max(0, campaignSelectionIndex - 1);
-                    currentMissionIndex = campaignSelectionIndex;
+                    currentMissionIndex = availableMissions[campaignSelectionIndex] ?? availableMissions[0] ?? 0;
                     playMenuNavigateSound();
                     return true;
                 }
                 if (e.code === 'ArrowDown') {
-                    campaignSelectionIndex = Math.min(MISSIONS.length - 1, campaignSelectionIndex + 1);
-                    currentMissionIndex = campaignSelectionIndex;
+                    const availableMissions = getCampaignMissionIndices();
+                    if (availableMissions.length === 0) return true;
+                    campaignSelectionIndex = Math.min(availableMissions.length - 1, campaignSelectionIndex + 1);
+                    currentMissionIndex = availableMissions[campaignSelectionIndex] ?? availableMissions[0] ?? 0;
                     playMenuNavigateSound();
                     return true;
                 }
@@ -3589,12 +3645,16 @@
                     playMenuConfirmSound();
                     if (activeAIMission) {
                         startTransition(GAME_STATES.MENU, 700);
-                    } else if (currentMissionIndex < MISSIONS.length - 1) {
-                        currentMissionIndex++;
-                        campaignSelectionIndex = currentMissionIndex;
-                        startTransition(GAME_STATES.BRIEFING, 700);
                     } else {
-                        startTransition(GAME_STATES.MENU, 700);
+                        const availableMissions = getCampaignMissionIndices();
+                        const currentIdx = availableMissions.indexOf(currentMissionIndex);
+                        if (currentIdx >= 0 && currentIdx < availableMissions.length - 1) {
+                            campaignSelectionIndex = currentIdx + 1;
+                            currentMissionIndex = availableMissions[campaignSelectionIndex];
+                            startTransition(GAME_STATES.BRIEFING, 700);
+                        } else {
+                            startTransition(GAME_STATES.MENU, 700);
+                        }
                     }
                     return true;
                 }
@@ -3717,7 +3777,8 @@
                         // FPS standard: mouse right = turn right (decrease angle), mouse up = look up (increase horizon)
                         camera.angle -= lookDX * yawSpeed;
                         camera.horizon += (invertY ? lookDY : -lookDY) * pitchSpeed;
-                        camera.horizon = Math.max(screenHeight * 0.25, Math.min(screenHeight * 0.75, camera.horizon));
+                        // No pitch limits in Delta mode - allow full vertical aim
+                        camera.horizon = Math.max(0, Math.min(screenHeight, camera.horizon));
                     } else {
                         const yawSpeed = 0.002 * mouseSensitivity;
                         const bankSpeed = 0.0025 * mouseSensitivity;
@@ -3864,7 +3925,7 @@
             if (index === 0) {
                 toggleGameMode();
             } else if (index === 1) {
-                campaignSelectionIndex = Math.max(0, currentMissionIndex);
+                syncCampaignSelectionForMode();
                 startTransition(GAME_STATES.CAMPAIGN, 600);
             } else if (index === 2) {
                 // RANDOM MISSION - pick random map and start mission
@@ -4692,10 +4753,20 @@
             soldierWeapon.weapons.c4.mag = WEAPONS_DELTA.c4.magSize;
             soldierWeapon.weapons.c4.mags = WEAPONS_DELTA.c4.maxMags;
             soldierWeapon.weapons.c4.lastFire = 0;
+            soldierWeapon.weapons.airstrike.mag = WEAPONS_DELTA.airstrike.magSize;
+            soldierWeapon.weapons.airstrike.mags = WEAPONS_DELTA.airstrike.maxMags;
+            soldierWeapon.weapons.airstrike.lastFire = 0;
             soldierWeapon.isReloading = false;
             soldierWeapon.reloadStartTime = 0;
             // Clear any placed C4 charges
             placedC4Charges = [];
+            airstrikeState.designating = false;
+            airstrikeState.targetX = null;
+            airstrikeState.targetY = null;
+            airstrikeState.targetZ = null;
+            airstrikeState.planesInbound = [];
+            airstrikeState.lastCallTime = 0;
+            airstrikeState.inboundMessageUntil = 0;
             soldierWeapon.viewBob = 0;
             soldierWeapon.recoilOffset = 0;
             soldierWeapon.muzzleFlashTime = 0;
@@ -4805,8 +4876,6 @@
             activeAIMission = pendingAIMission;
             pendingAIMission = null;
             aiMission = null;
-            aiDebrief = null;
-            isGeneratingDebrief = false;
             
             // Show loading
             const loadingEl = document.getElementById('loading');
@@ -4824,6 +4893,8 @@
                 missionComplete = false;
                 defeatReason = '';
                 missionNoDamage = true;
+                alertLevel = 0;
+                alertTimer = 0;
                 lastMissionElapsed = 0;
                 resetSessionStats();
                 updateStats('missionsPlayed', 1);
@@ -4910,8 +4981,6 @@
 
             activeMission = null;
             activeAIMission = null;
-            aiDebrief = null;
-            isGeneratingDebrief = false;
             
             // Reset player state
             playerHealth = maxPlayerHealth;
@@ -5003,8 +5072,6 @@
                 // Use startFreePlay logic but with the random map already loaded
                 activeMission = null;
                 activeAIMission = null;
-                aiDebrief = null;
-                isGeneratingDebrief = false;
                 
                 // Reset player state
                 playerHealth = maxPlayerHealth;
@@ -5143,8 +5210,6 @@
                     targets: {}
                 };
                 activeAIMission = null;
-                aiDebrief = null;
-                isGeneratingDebrief = false;
 
                 playerHealth = maxPlayerHealth;
                 score = 0;
@@ -6168,18 +6233,6 @@
                 timeElapsed: timeElapsed
             });
 
-            if (currentMissionIndex >= 0 && !isGeneratingDebrief) {
-                isGeneratingDebrief = true;
-                requestDebrief(victory)
-                    .then((debrief) => {
-                        if (debrief) {
-                            aiDebrief = debrief;
-                        }
-                    })
-                    .finally(() => {
-                        isGeneratingDebrief = false;
-                    });
-            }
         }
         
         // ============================================
@@ -6242,6 +6295,9 @@
             if (!WEAPONS_DELTA[key]) return;
             soldierWeapon.current = key;
             soldierWeapon.isReloading = false;
+            if (key !== 'airstrike') {
+                airstrikeState.designating = false;
+            }
             // Reset lock state when weapon changes - allows auto-lock to restart for new weapon
             targetingSystem.lockedTarget = null;
             targetingSystem.lockProgress = 0;
@@ -6249,7 +6305,7 @@
         }
         
         // Cycle through soldier weapons (Delta mode)
-        const soldierWeaponOrder = ['m4', 'sniper', 'pistol', 'javelin', 'stinger', 'c4'];
+        const soldierWeaponOrder = ['m4', 'sniper', 'pistol', 'javelin', 'stinger', 'c4', 'airstrike'];
         function cycleSoldierWeapon(direction) {
             const currentIndex = soldierWeaponOrder.indexOf(soldierWeapon.current);
             const newIndex = (currentIndex + direction + soldierWeaponOrder.length) % soldierWeaponOrder.length;
@@ -6262,6 +6318,7 @@
             const weapon = WEAPONS_DELTA[soldierWeapon.current];
             const state = soldierWeapon.weapons[soldierWeapon.current];
             if (!weapon || !state) return;
+            if (soldierWeapon.current === 'airstrike') return;
             if (state.mag >= weapon.magSize) return;
             if (state.mags <= 0) return;
             soldierWeapon.isReloading = true;
@@ -6496,6 +6553,7 @@
                 // Deal damage to all targets in blast radius
                 for (const target of targets) {
                     if (target.destroyed) continue;
+                    if (target.faction === FACTIONS.FRIENDLY) continue;
                     
                     const dx = target.x - charge.x;
                     const dy = target.y - charge.y;
@@ -6557,6 +6615,327 @@
             
             // Otherwise, place a new charge
             placeC4Charge();
+        }
+
+        // ============================================
+        // AIRSTRIKE SYSTEM
+        // ============================================
+
+        function getAirstrikeAimPoint() {
+            const maxRange = Math.min(camera.distance, 1400);
+            const angle = camera.angle;
+            const dirX = -Math.sin(angle);
+            const dirY = -Math.cos(angle);
+            const pitchFactor = (camera.horizon - screenHeight / 2) / 240.0;
+            const dirZ = pitchFactor;
+
+            let terrainDist = maxRange;
+            const step = 6;
+            for (let t = step; t <= maxRange; t += step) {
+                const sampleX = ((camera.x + dirX * t) % CONFIG.MAP_SIZE + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
+                const sampleY = ((camera.y + dirY * t) % CONFIG.MAP_SIZE + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
+                const terrainHeight = getTerrainHeight(sampleX, sampleY);
+                const rayZ = camera.height + dirZ * t;
+                if (rayZ <= terrainHeight) {
+                    terrainDist = t;
+                    break;
+                }
+            }
+
+            const aimX = ((camera.x + dirX * terrainDist) % CONFIG.MAP_SIZE + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
+            const aimY = ((camera.y + dirY * terrainDist) % CONFIG.MAP_SIZE + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
+            const aimZ = getTerrainHeight(aimX, aimY) + 2;
+
+            return { x: aimX, y: aimY, z: aimZ, distance: terrainDist };
+        }
+
+        function getAirstrikeCharges(state) {
+            return (state?.mag || 0) + (state?.mags || 0);
+        }
+
+        function consumeAirstrikeCharge(state) {
+            if (!state) return false;
+            if (state.mag > 0) {
+                state.mag -= 1;
+                return true;
+            }
+            if (state.mags > 0) {
+                state.mags -= 1;
+                return true;
+            }
+            return false;
+        }
+
+        function callAirstrike(targetX, targetY, targetZ) {
+            // Get player position
+            const playerX = camera.x;
+            const playerY = camera.y;
+            
+            // Calculate direction from player to target
+            const toTargetX = targetX - playerX;
+            const toTargetY = targetY - playerY;
+            const toTargetDist = Math.sqrt(toTargetX * toTargetX + toTargetY * toTargetY);
+            
+            // Normalize direction
+            const dirX = toTargetDist > 0 ? toTargetX / toTargetDist : 1;
+            const dirY = toTargetDist > 0 ? toTargetY / toTargetDist : 0;
+            
+            // Spawn plane on the opposite side of player from target, at map edge
+            const spawnDist = 300; // Distance behind player
+            let spawnX = playerX - dirX * spawnDist;
+            let spawnY = playerY - dirY * spawnDist;
+            
+            // Ensure spawn is outside map bounds for dramatic entrance
+            const buffer = 60;
+            if (spawnX >= 0 && spawnX <= CONFIG.MAP_SIZE) {
+                spawnX = dirX > 0 ? -buffer : CONFIG.MAP_SIZE + buffer;
+            }
+            if (spawnY >= 0 && spawnY <= CONFIG.MAP_SIZE) {
+                spawnY = dirY > 0 ? -buffer : CONFIG.MAP_SIZE + buffer;
+            }
+
+            // Initial heading toward player
+            const headingToPlayer = Math.atan2(playerY - spawnY, playerX - spawnX);
+
+            airstrikeState.planesInbound.push({
+                id: Date.now() + Math.random(),
+                type: 'strike_aircraft',
+                faction: FACTIONS.FRIENDLY,
+                x: spawnX,
+                y: spawnY,
+                z: 400,  // High altitude to clear mountains
+                playerX,  // Store player position at time of call
+                playerY,
+                targetX,
+                targetY,
+                targetZ,
+                heading: headingToPlayer,
+                speed: 0.18,  // Slow enough to see the flyover clearly
+                phase: 'inbound',  // First phase: fly toward player
+                hasFired: false,
+                destroyed: false
+            });
+
+            airstrikeState.targetX = targetX;
+            airstrikeState.targetY = targetY;
+            airstrikeState.targetZ = targetZ;
+            airstrikeState.inboundMessageUntil = performance.now() + 6000;
+        }
+
+        function fireAirstrikeMissile(aircraft) {
+            // Calculate pitch to dive toward target
+            const dx = aircraft.targetX - aircraft.x;
+            const dy = aircraft.targetY - aircraft.y;
+            const dz = aircraft.targetZ - aircraft.z;
+            const horizDist = Math.sqrt(dx * dx + dy * dy);
+            const pitch = horizDist > 0 ? dz / horizDist : -0.5;
+            
+            projectiles.push({
+                x: aircraft.x,
+                y: aircraft.y,
+                z: aircraft.z - 5,  // Drop from under the aircraft
+                angle: aircraft.heading,
+                pitch: Math.max(-0.8, pitch),  // Dive angle toward target
+                speed: 4.0,  // Fast missile
+                damage: 250,
+                blastRadius: 65,
+                lifetime: 500,  // Long lifetime to reach distant targets
+                type: 'airstrike',
+                projectileType: 'missile',
+                color: '#ffd166',
+                guided: false,
+                airToAir: false,
+                playerFired: false,
+                isAirstrike: true,
+                targetX: aircraft.targetX,
+                targetY: aircraft.targetY,
+                targetZ: aircraft.targetZ,
+                noWrap: true
+            });
+
+            playMissileSound();
+        }
+
+        function updateAirstrikePlanes(deltaTime) {
+            if (airstrikeState.planesInbound.length === 0) return;
+            const dt = Math.max(0, Math.min(3, deltaTime / 16.666));
+            const now = performance.now();
+
+            for (let i = airstrikeState.planesInbound.length - 1; i >= 0; i--) {
+                const plane = airstrikeState.planesInbound[i];
+                if (plane.destroyed) {
+                    airstrikeState.planesInbound.splice(i, 1);
+                    continue;
+                }
+
+                if (plane.phase === 'inbound') {
+                    // Phase 1: Flying toward player position
+                    const dx = plane.playerX - plane.x;
+                    const dy = plane.playerY - plane.y;
+                    const distToPlayer = Math.sqrt(dx * dx + dy * dy);
+                    
+                    // Smoothly turn toward player
+                    const targetHeading = Math.atan2(dy, dx);
+                    const headingDiff = normalizeAngle(targetHeading - plane.heading);
+                    plane.heading += Math.sign(headingDiff) * Math.min(Math.abs(headingDiff), 0.03 * dt);
+                    
+                    // Once near player, switch to attack run toward target
+                    if (distToPlayer < 100) {
+                        plane.phase = 'attack';
+                    }
+                } else if (plane.phase === 'attack') {
+                    // Phase 2: Attack run toward target
+                    const dx = plane.targetX - plane.x;
+                    const dy = plane.targetY - plane.y;
+                    const distToTarget = Math.sqrt(dx * dx + dy * dy);
+                    
+                    // Turn toward target
+                    const targetHeading = Math.atan2(dy, dx);
+                    const headingDiff = normalizeAngle(targetHeading - plane.heading);
+                    plane.heading += Math.sign(headingDiff) * Math.min(Math.abs(headingDiff), 0.04 * dt);
+                    
+                    // Fire when directly over target (within 40 units)
+                    if (distToTarget < 40 && !plane.hasFired) {
+                        fireAirstrikeMissile(plane);
+                        plane.hasFired = true;
+                        plane.phase = 'egress';
+                    }
+                }
+
+                // Move plane forward
+                plane.x += Math.cos(plane.heading) * plane.speed * dt * 60;
+                plane.y += Math.sin(plane.heading) * plane.speed * dt * 60;
+
+                if (plane.phase === 'egress') {
+                    // Continue straight after firing, exit map
+                    if (plane.x < -120 || plane.x > CONFIG.MAP_SIZE + 120 || plane.y < -120 || plane.y > CONFIG.MAP_SIZE + 120) {
+                        plane.destroyed = true;
+                    }
+                }
+            }
+
+            if (airstrikeState.planesInbound.length === 0 && !airstrikeState.designating && now > airstrikeState.inboundMessageUntil) {
+                airstrikeState.targetX = null;
+                airstrikeState.targetY = null;
+                airstrikeState.targetZ = null;
+            }
+        }
+
+        function applyBlastDamage(x, y, z, blastRadius, damage, weaponType) {
+            for (const target of targets) {
+                if (target.destroyed) continue;
+                if (target.faction === FACTIONS.FRIENDLY) continue;
+
+                const dx = target.x - x;
+                const dy = target.y - y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                if (dist >= blastRadius) continue;
+
+                const falloff = 1 - (dist / blastRadius);
+                const category = getTargetDamageCategory(target);
+                const multiplier = DAMAGE_MULTIPLIERS[weaponType]?.[category] || 1;
+                const finalDamage = damage * falloff * multiplier;
+
+                target.health = (target.health || 100) - finalDamage;
+
+                if (target.health <= 0) {
+                    target.destroyed = true;
+                    target.destroyedTime = performance.now();
+                    score += target.points || 100;
+                    sessionStats.targetsDestroyed += 1;
+                    sessionStats.score = score;
+                    telemetry.targetsDestroyed += 1;
+
+                    explosions.push({
+                        x: target.x,
+                        y: target.y,
+                        z: target.z || getTerrainHeight(target.x, target.y) + 5,
+                        size: 25,
+                        maxSize: 25,
+                        lifetime: 30,
+                        maxLifetime: 30,
+                        type: 'secondary'
+                    });
+                }
+            }
+        }
+
+        function updateAirstrikeMissile(projectile, dt, index) {
+            let dx = projectile.targetX - projectile.x;
+            let dy = projectile.targetY - projectile.y;
+            let dz = projectile.targetZ - projectile.z;
+            let dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+            if (dist > 0) {
+                const dirX = dx / dist;
+                const dirY = dy / dist;
+                const dirZ = dz / dist;
+                projectile.x += dirX * projectile.speed * dt;
+                projectile.y += dirY * projectile.speed * dt;
+                projectile.z += dirZ * projectile.speed * dt;
+                projectile.angle = Math.atan2(-dirX, -dirY);
+                projectile.pitch = dirZ;
+            }
+
+            if (Math.random() < 0.3) {
+                spawnParticles(projectile.x, projectile.y, projectile.z, 'trail_smoke', 1);
+            }
+
+            projectile.lifetime -= dt;
+
+            dx = projectile.targetX - projectile.x;
+            dy = projectile.targetY - projectile.y;
+            dz = projectile.targetZ - projectile.z;
+            dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+            const terrainHeight = getTerrainHeight(projectile.x, projectile.y);
+            const impactZ = Math.max(terrainHeight, projectile.targetZ || terrainHeight);
+            const impactDist = Math.sqrt(dx * dx + dy * dy);
+            const hasHit = dist < 8 || projectile.z <= terrainHeight || impactDist < 6;
+
+            if (hasHit) {
+                createExplosion(projectile.x, projectile.y, impactZ, 'large');
+                applyBlastDamage(projectile.x, projectile.y, impactZ, projectile.blastRadius, projectile.damage, 'airstrike');
+                projectiles.splice(index, 1);
+                return true;
+            }
+
+            if (projectile.lifetime <= 0) {
+                projectiles.splice(index, 1);
+                return true;
+            }
+
+            if (projectile.noWrap) {
+                if (projectile.x < -200 || projectile.x > CONFIG.MAP_SIZE + 200 || projectile.y < -200 || projectile.y > CONFIG.MAP_SIZE + 200) {
+                    projectiles.splice(index, 1);
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        function handleAirstrikeAction(now) {
+            const state = soldierWeapon.weapons.airstrike;
+            if (!state) return;
+            if (now - state.lastFire < 450) return;
+
+            if (airstrikeState.designating) {
+                const aimPoint = getAirstrikeAimPoint();
+                if (!aimPoint) return;
+                if (!consumeAirstrikeCharge(state)) {
+                    airstrikeState.designating = false;
+                    return;
+                }
+                state.lastFire = now;
+                airstrikeState.designating = false;
+                airstrikeState.lastCallTime = now;
+                callAirstrike(aimPoint.x, aimPoint.y, aimPoint.z);
+            } else {
+                if (getAirstrikeCharges(state) <= 0) return;
+                state.lastFire = now;
+                airstrikeState.designating = true;
+            }
         }
         
         // ============================================
@@ -7005,6 +7384,16 @@
             if (dt <= 0) return;
             for (let i = projectiles.length - 1; i >= 0; i--) {
                 const p = projectiles[i];
+
+                if (p.isAirstrike) {
+                    const removed = updateAirstrikeMissile(p, dt, i);
+                    if (!removed) {
+                        if (p.lifetime <= 0) {
+                            projectiles.splice(i, 1);
+                        }
+                    }
+                    continue;
+                }
                 
                 // Guided missiles have special movement
                 if (p.guided) {
@@ -7018,8 +7407,10 @@
                 }
                 
                 // Wrap around map
-                p.x = ((p.x % CONFIG.MAP_SIZE) + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
-                p.y = ((p.y % CONFIG.MAP_SIZE) + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
+                if (!p.noWrap) {
+                    p.x = ((p.x % CONFIG.MAP_SIZE) + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
+                    p.y = ((p.y % CONFIG.MAP_SIZE) + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
+                }
 
                 // Rocket/missile smoke trail - subtle, 30% spawn rate
                 if ((p.projectileType === 'missile' || p.projectileType === 'rocket') && Math.random() < 0.3) {
@@ -7057,6 +7448,7 @@
         function checkSingleProjectileHit(proj, projIndex) {
             for (const target of targets) {
                 if (target.destroyed) continue;
+                if (target.faction === FACTIONS.FRIENDLY) continue;
                 
                 let dx = proj.x - target.x;
                 let dy = proj.y - target.y;
@@ -7325,6 +7717,87 @@
         // ============================================
         // ENEMY AI SYSTEMS
         // ============================================
+        function findNearestTargetOfFaction(fromUnit, targetFaction) {
+            let nearest = null;
+            let nearestDist = Infinity;
+
+            for (const candidate of targets) {
+                if (candidate.destroyed) continue;
+                if (candidate === fromUnit) continue;
+                if (candidate.faction !== targetFaction) continue;
+
+                const dist = distance3D(
+                    fromUnit.x,
+                    fromUnit.y,
+                    fromUnit.z ?? 0,
+                    candidate.x,
+                    candidate.y,
+                    candidate.z ?? 0,
+                );
+                if (dist < nearestDist) {
+                    nearestDist = dist;
+                    nearest = candidate;
+                }
+            }
+
+            return nearest;
+        }
+
+        function getAITarget(unit) {
+            const faction = unit?.faction || FACTIONS.ENEMY;
+            if (faction === FACTIONS.NEUTRAL) return null;
+
+            const playerTarget = { x: camera.x, y: camera.y, z: camera.height };
+
+            if (faction === FACTIONS.ENEMY) {
+                const nearestFriendly = findNearestTargetOfFaction(unit, FACTIONS.FRIENDLY);
+                if (nearestFriendly) {
+                    const friendlyDist = distance3D(unit.x, unit.y, unit.z ?? 0, nearestFriendly.x, nearestFriendly.y, nearestFriendly.z ?? 0);
+                    const playerDist = distance3D(unit.x, unit.y, unit.z ?? 0, playerTarget.x, playerTarget.y, playerTarget.z);
+                    if (friendlyDist < playerDist) {
+                        return { x: nearestFriendly.x, y: nearestFriendly.y, z: nearestFriendly.z, target: nearestFriendly, isPlayer: false };
+                    }
+                }
+                return { x: playerTarget.x, y: playerTarget.y, z: playerTarget.z, target: 'player', isPlayer: true };
+            }
+
+            if (faction === FACTIONS.FRIENDLY) {
+                const nearestEnemy = findNearestTargetOfFaction(unit, FACTIONS.ENEMY);
+                if (!nearestEnemy) return null;
+                return { x: nearestEnemy.x, y: nearestEnemy.y, z: nearestEnemy.z, target: nearestEnemy, isPlayer: false };
+            }
+
+            return null;
+        }
+
+        function raiseAlert() {
+            if (gameMode !== GAME_MODES.DELTA) return;
+            alertLevel = Math.min(alertLevel + 1, 3);
+            alertTimer = ALERT_DURATION;
+        }
+
+        function updateAlertLevel(deltaTime) {
+            if (gameMode !== GAME_MODES.DELTA) {
+                alertLevel = 0;
+                alertTimer = 0;
+                return;
+            }
+            if (alertTimer > 0) {
+                alertTimer -= deltaTime;
+                if (alertTimer <= 0 && alertLevel > 0) {
+                    alertLevel = Math.max(alertLevel - 1, 0);
+                    if (alertLevel > 0) alertTimer = ALERT_DURATION;
+                }
+            }
+        }
+
+        function getAlertedDetectRange(baseRange) {
+            if (gameMode !== GAME_MODES.DELTA) return baseRange;
+            if (alertLevel === 0) return baseRange * 0.6;
+            if (alertLevel === 1) return baseRange * 0.8;
+            if (alertLevel === 2) return baseRange * 1.0;
+            return baseRange * 1.5;
+        }
         function updateEnemyAI(deltaTime, currentTime) {
             for (const target of targets) {
                 if (target.destroyed || !target.ai) continue;
@@ -7366,8 +7839,14 @@
                 return;
             }
 
-            let dx = camera.x - target.x;
-            let dy = camera.y - target.y;
+            const targetInfo = getAITarget(target);
+            if (!targetInfo) {
+                ai.state = 'patrol';
+                return;
+            }
+
+            let dx = targetInfo.x - target.x;
+            let dy = targetInfo.y - target.y;
             if (dx > CONFIG.MAP_SIZE / 2) dx -= CONFIG.MAP_SIZE;
             if (dx < -CONFIG.MAP_SIZE / 2) dx += CONFIG.MAP_SIZE;
             if (dy > CONFIG.MAP_SIZE / 2) dy -= CONFIG.MAP_SIZE;
@@ -7375,8 +7854,8 @@
 
             const dist = Math.sqrt(dx * dx + dy * dy);
             const tankOrigin = { x: target.x, y: target.y, height: target.z };
-            const playerTarget = { x: camera.x, y: camera.y, z: camera.height };
-            const hasLineOfSight = !isTargetOccluded(playerTarget, tankOrigin, dx, dy, dist);
+            const targetPos = targetInfo.isPlayer ? { x: targetInfo.x, y: targetInfo.y, z: targetInfo.z } : (targetInfo.target || { x: targetInfo.x, y: targetInfo.y, z: targetInfo.z });
+            const hasLineOfSight = !isTargetOccluded(targetPos, tankOrigin, dx, dy, dist);
 
             if (dist <= ai.detectRange && hasLineOfSight) {
                 ai.state = 'engage';
@@ -7386,7 +7865,7 @@
 
             if (ai.state === 'engage' && dist <= ai.engageRange && currentTime - ai.lastFired > ai.fireRate) {
                 const aimAngle = Math.atan2(dx, dy);
-                const dz = camera.height - (target.z + 6);
+                const dz = targetInfo.z - (target.z + 6);
                 let pitch = dist > 0 ? dz / dist : 0;
                 pitch += (Math.random() - 0.5) * 0.02;
 
@@ -7399,7 +7878,8 @@
                     speed: ai.bulletSpeed,
                     damage: ai.bulletDamage,
                     type: 'tank_shell',
-                    lifetime: 200
+                    lifetime: 200,
+                    faction: target.faction
                 });
 
                 // Muzzle flash for tank firing
@@ -7411,9 +7891,11 @@
         
         function updateSamAI(target, currentTime) {
             if (gameMode !== GAME_MODES.COMANCHE) return;
-            // Calculate distance to player with map wrapping
-            let dx = target.x - camera.x;
-            let dy = target.y - camera.y;
+            const targetInfo = getAITarget(target);
+            if (!targetInfo) return;
+            // Calculate distance to target with map wrapping
+            let dx = targetInfo.x - target.x;
+            let dy = targetInfo.y - target.y;
             if (dx > CONFIG.MAP_SIZE / 2) dx -= CONFIG.MAP_SIZE;
             if (dx < -CONFIG.MAP_SIZE / 2) dx += CONFIG.MAP_SIZE;
             if (dy > CONFIG.MAP_SIZE / 2) dy -= CONFIG.MAP_SIZE;
@@ -7422,9 +7904,9 @@
             const dist = Math.sqrt(dx * dx + dy * dy);
             
             // Check line-of-sight before firing - SAM needs to see the player
-            const playerTarget = { x: camera.x, y: camera.y, z: camera.height };
+            const playerTarget = targetInfo.isPlayer ? { x: targetInfo.x, y: targetInfo.y, z: targetInfo.z } : (targetInfo.target || { x: targetInfo.x, y: targetInfo.y, z: targetInfo.z });
             const samCam = { x: target.x, y: target.y, height: target.z + 10 };
-            const hasLineOfSight = !isTargetOccluded(playerTarget, samCam, -dx, -dy, dist);
+            const hasLineOfSight = !isTargetOccluded(playerTarget, samCam, dx, dy, dist);
             
             // In range, has LOS, and can fire
             if (dist < target.ai.range && hasLineOfSight && currentTime - target.ai.lastFired > target.ai.fireRate) {
@@ -7436,16 +7918,18 @@
                     vx: 0,  // No horizontal velocity initially
                     vy: 0,
                     vz: target.ai.missileSpeed * 3,  // FASTER vertical launch (was 1.5)
-                    targetX: camera.x,
-                    targetY: camera.y,
-                    targetZ: camera.height,
+                    targetX: targetInfo.x,
+                    targetY: targetInfo.y,
+                    targetZ: targetInfo.z,
                     speed: target.ai.missileSpeed,
                     damage: target.ai.missileDamage,
                     type: 'sam_missile',
                     lifetime: 800,  // LONGER lifetime (was 400)
                     phase: 'launch',  // 'launch' then 'track'
                     launchAltitude: target.z + 60,  // Lower altitude to start tracking sooner (was 80)
-                    angle: 0  // Will be set when tracking begins
+                    angle: 0,  // Will be set when tracking begins
+                    faction: target.faction,
+                    targetId: targetInfo.isPlayer ? 'player' : targetInfo.target?.id
                 });
                 
                 // Muzzle flash for SAM launch
@@ -7454,28 +7938,40 @@
                 target.ai.lastFired = currentTime;
                 
                 // Warning sound/indicator
-                showMissileWarning();
+                if (targetInfo.isPlayer) {
+                    showMissileWarning();
+                }
             }
         }
 
         function updateSoldierAI(target, deltaTime, currentTime) {
             const ai = target.ai;
+            const targetInfo = getAITarget(target);
+            let dx = 0;
+            let dy = 0;
+            let dist = Infinity;
+            let hasLineOfSight = false;
+            if (targetInfo) {
+                dx = targetInfo.x - target.x;
+                dy = targetInfo.y - target.y;
+                if (dx > CONFIG.MAP_SIZE / 2) dx -= CONFIG.MAP_SIZE;
+                if (dx < -CONFIG.MAP_SIZE / 2) dx += CONFIG.MAP_SIZE;
+                if (dy > CONFIG.MAP_SIZE / 2) dy -= CONFIG.MAP_SIZE;
+                if (dy < -CONFIG.MAP_SIZE / 2) dy += CONFIG.MAP_SIZE;
 
-            let dx = camera.x - target.x;
-            let dy = camera.y - target.y;
-            if (dx > CONFIG.MAP_SIZE / 2) dx -= CONFIG.MAP_SIZE;
-            if (dx < -CONFIG.MAP_SIZE / 2) dx += CONFIG.MAP_SIZE;
-            if (dy > CONFIG.MAP_SIZE / 2) dy -= CONFIG.MAP_SIZE;
-            if (dy < -CONFIG.MAP_SIZE / 2) dy += CONFIG.MAP_SIZE;
+                dist = Math.sqrt(dx * dx + dy * dy);
+                const soldierCam = { x: target.x, y: target.y, height: target.z };
+                const playerTarget = targetInfo.isPlayer ? { x: targetInfo.x, y: targetInfo.y, z: targetInfo.z } : (targetInfo.target || { x: targetInfo.x, y: targetInfo.y, z: targetInfo.z });
+                hasLineOfSight = !isTargetOccluded(playerTarget, soldierCam, dx, dy, dist);
 
-            const dist = Math.sqrt(dx * dx + dy * dy);
-            const soldierCam = { x: target.x, y: target.y, height: target.z };
-            const playerTarget = { x: camera.x, y: camera.y, z: camera.height };
-            const hasLineOfSight = !isTargetOccluded(playerTarget, soldierCam, dx, dy, dist);
-
-            if (dist <= ai.detectRange && hasLineOfSight) {
-                ai.state = 'engage';
-            } else if (ai.state === 'engage' && (!hasLineOfSight || dist > ai.detectRange * 1.15)) {
+                const detectRange = getAlertedDetectRange(ai.detectRange);
+                if (dist <= detectRange && hasLineOfSight) {
+                    if (targetInfo.isPlayer) raiseAlert();
+                    ai.state = 'engage';
+                } else if (ai.state === 'engage' && (!hasLineOfSight || dist > detectRange * 1.15)) {
+                    ai.state = 'patrol';
+                }
+            } else {
                 ai.state = 'patrol';
             }
 
@@ -7494,10 +7990,10 @@
                     target.y += Math.cos(ai.facingAngle) * advanceSpeed * deltaTime * 0.06;
                 }
 
-                if (dist <= ai.engageRange && currentTime - ai.lastFired > ai.fireRate) {
+                if (targetInfo && dist <= ai.engageRange && currentTime - ai.lastFired > ai.fireRate) {
                     const spread = (Math.random() - 0.5) * ai.accuracy;
                     const aimAngle = ai.facingAngle + spread;
-                    const dz = camera.height - target.z;
+                    const dz = targetInfo.z - target.z;
                     let pitch = dist > 0 ? dz / dist : 0;
                     pitch += (Math.random() - 0.5) * ai.accuracy * 0.4;
 
@@ -7510,7 +8006,8 @@
                         speed: ai.bulletSpeed,
                         damage: ai.bulletDamage,
                         type: 'infantry_bullet',
-                        lifetime: 140
+                        lifetime: 140,
+                        faction: target.faction
                     });
 
                     // Muzzle flash for soldier firing
@@ -7532,24 +8029,34 @@
         
         function updateSniperAI(target, deltaTime, currentTime) {
             const ai = target.ai;
+            const targetInfo = getAITarget(target);
+            let dx = 0;
+            let dy = 0;
+            let dist = Infinity;
+            let hasLineOfSight = false;
+            if (targetInfo) {
+                dx = targetInfo.x - target.x;
+                dy = targetInfo.y - target.y;
+                if (dx > CONFIG.MAP_SIZE / 2) dx -= CONFIG.MAP_SIZE;
+                if (dx < -CONFIG.MAP_SIZE / 2) dx += CONFIG.MAP_SIZE;
+                if (dy > CONFIG.MAP_SIZE / 2) dy -= CONFIG.MAP_SIZE;
+                if (dy < -CONFIG.MAP_SIZE / 2) dy += CONFIG.MAP_SIZE;
 
-            let dx = camera.x - target.x;
-            let dy = camera.y - target.y;
-            if (dx > CONFIG.MAP_SIZE / 2) dx -= CONFIG.MAP_SIZE;
-            if (dx < -CONFIG.MAP_SIZE / 2) dx += CONFIG.MAP_SIZE;
-            if (dy > CONFIG.MAP_SIZE / 2) dy -= CONFIG.MAP_SIZE;
-            if (dy < -CONFIG.MAP_SIZE / 2) dy += CONFIG.MAP_SIZE;
+                dist = Math.sqrt(dx * dx + dy * dy);
+                const sniperCam = { x: target.x, y: target.y, height: target.z };
+                const playerTarget = targetInfo.isPlayer ? { x: targetInfo.x, y: targetInfo.y, z: targetInfo.z } : (targetInfo.target || { x: targetInfo.x, y: targetInfo.y, z: targetInfo.z });
+                hasLineOfSight = !isTargetOccluded(playerTarget, sniperCam, dx, dy, dist);
 
-            const dist = Math.sqrt(dx * dx + dy * dy);
-            const sniperCam = { x: target.x, y: target.y, height: target.z };
-            const playerTarget = { x: camera.x, y: camera.y, z: camera.height };
-            const hasLineOfSight = !isTargetOccluded(playerTarget, sniperCam, dx, dy, dist);
-
-            // Snipers have longer detection range but stay in place
-            if (dist <= ai.detectRange && hasLineOfSight) {
-                ai.state = 'engage';
-            } else if (ai.state === 'engage' && (!hasLineOfSight || dist > ai.detectRange * 1.1)) {
-                ai.state = 'overwatch';  // Snipers go to overwatch instead of patrol
+                // Snipers have longer detection range but stay in place
+                const detectRange = getAlertedDetectRange(ai.detectRange);
+                if (dist <= detectRange && hasLineOfSight) {
+                    if (targetInfo.isPlayer) raiseAlert();
+                    ai.state = 'engage';
+                } else if (ai.state === 'engage' && (!hasLineOfSight || dist > detectRange * 1.1)) {
+                    ai.state = 'overwatch';  // Snipers go to overwatch instead of patrol
+                }
+            } else {
+                ai.state = 'overwatch';
             }
 
             if (ai.state === 'patrol' || ai.state === 'overwatch') {
@@ -7566,11 +8073,11 @@
                 // Only fire when in optimal range (not too close)
                 const optimalRange = ai.engageRange * 0.8;  // Prefer longer range shots
                 
-                if (dist <= ai.engageRange && currentTime - ai.lastFired > ai.fireRate) {
+                if (targetInfo && dist <= ai.engageRange && currentTime - ai.lastFired > ai.fireRate) {
                     // Very accurate shot with small spread
                     const spread = (Math.random() - 0.5) * ai.accuracy;
                     const aimAngle = ai.facingAngle + spread;
-                    const dz = camera.height - target.z;
+                    const dz = targetInfo.z - target.z;
                     let pitch = dist > 0 ? dz / dist : 0;
                     pitch += (Math.random() - 0.5) * ai.accuracy * 0.2;  // Less vertical spread
 
@@ -7584,7 +8091,8 @@
                         damage: ai.bulletDamage,
                         type: 'sniper_bullet',  // Different bullet type
                         lifetime: 200,  // Longer range
-                        tracerColor: '#ff4400'  // Red tracer for sniper rounds
+                        tracerColor: '#ff4400',  // Red tracer for sniper rounds
+                        faction: target.faction
                     });
 
                     // Smaller muzzle flash (suppressed)
@@ -7609,6 +8117,18 @@
 
             const ai = entity.ai;
             const dt = deltaTime * 0.001;
+            const targetInfo = getAITarget(entity);
+            const hasTarget = !!targetInfo;
+            const targetX = targetInfo?.x ?? entity.x;
+            const targetY = targetInfo?.y ?? entity.y;
+            const targetZ = targetInfo?.z ?? entity.z;
+            let targetDx = targetX - entity.x;
+            let targetDy = targetY - entity.y;
+            if (targetDx > CONFIG.MAP_SIZE / 2) targetDx -= CONFIG.MAP_SIZE;
+            if (targetDx < -CONFIG.MAP_SIZE / 2) targetDx += CONFIG.MAP_SIZE;
+            if (targetDy > CONFIG.MAP_SIZE / 2) targetDy -= CONFIG.MAP_SIZE;
+            if (targetDy < -CONFIG.MAP_SIZE / 2) targetDy += CONFIG.MAP_SIZE;
+            const targetDist = hasTarget ? Math.sqrt(targetDx * targetDx + targetDy * targetDy) : Infinity;
 
             // Initialize state if needed
             if (!ai.state) {
@@ -7625,11 +8145,6 @@
                 ai.inBurstCooldown = false;
             }
 
-            // Get player position (in Comanche mode, player is a target)
-            const playerX = camera.x;
-            const playerY = camera.y;
-            const playerZ = camera.height;
-            const playerDist = distance2D(entity.x, entity.y, playerX, playerY);
             const isPlayerInAir = gameMode === GAME_MODES.COMANCHE;
 
             // State machine
@@ -7645,41 +8160,49 @@
                     airHoldAltitude(entity, ai.preferredAlt, ai.climbRate, dt);
 
                     // Check for player detection
-                    if (isPlayerInAir && playerDist < ai.detectRange && ai.engageRange > 0) {
+                    if (hasTarget && ((targetInfo?.isPlayer && isPlayerInAir) || !targetInfo?.isPlayer) && targetDist < ai.detectRange && ai.engageRange > 0) {
                         ai.state = 'intercept';
-                        ai.targetId = 'player';
+                        ai.targetId = targetInfo?.isPlayer ? 'player' : targetInfo?.target?.id || null;
                     }
                     break;
                 }
                 case 'intercept': {
+                    if (!hasTarget) {
+                        ai.state = 'patrol';
+                        break;
+                    }
                     // Close distance to target
-                    airSteerToward(entity, playerX, playerY, ai.turnRate, dt);
+                    airSteerToward(entity, targetX, targetY, ai.turnRate, dt);
 
                     // Gain altitude advantage
-                    const targetAlt = Math.max(ai.preferredAlt, playerZ + 20);
+                    const targetAlt = Math.max(ai.preferredAlt, targetZ + 20);
                     airHoldAltitude(entity, targetAlt, ai.climbRate, dt);
 
                     // Switch to attack when in range
-                    if (playerDist < ai.engageRange) {
+                    if (targetDist < ai.engageRange) {
                         ai.state = 'attack_run';
-                    } else if (playerDist > ai.detectRange * 1.5) {
+                    } else if (targetDist > ai.detectRange * 1.5) {
                         ai.state = 'patrol';
                     }
                     break;
                 }
                 case 'attack_run': {
+                    if (!hasTarget) {
+                        ai.state = 'patrol';
+                        break;
+                    }
                     // Align and fire
-                    airSteerToward(entity, playerX, playerY, ai.turnRate * 1.2, dt);
+                    airSteerToward(entity, targetX, targetY, ai.turnRate * 1.2, dt);
 
                     // Descend toward target altitude
-                    airHoldAltitude(entity, playerZ + 10, ai.climbRate * 0.5, dt);
+                    airHoldAltitude(entity, targetZ + 10, ai.climbRate * 0.5, dt);
 
                     // Fire weapons
                     if (ai.weaponType) {
                         if (ai.role === 'fighter') {
                             const cooldown = ai.attackCooldown || 8000;
                             if (currentTime - ai.lastAttackTime >= cooldown) {
-                                fireAircraftWeapon(entity, playerX, playerY, playerZ);
+                                fireAircraftWeapon(entity, targetX, targetY, targetZ);
                                 ai.lastAttackTime = currentTime;
                                 ai.lastFireTime = currentTime;
                                 ai.state = 'extend';
@@ -7695,7 +8218,7 @@
                                 }
                             } else if (currentTime - ai.lastFireTime > ai.fireRate) {
                                 // Fire a shot in the burst
-                                fireAircraftWeapon(entity, playerX, playerY, playerZ);
+                                fireAircraftWeapon(entity, targetX, targetY, targetZ);
                                 ai.lastFireTime = currentTime;
                                 ai.burstShotsFired = (ai.burstShotsFired || 0) + 1;
                                 
@@ -7706,20 +8229,20 @@
                                 }
                             }
                         } else if (currentTime - ai.lastFireTime > ai.fireRate) {
-                            fireAircraftWeapon(entity, playerX, playerY, playerZ);
+                            fireAircraftWeapon(entity, targetX, targetY, targetZ);
                             ai.lastFireTime = currentTime;
                         }
                     }
 
                     // After attack run, extend and re-engage
                     if (ai.role !== 'fighter') {
-                        if (playerDist < 50) {
+                        if (targetDist < 50) {
                             ai.state = 'extend';
                             ai.extendTime = currentTime;
-                        } else if (playerDist > ai.engageRange * 1.5) {
+                        } else if (targetDist > ai.engageRange * 1.5) {
                             ai.state = 'intercept';
                         }
-                    } else if (ai.state === 'attack_run' && playerDist > ai.engageRange * 1.5) {
+                    } else if (ai.state === 'attack_run' && targetDist > ai.engageRange * 1.5) {
                         ai.state = 'intercept';
                     }
 
@@ -7731,8 +8254,12 @@
                     break;
                 }
                 case 'extend': {
+                    if (!hasTarget) {
+                        ai.state = 'patrol';
+                        break;
+                    }
                     // Fly away briefly before re-engaging
-                    const awayAngle = Math.atan2(entity.y - playerY, entity.x - playerX);
+                    const awayAngle = Math.atan2(entity.y - targetY, entity.x - targetX);
                     const extendX = entity.x + Math.cos(awayAngle) * 100;
                     const extendY = entity.y + Math.sin(awayAngle) * 100;
                     airSteerToward(entity, extendX, extendY, ai.turnRate, dt);
@@ -7745,8 +8272,12 @@
                     break;
                 }
                 case 'evade': {
+                    if (!hasTarget) {
+                        ai.state = 'patrol';
+                        break;
+                    }
                     // Defensive maneuvers
-                    const evadeAngle = Math.atan2(entity.y - playerY, entity.x - playerX) + (Math.random() - 0.5) * Math.PI;
+                    const evadeAngle = Math.atan2(entity.y - targetY, entity.x - targetX) + (Math.random() - 0.5) * Math.PI;
                     const evadeX = entity.x + Math.cos(evadeAngle) * 150;
                     const evadeY = entity.y + Math.sin(evadeAngle) * 150;
                     airSteerToward(entity, evadeX, evadeY, ai.turnRate * 1.5, dt);
@@ -7821,7 +8352,8 @@
                 damage: ai.bulletDamage,
                 sourceId: entity.id,
                 life: 3000,  // 3 seconds
-                spawnTime: performance.now()
+                spawnTime: performance.now(),
+                faction: entity.faction
             };
 
             enemyProjectiles.push(projectile);
@@ -7833,18 +8365,112 @@
         // ============================================
         // ENEMY PROJECTILES
         // ============================================
+        function getProjectileTargetPosition(projectile) {
+            if (projectile.targetId === 'player') {
+                return { x: camera.x, y: camera.y, z: camera.height };
+            }
+
+            if (projectile.targetId) {
+                const target = targets.find((candidate) => candidate.id === projectile.targetId && !candidate.destroyed);
+                if (target) {
+                    return { x: target.x, y: target.y, z: target.z };
+                }
+            }
+
+            if (typeof projectile.targetX === 'number' && typeof projectile.targetY === 'number' && typeof projectile.targetZ === 'number') {
+                return { x: projectile.targetX, y: projectile.targetY, z: projectile.targetZ };
+            }
+
+            return null;
+        }
+
+        function getHostileFaction(faction) {
+            if (faction === FACTIONS.ENEMY) return FACTIONS.FRIENDLY;
+            if (faction === FACTIONS.FRIENDLY) return FACTIONS.ENEMY;
+            return null;
+        }
+
+        function applyAIDamageToTarget(target, damage, projectileType, impactX, impactY, impactZ) {
+            target.health -= damage;
+
+            if (target.health <= 0) {
+                target.destroyed = true;
+
+                updateObjectiveProgress('target_destroyed', {
+                    type: target.type.toUpperCase(),
+                    id: target.id
+                });
+
+                if (target.type === 'soldier') {
+                    spawnParticles(target.x, target.y, target.z, 'blood', 8 + Math.floor(Math.random() * 5));
+                    spawnParticles(target.x, target.y, target.z, 'dust', 4 + Math.floor(Math.random() * 3));
+                } else {
+                    const explosionSize = target.type === 'building' ? 'large' : 'medium';
+                    createExplosion(target.x, target.y, target.z, explosionSize);
+                    spawnParticles(target.x, target.y, target.z, 'spark', 10 + Math.floor(Math.random() * 6));
+                    spawnParticles(target.x, target.y, target.z, 'smoke', 5 + Math.floor(Math.random() * 4));
+                    spawnParticles(target.x, target.y, target.z, 'debris', 5 + Math.floor(Math.random() * 4));
+                }
+            } else {
+                if (target.type === 'soldier') {
+                    spawnParticles(impactX, impactY, impactZ, 'blood', 3 + Math.floor(Math.random() * 3));
+                } else {
+                    const explosionSize = (projectileType === 'sam_missile' || projectileType === 'tank_shell' || projectileType === 'air_missile' || projectileType === 'air_rocket')
+                        ? 'medium'
+                        : 'small';
+                    createExplosion(impactX, impactY, impactZ, explosionSize);
+                }
+            }
+        }
+
+        function checkAIProjectileTargetHit(projectile) {
+            const projectileFaction = projectile.faction || FACTIONS.ENEMY;
+            const hostileFaction = getHostileFaction(projectileFaction);
+            if (!hostileFaction) return false;
+
+            for (const target of targets) {
+                if (target.destroyed) continue;
+                if (target.faction !== hostileFaction) continue;
+
+                let dx = projectile.x - target.x;
+                let dy = projectile.y - target.y;
+                if (dx > CONFIG.MAP_SIZE / 2) dx -= CONFIG.MAP_SIZE;
+                if (dx < -CONFIG.MAP_SIZE / 2) dx += CONFIG.MAP_SIZE;
+                if (dy > CONFIG.MAP_SIZE / 2) dy -= CONFIG.MAP_SIZE;
+                if (dy < -CONFIG.MAP_SIZE / 2) dy += CONFIG.MAP_SIZE;
+
+                const dist2D = Math.sqrt(dx * dx + dy * dy);
+                const targetHeight = target.size * 0.75;
+                const targetBottom = target.z - 5;
+                const targetTop = target.z + targetHeight;
+                const zInRange = projectile.z >= targetBottom && projectile.z <= targetTop;
+
+                const isBuilding = target.type && (target.type === 'building' || target.type === 'hangar' ||
+                    target.type === 'control_tower' || target.type === 'fuel_depot' ||
+                    target.type === 'barracks' || target.type === 'radar');
+                const hitboxSize = isBuilding ? target.size * 0.5 : target.size;
+
+                if (dist2D < hitboxSize && zInRange) {
+                    applyAIDamageToTarget(target, projectile.damage, projectile.type, projectile.x, projectile.y, projectile.z);
+                    return true;
+                }
+            }
+
+            return false;
+        }
         function updateEnemyProjectiles(deltaTime) {
             const dt = Math.max(0, Math.min(3, deltaTime / 16.666));
             if (dt <= 0) return;
             const now = performance.now();
             for (let i = enemyProjectiles.length - 1; i >= 0; i--) {
                 const ep = enemyProjectiles[i];
+                const projectileFaction = ep.faction || FACTIONS.ENEMY;
                 
                 if (ep.type === 'air_cannon' || ep.type === 'air_rocket' || ep.type === 'air_missile') {
                     ep.x += ep.vx * dt;
                     ep.y += ep.vy * dt;
                     ep.z += ep.vz * dt;
-                } else if (ep.type === 'infantry_bullet' || ep.type === 'tank_shell') {
+                } else if (ep.type === 'infantry_bullet' || ep.type === 'tank_shell' || ep.type === 'sniper_bullet') {
                     ep.x += Math.sin(ep.angle) * ep.speed * dt;
                     ep.y += Math.cos(ep.angle) * ep.speed * dt;
                     ep.z += ep.pitch * ep.speed * dt;
@@ -7858,8 +8484,9 @@
                         if (ep.z >= ep.launchAltitude) {
                             ep.phase = 'track';
                             // Initialize tracking angle toward player
-                            let dx = camera.x - ep.x;
-                            let dy = camera.y - ep.y;
+                            const targetPos = getProjectileTargetPosition(ep);
+                            let dx = (targetPos?.x ?? ep.x) - ep.x;
+                            let dy = (targetPos?.y ?? ep.y) - ep.y;
                             if (dx > CONFIG.MAP_SIZE / 2) dx -= CONFIG.MAP_SIZE;
                             if (dx < -CONFIG.MAP_SIZE / 2) dx += CONFIG.MAP_SIZE;
                             if (dy > CONFIG.MAP_SIZE / 2) dy -= CONFIG.MAP_SIZE;
@@ -7868,8 +8495,9 @@
                         }
                     } else {
                         // Tracking phase - home in on target
-                        let dx = camera.x - ep.x;
-                        let dy = camera.y - ep.y;
+                        const targetPos = getProjectileTargetPosition(ep);
+                        let dx = (targetPos?.x ?? ep.x) - ep.x;
+                        let dy = (targetPos?.y ?? ep.y) - ep.y;
                         if (dx > CONFIG.MAP_SIZE / 2) dx -= CONFIG.MAP_SIZE;
                         if (dx < -CONFIG.MAP_SIZE / 2) dx += CONFIG.MAP_SIZE;
                         if (dy > CONFIG.MAP_SIZE / 2) dy -= CONFIG.MAP_SIZE;
@@ -7890,14 +8518,15 @@
                             ep.y += Math.cos(ep.angle) * ep.speed * dt;
                             
                             // Gradually adjust altitude toward player
-                            const dz = camera.height - ep.z;
+                            const dz = (targetPos?.z ?? ep.z) - ep.z;
                             ep.z += dz * 0.03 * dt;
                         }
                     }
                 } else {
                     // Generic homing projectile (fallback)
-                    let dx = camera.x - ep.x;
-                    let dy = camera.y - ep.y;
+                    const targetPos = getProjectileTargetPosition(ep);
+                    let dx = (targetPos?.x ?? ep.x) - ep.x;
+                    let dy = (targetPos?.y ?? ep.y) - ep.y;
                     if (dx > CONFIG.MAP_SIZE / 2) dx -= CONFIG.MAP_SIZE;
                     if (dx < -CONFIG.MAP_SIZE / 2) dx += CONFIG.MAP_SIZE;
                     if (dy > CONFIG.MAP_SIZE / 2) dy -= CONFIG.MAP_SIZE;
@@ -7915,7 +8544,7 @@
                         ep.x += Math.sin(ep.angle) * ep.speed * dt;
                         ep.y += Math.cos(ep.angle) * ep.speed * dt;
                         
-                        const dz = camera.height - ep.z;
+                        const dz = (targetPos?.z ?? ep.z) - ep.z;
                         ep.z += dz * 0.03 * dt;
                     }
                 }
@@ -7932,36 +8561,44 @@
                     ep.lifetime -= dt;
                 }
                 
-                // Check hit player
-                if (ep.type === 'air_cannon' || ep.type === 'air_rocket' || ep.type === 'air_missile') {
-                    if (gameMode === GAME_MODES.COMANCHE) {
-                        const dx = ep.x - camera.x;
-                        const dy = ep.y - camera.y;
-                        const dz = ep.z - camera.height;
-                        const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+                // Check hit targets (AI vs AI)
+                if (checkAIProjectileTargetHit(ep)) {
+                    enemyProjectiles.splice(i, 1);
+                    continue;
+                }
 
-                        const hitRadius = ep.type === 'air_missile' ? 22 : 15;
-                        if (dist < hitRadius) {
-                            if (!godMode) {
-                                playerHealth -= ep.damage;
-                                telemetry.damageTaken += ep.damage;
-                                damageVignetteTime = performance.now();
-                                damageVignetteIntensity = Math.min(1, ep.damage / 30);
-                                screenShake.intensity = Math.min(15, ep.damage * 0.5);
-                                screenShake.duration = 200;
+                // Check hit player (enemy-only)
+                if (projectileFaction === FACTIONS.ENEMY) {
+                    if (ep.type === 'air_cannon' || ep.type === 'air_rocket' || ep.type === 'air_missile') {
+                        if (gameMode === GAME_MODES.COMANCHE) {
+                            const dx = ep.x - camera.x;
+                            const dy = ep.y - camera.y;
+                            const dz = ep.z - camera.height;
+                            const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+                            const hitRadius = ep.type === 'air_missile' ? 22 : 15;
+                            if (dist < hitRadius) {
+                                if (!godMode) {
+                                    playerHealth -= ep.damage;
+                                    telemetry.damageTaken += ep.damage;
+                                    damageVignetteTime = performance.now();
+                                    damageVignetteIntensity = Math.min(1, ep.damage / 30);
+                                    screenShake.intensity = Math.min(15, ep.damage * 0.5);
+                                    screenShake.duration = 200;
+                                }
+                                enemyProjectiles.splice(i, 1);
+                                continue;
                             }
+                        }
+                    } else {
+                        const playerDist = distance3D(ep.x, ep.y, ep.z, camera.x, camera.y, camera.height);
+                        const hitRadius = ep.type === 'infantry_bullet' ? 12 : ep.type === 'tank_shell' ? 22 : 30;
+                        if (playerDist < hitRadius) {
+                            damagePlayer(ep.damage);
                             enemyProjectiles.splice(i, 1);
+                            createExplosion(ep.x, ep.y, ep.z, ep.type === 'infantry_bullet' ? 'small' : 'medium');
                             continue;
                         }
-                    }
-                } else {
-                    const playerDist = distance3D(ep.x, ep.y, ep.z, camera.x, camera.y, camera.height);
-                    const hitRadius = ep.type === 'infantry_bullet' ? 12 : ep.type === 'tank_shell' ? 22 : 30;
-                    if (playerDist < hitRadius) {
-                        damagePlayer(ep.damage);
-                        enemyProjectiles.splice(i, 1);
-                        createExplosion(ep.x, ep.y, ep.z, ep.type === 'infantry_bullet' ? 'small' : 'medium');
-                        continue;
                     }
                 }
                 
@@ -8248,6 +8885,8 @@
                 // C4 has special handling: place or detonate
                 if (weaponKey === 'c4') {
                     handleC4Action(now);
+                } else if (weaponKey === 'airstrike') {
+                    handleAirstrikeAction(now);
                 } else {
                     fireSoldierWeapon(weaponKey, now);
                 }
@@ -8777,8 +9416,9 @@
 
             ctx.font = '16px Courier New';
             let y = boxY + 70;
-            for (let i = 0; i < MISSIONS.length; i++) {
-                const mission = MISSIONS[i];
+            const availableMissions = getCampaignMissionIndices();
+            for (let i = 0; i < availableMissions.length; i++) {
+                const mission = MISSIONS[availableMissions[i]];
                 const rect = { x: boxX + 20, y: y - 18, width: boxWidth - 40, height: 30 };
                 const hovered = hitTest(rect, mouseX, mouseY);
                 if (i === campaignSelectionIndex || hovered) {
@@ -8794,9 +9434,9 @@
                 ctx.fillText(difficultyStars, rect.x + rect.width - 10, y + 4);
                 menuButtons.push({ ...rect, onClick: async () => {
                     campaignSelectionIndex = i;
-                    currentMissionIndex = i;
+                    currentMissionIndex = availableMissions[i];
                     // Preload mission layout for accurate briefing display
-                    await preloadMissionLayout(i);
+                    await preloadMissionLayout(currentMissionIndex);
                     startTransition(GAME_STATES.BRIEFING, 600);
                 }});
                 y += 40;
@@ -9322,19 +9962,19 @@
             ctx.fillStyle = '#ff0';
             ctx.fillText(`MISSION REWARD: ${mission.rewards.score} points`, boxX + 30, y);
             
-            // Instructions at bottom
+            // Instructions at bottom of screen (not inside the box)
             ctx.font = '14px Courier New';
             ctx.textAlign = 'center';
-            ctx.fillStyle = '#0a0';
+            const instructionY = screenHeight - 40;
             
             const blinkOn = Math.floor(performance.now() / 500) % 2 === 0;
             if (blinkOn) {
                 ctx.fillStyle = '#0f0';
-                ctx.fillText('[ENTER] Launch Mission', centerX - 100, boxY + boxHeight - 25);
+                ctx.fillText('[ENTER] Launch Mission', centerX - 100, instructionY);
             }
             ctx.fillStyle = '#888';
             const backLabel = pendingAIMission ? '[ESC] Back to Menu' : '[ESC] Back to Campaign';
-            ctx.fillText(backLabel, centerX + 100, boxY + boxHeight - 25);
+            ctx.fillText(backLabel, centerX + 100, instructionY);
             ctx.restore();
         }
         
@@ -9505,7 +10145,7 @@
                     ctx.fillStyle = '#0f0';
                     ctx.fillText('[ENTER] Return to Menu', centerX, boxY + boxHeight - 35);
                 }
-            } else if (currentMissionIndex < MISSIONS.length - 1) {
+            } else if (getCampaignMissionIndices().indexOf(currentMissionIndex) < getCampaignMissionIndices().length - 1) {
                 if (blinkOn) {
                     ctx.fillStyle = '#0f0';
                     ctx.fillText('[ENTER] Next Mission', centerX, boxY + boxHeight - 40);
@@ -9521,103 +10161,9 @@
             ctx.fillStyle = '#888';
             ctx.fillText('[ESC] Return to Menu', centerX, boxY + boxHeight - 15);
 
-            renderDebriefPanel();
             ctx.restore();
         }
 
-        function renderDebriefPanel() {
-            if (!aiDebrief && !isGeneratingDebrief) return;
-
-            const panelW = 460;
-            const panelH = 250;
-            const panelX = screenWidth / 2 - panelW / 2;
-            const panelY = Math.min(screenHeight - panelH - 20, screenHeight * 0.65);
-            const contentPadding = 14;
-            const maxTextWidth = panelW - contentPadding * 2;
-            const panelBottom = panelY + panelH - contentPadding;
-
-            // Save context for clipping
-            ctx.save();
-
-            // Draw panel background
-            ctx.fillStyle = 'rgba(0, 15, 0, 0.9)';
-            ctx.fillRect(panelX, panelY, panelW, panelH);
-            ctx.strokeStyle = '#0f0';
-            ctx.lineWidth = 2;
-            ctx.strokeRect(panelX, panelY, panelW, panelH);
-
-            // Create clipping region inside the panel
-            ctx.beginPath();
-            ctx.rect(panelX + contentPadding, panelY + contentPadding, panelW - contentPadding * 2, panelH - contentPadding * 2);
-            ctx.clip();
-
-            ctx.font = 'bold 14px Courier New';
-            ctx.fillStyle = '#0f0';
-            ctx.textAlign = 'left';
-            ctx.fillText('POST-MISSION DEBRIEF', panelX + contentPadding, panelY + 22);
-
-            if (isGeneratingDebrief && !aiDebrief) {
-                ctx.font = '12px Courier New';
-                ctx.fillStyle = '#ff0';
-                ctx.fillText('Generating debrief...', panelX + contentPadding, panelY + 45);
-                ctx.restore();
-                return;
-            }
-
-            if (!aiDebrief) {
-                ctx.restore();
-                return;
-            }
-
-            ctx.font = '12px Courier New';
-            ctx.fillStyle = '#0c0';
-            const summaryLines = wrapText(aiDebrief.summary || '', maxTextWidth);
-            ctx.font = '12px Courier New';
-            let y = panelY + 45;
-            
-            // Calculate how many summary lines can fit before other content
-            // Reserve space: Performance (22px) + Strengths (18px) + Improve (18px) + bottom padding (15px) = ~73px
-            const lineHeight = 18;
-            const reservedSpace = 73;
-            const availableForSummary = panelH - 45 - reservedSpace; // 45px is header offset
-            const maxSummaryLines = Math.floor(availableForSummary / lineHeight);
-            
-            // Show summary lines that fit, truncate last line with "..." if needed
-            const linesToShow = Math.min(summaryLines.length, maxSummaryLines);
-            for (let i = 0; i < linesToShow; i++) {
-                if (y > panelBottom) break; // Stop if exceeding panel bounds
-                let lineText = summaryLines[i];
-                // If this is the last line we can show and there are more lines, add ellipsis
-                if (i === linesToShow - 1 && summaryLines.length > linesToShow) {
-                    lineText = lineText.substring(0, lineText.length - 3) + '...';
-                }
-                ctx.fillText(lineText, panelX + contentPadding, y);
-                y += lineHeight;
-            }
-
-            if (y <= panelBottom) {
-                ctx.fillStyle = '#0f0';
-                ctx.fillText(`Performance: ${String(aiDebrief.performance || 'average').toUpperCase()}`, panelX + contentPadding, y + 4);
-                y += 22;
-            }
-
-            ctx.fillStyle = '#0c0';
-            const strengths = Array.isArray(aiDebrief.strengths) ? aiDebrief.strengths : [];
-            const improvements = Array.isArray(aiDebrief.improvements) ? aiDebrief.improvements : [];
-            if (strengths.length > 0 && y <= panelBottom) {
-                const strengthsText = `Strengths: ${strengths.slice(0, 2).join('; ')}`;
-                ctx.fillText(strengthsText.substring(0, Math.floor(maxTextWidth / 7)), panelX + contentPadding, y);
-                y += 18;
-            }
-            if (improvements.length > 0 && y <= panelBottom) {
-                const improveText = `Improve: ${improvements.slice(0, 2).join('; ')}`;
-                ctx.fillText(improveText.substring(0, Math.floor(maxTextWidth / 7)), panelX + contentPadding, y);
-            }
-
-            // Restore context to remove clipping
-            ctx.restore();
-        }
-        
         function renderDefeatOverlay() {
             ctx.save();
             // Semi-transparent red background
@@ -9672,7 +10218,6 @@
             ctx.fillStyle = '#888';
             ctx.fillText('[ESC] Return to Menu', centerX, boxY + boxHeight - 20);
 
-            renderDebriefPanel();
             ctx.restore();
         }
         
@@ -9843,6 +10388,7 @@
             if (gameState === GAME_STATES.PLAYING || gameState === GAME_STATES.PAUSED) {
                 // Render targets (using canvas 2D API on top)
                 renderTargets(renderCam);
+                renderAirstrikePlanes(renderCam);
                 renderParkedHelicopter(renderCam);
                 
                 // Render placed C4 charges
@@ -10388,6 +10934,34 @@
             ctx.restore();
         }
 
+        function projectWorldToScreen(cam, worldX, worldY, worldZ, allowWrap = true) {
+            const sinAngle = Math.sin(cam.angle);
+            const cosAngle = Math.cos(cam.angle);
+            let dx = worldX - cam.x;
+            let dy = worldY - cam.y;
+
+            if (allowWrap) {
+                if (dx > CONFIG.MAP_SIZE / 2) dx -= CONFIG.MAP_SIZE;
+                if (dx < -CONFIG.MAP_SIZE / 2) dx += CONFIG.MAP_SIZE;
+                if (dy > CONFIG.MAP_SIZE / 2) dy -= CONFIG.MAP_SIZE;
+                if (dy < -CONFIG.MAP_SIZE / 2) dy += CONFIG.MAP_SIZE;
+            }
+
+            const rx = dx * cosAngle - dy * sinAngle;
+            const ry = -dx * sinAngle - dy * cosAngle;
+            if (ry <= 5 || ry >= cam.distance) return null;
+
+            const scaleX = (screenWidth / 2) / ry;
+            const scaleY = 240.0 / ry;
+            const screenX = screenWidth / 2 + rx * scaleX;
+
+            const bankTiltFactor = Math.sin(cam.bank || 0) * 0.3;
+            const bankOffset = (screenX - screenWidth / 2) * bankTiltFactor;
+            const screenY = (cam.height - worldZ) * scaleY + cam.horizon + bankOffset;
+
+            return { screenX, screenY, scaleX, scaleY, ry, bankOffset };
+        }
+
         // ============================================
         // TARGET RENDERING
         // ============================================
@@ -10543,6 +11117,41 @@
             }
         }
 
+        function renderAirstrikePlanes(cam) {
+            if (airstrikeState.planesInbound.length === 0) return;
+            const weather = WEATHER_SETTINGS[weatherCondition];
+            const fogStart = weather.fogStart;
+            const fogEnd = Math.min(cam.distance, fogStart + (cam.distance - fogStart) / (weather.fogDensity || 2));
+
+            for (const plane of airstrikeState.planesInbound) {
+                if (plane.destroyed) continue;
+                const allowWrap = plane.x >= 0 && plane.x <= CONFIG.MAP_SIZE && plane.y >= 0 && plane.y <= CONFIG.MAP_SIZE;
+                const projection = projectWorldToScreen(cam, plane.x, plane.y, plane.z, allowWrap);
+                if (!projection) continue;
+
+                const { screenX, screenY, scaleY, ry, bankOffset } = projection;
+                const fogFactor = fogEnabled ? Math.min(1, Math.max(0, (ry - fogStart) / (fogEnd - fogStart))) : 0;
+                const size = Math.max(8, 18 * scaleY);
+
+                if (screenX > -size && screenX < screenWidth + size && screenY > -size && screenY < screenHeight + size) {
+                    drawFriendlyAircraft(screenX, screenY, size, '#66ccff', plane.heading, fogFactor, weather.ambient, weather.skyColor);
+
+                    const sampleX = ((plane.x % CONFIG.MAP_SIZE) + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
+                    const sampleY = ((plane.y % CONFIG.MAP_SIZE) + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
+                    const terrainHeight = getTerrainHeight(sampleX, sampleY);
+                    const groundScreenY = (cam.height - terrainHeight) * scaleY + cam.horizon + bankOffset;
+                    const altitude = plane.z - terrainHeight;
+                    const altitudeFactor = Math.min(1, Math.max(0, altitude / 250));
+                    const shadowAlpha = Math.max(0, 0.22 * (1 - fogFactor) * (1 - altitudeFactor * 0.7));
+                    const shadowSize = Math.max(2, size * (0.85 - altitudeFactor * 0.3));
+
+                    if (groundScreenY > -size && groundScreenY < screenHeight + size) {
+                        drawAircraftShadow(screenX, groundScreenY, shadowSize, shadowAlpha, cam.angle);
+                    }
+                }
+            }
+        }
+
         function renderParkedHelicopter(cam) {
             if (gameMode !== GAME_MODES.DELTA || !playerState.heli.visible || playerState.heli.destroyed) return;
 
@@ -10686,8 +11295,8 @@
             const s = Math.max(Math.floor(size), 8);
             const ix = Math.floor(x);
             const iy = Math.floor(y);
-            
-            // Proportions - more realistic military figure
+
+            // Proportions - military figure with gear detail
             const headW = Math.max(2, Math.floor(s * 0.18));
             const headH = Math.max(2, Math.floor(s * 0.16));
             const helmetH = Math.max(1, Math.floor(s * 0.06));
@@ -10700,6 +11309,10 @@
             const bootH = Math.max(1, Math.floor(s * 0.06));
             const packW = Math.max(2, Math.floor(s * 0.14));
             const packH = Math.max(2, Math.floor(s * 0.18));
+            const helmetRadius = Math.max(2, Math.floor(headW * 0.65));
+            const vestH = Math.max(2, Math.floor(torsoH * 0.45));
+            const kneeH = Math.max(1, Math.floor(legH * 0.18));
+            const bootToeH = Math.max(1, Math.floor(bootH * 0.5));
 
             // Colors with proper shading
             const base = getSpriteColorWithFog(color, fogFactor, ambient, skyColor);
@@ -10723,11 +11336,16 @@
             const torsoY = legY - torsoH + Math.floor(s * 0.04);
             const headY = torsoY - headH - helmetH + Math.floor(s * 0.02);
             const armY = torsoY + Math.floor(s * 0.02);
+            const kneeY = legY + Math.floor(legH * 0.55);
+            const vestY = torsoY + Math.floor(torsoH * 0.2);
 
             // Boots
             ctx.fillStyle = boot;
             ctx.fillRect(ix - legW - legSpread, bootY, legW + 1, bootH);
             ctx.fillRect(ix + legSpread - 1, bootY, legW + 1, bootH);
+            ctx.fillStyle = gearDark;
+            ctx.fillRect(ix - legW - legSpread, bootY + bootH - bootToeH, legW + 1, bootToeH);
+            ctx.fillRect(ix + legSpread - 1, bootY + bootH - bootToeH, legW + 1, bootToeH);
 
             // Legs
             ctx.fillStyle = dark;
@@ -10736,6 +11354,11 @@
             // Leg highlight
             ctx.fillStyle = base;
             ctx.fillRect(ix - legW - legSpread, legY, Math.max(1, Math.floor(legW * 0.4)), legH);
+
+            // Knee pads
+            ctx.fillStyle = gearDark;
+            ctx.fillRect(ix - legW - legSpread, kneeY, legW, kneeH);
+            ctx.fillRect(ix + legSpread, kneeY, legW, kneeH);
 
             // Torso
             ctx.fillStyle = base;
@@ -10746,6 +11369,13 @@
             // Torso highlight (right side)
             ctx.fillStyle = highlight;
             ctx.fillRect(ix + Math.floor(torsoW / 2) - 1, torsoY, 1, torsoH);
+
+            // Tactical vest/plate carrier
+            ctx.fillStyle = gear;
+            ctx.fillRect(ix - Math.floor(torsoW / 2) + 1, vestY, torsoW - 2, vestH);
+            ctx.fillStyle = gearDark;
+            ctx.fillRect(ix - Math.floor(torsoW / 2) + 1, vestY + Math.floor(vestH * 0.5), torsoW - 2, Math.max(1, Math.floor(vestH * 0.2)));
+            ctx.fillRect(ix - 1, vestY, 2, vestH);
 
             // Backpack/gear
             ctx.fillStyle = darker;
@@ -10759,12 +11389,17 @@
             ctx.fillRect(ix - Math.floor(torsoW / 2) - armW, armY + armOffsetY, armW, armH);
             ctx.fillRect(ix + Math.floor(torsoW / 2), armY + armOffsetY, armW, armH);
 
-            // Helmet
+            // Helmet dome
             ctx.fillStyle = darker;
-            ctx.fillRect(ix - Math.floor(headW / 2) - 1, headY, headW + 2, helmetH + 1);
+            ctx.beginPath();
+            ctx.arc(ix, headY + helmetH, helmetRadius, Math.PI, 0);
+            ctx.lineTo(ix + helmetRadius, headY + helmetH + Math.floor(helmetH * 0.8));
+            ctx.lineTo(ix - helmetRadius, headY + helmetH + Math.floor(helmetH * 0.8));
+            ctx.closePath();
+            ctx.fill();
             // Helmet rim
             ctx.fillStyle = gearDark;
-            ctx.fillRect(ix - Math.floor(headW / 2) - 1, headY + helmetH, headW + 2, 1);
+            ctx.fillRect(ix - Math.floor(headW / 2) - 1, headY + helmetH, headW + 2, Math.max(1, Math.floor(helmetH * 0.6)));
 
             // Head/face
             ctx.fillStyle = skin;
@@ -10775,7 +11410,7 @@
             const weaponH = Math.max(1, Math.floor(s * 0.05));
             const stockLen = Math.max(2, Math.floor(s * 0.12));
             const magH = Math.max(1, Math.floor(s * 0.08));
-            
+
             if (isShoot) {
                 // Weapon raised, pointing forward
                 const weaponX = ix + Math.floor(torsoW / 2) + armW - 1;
@@ -10787,6 +11422,8 @@
                 ctx.fillRect(weaponX - stockLen, weaponY - 1, stockLen, weaponH + 2);
                 // Magazine
                 ctx.fillRect(weaponX + Math.floor(weaponLen * 0.3), weaponY + weaponH, Math.max(1, Math.floor(s * 0.04)), magH);
+                // Muzzle
+                ctx.fillRect(weaponX + weaponLen, weaponY - 1, Math.max(1, Math.floor(s * 0.03)), weaponH + 2);
             } else {
                 // Weapon at rest, angled down
                 const weaponX = ix + Math.floor(torsoW / 2);
@@ -10797,6 +11434,10 @@
                 // Stock
                 ctx.fillStyle = gearDark;
                 ctx.fillRect(weaponX - Math.floor(stockLen * 0.5), weaponY - 1, Math.floor(stockLen * 0.6), weaponH + 2);
+                // Magazine
+                ctx.fillRect(weaponX + Math.floor(weaponLen * 0.3), weaponY + weaponH, Math.max(1, Math.floor(s * 0.04)), magH);
+                // Muzzle
+                ctx.fillRect(weaponX + Math.floor(weaponLen * 0.7), weaponY - 1, Math.max(1, Math.floor(s * 0.03)), weaponH + 2);
             }
         }
 
@@ -10811,10 +11452,13 @@
             const dark = getSpriteColorWithFog(darkenColor(color, 25), fogFactor, ambient, skyColor);
             const darker = getSpriteColorWithFog(darkenColor(color, 40), fogFactor, ambient, skyColor);
             const highlight = getSpriteColorWithFog(lightenColor(color, 12), fogFactor, ambient, skyColor);
+            const belly = getSpriteColorWithFog(darkenColor(color, 55), fogFactor, ambient, skyColor);
             const glass = getSpriteColorWithFog('#1a4a5a', fogFactor, ambient, skyColor);
             const glassHighlight = getSpriteColorWithFog('#3a7a9a', fogFactor, ambient, skyColor);
             const rotor = getSpriteColorWithFog('#3a3a3a', fogFactor, ambient, skyColor);
             const exhaust = getSpriteColorWithFog('#2a2a2a', fogFactor, ambient, skyColor);
+            const weapon = getSpriteColorWithFog('#2a2a2a', fogFactor, ambient, skyColor);
+            const weaponDark = getSpriteColorWithFog('#1a1a1a', fogFactor, ambient, skyColor);
 
             const relAngle = normalizeAngle(heading - camera.angle);
             const sinRel = Math.sin(relAngle);
@@ -10826,6 +11470,880 @@
             const showSide = !showFront && !showBack;  // Side profile
             const facingRight = cosRel >= 0;  // For side view mirroring
             const dir = facingRight ? 1 : -1;
+
+            // EVE support unit render pass (override)
+            {
+                if (showFront) {
+                    ctx.save();
+                    ctx.translate(ix, iy);
+
+                    const fuseW = s * 0.3;
+                    const fuseH = s * 0.6;
+                    const shoulderW = s * 0.42;
+                    const wingSpan = s * 0.85;
+                    const rotorRadX = s * 0.8;
+                    const rotorRadY = s * 0.2;
+
+                    const rotorTime = performance.now() / 42;
+                    ctx.fillStyle = rotor;
+                    ctx.globalAlpha = 0.22;
+                    ctx.beginPath();
+                    ctx.ellipse(0, -fuseH * 0.95, rotorRadX, rotorRadY, 0, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.globalAlpha = 0.65;
+                    for (let i = 0; i < 4; i++) {
+                        const angle = rotorTime + i * (Math.PI / 2);
+                        const bx = Math.cos(angle) * rotorRadX;
+                        const by = Math.sin(angle) * rotorRadY;
+                        const bladeW = Math.max(2, Math.floor(s * 0.05));
+                        ctx.fillRect(bx - bladeW / 2, -fuseH * 0.95 + by - 1, bladeW, 2);
+                    }
+                    ctx.globalAlpha = 1.0;
+
+                    ctx.fillStyle = darker;
+                    ctx.fillRect(-s * 0.035, -fuseH * 0.78, s * 0.07, s * 0.2);
+                    ctx.fillStyle = getSpriteColorWithFog('#2a3a3a', fogFactor, ambient, skyColor);
+                    ctx.beginPath();
+                    ctx.arc(0, -fuseH * 1.03, s * 0.1, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    ctx.fillStyle = body;
+                    ctx.beginPath();
+                    ctx.moveTo(-shoulderW * 0.7, -fuseH * 0.55);
+                    ctx.lineTo(shoulderW * 0.7, -fuseH * 0.55);
+                    ctx.lineTo(fuseW * 1.1, -fuseH * 0.05);
+                    ctx.lineTo(fuseW * 0.9, fuseH * 0.52);
+                    ctx.lineTo(-fuseW * 0.9, fuseH * 0.52);
+                    ctx.lineTo(-fuseW * 1.1, -fuseH * 0.05);
+                    ctx.closePath();
+                    ctx.fill();
+
+                    ctx.fillStyle = belly;
+                    ctx.beginPath();
+                    ctx.moveTo(-fuseW * 0.7, fuseH * 0.05);
+                    ctx.lineTo(fuseW * 0.7, fuseH * 0.05);
+                    ctx.lineTo(fuseW * 0.55, fuseH * 0.55);
+                    ctx.lineTo(-fuseW * 0.55, fuseH * 0.55);
+                    ctx.closePath();
+                    ctx.fill();
+
+                    ctx.fillStyle = glass;
+                    ctx.beginPath();
+                    ctx.moveTo(-fuseW * 0.4, -fuseH * 0.35);
+                    ctx.lineTo(fuseW * 0.4, -fuseH * 0.35);
+                    ctx.lineTo(fuseW * 0.32, fuseH * 0.05);
+                    ctx.lineTo(-fuseW * 0.32, fuseH * 0.05);
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.fillStyle = glassHighlight;
+                    ctx.fillRect(-fuseW * 0.28, -fuseH * 0.28, fuseW * 0.2, s * 0.08);
+                    ctx.fillRect(fuseW * 0.08, -fuseH * 0.28, fuseW * 0.2, s * 0.08);
+
+                    ctx.fillStyle = dark;
+                    ctx.fillRect(-wingSpan * 0.45, -fuseH * 0.02, wingSpan * 0.3, s * 0.08);
+                    ctx.fillRect(fuseW + s * 0.02, -fuseH * 0.02, wingSpan * 0.3, s * 0.08);
+
+                    ctx.fillStyle = darker;
+                    ctx.beginPath();
+                    ctx.arc(0, fuseH * 0.52, s * 0.08, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.fillStyle = exhaust;
+                    ctx.fillRect(-s * 0.02, fuseH * 0.52, s * 0.04, s * 0.12);
+
+                    const wheelR = Math.max(1, Math.floor(s * 0.06));
+                    ctx.fillStyle = darker;
+                    ctx.fillRect(-fuseW - s * 0.05, fuseH * 0.3, s * 0.05, s * 0.18);
+                    ctx.fillRect(fuseW, fuseH * 0.3, s * 0.05, s * 0.18);
+                    ctx.fillStyle = dark;
+                    ctx.beginPath();
+                    ctx.arc(-fuseW - s * 0.06, fuseH * 0.52, wheelR, 0, Math.PI * 2);
+                    ctx.arc(fuseW + s * 0.03, fuseH * 0.52, wheelR, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    ctx.restore();
+                    return;
+                }
+
+                if (showBack) {
+                    ctx.save();
+                    ctx.translate(ix, iy);
+
+                    const fuseW = s * 0.3;
+                    const fuseH = s * 0.6;
+                    const wingSpan = s * 0.85;
+                    const rotorRadX = s * 0.8;
+                    const rotorRadY = s * 0.2;
+
+                    const rotorTime = performance.now() / 42;
+                    ctx.fillStyle = rotor;
+                    ctx.globalAlpha = 0.22;
+                    ctx.beginPath();
+                    ctx.ellipse(0, -fuseH * 0.95, rotorRadX, rotorRadY, 0, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.globalAlpha = 0.65;
+                    for (let i = 0; i < 4; i++) {
+                        const angle = rotorTime + i * (Math.PI / 2);
+                        const bx = Math.cos(angle) * rotorRadX;
+                        const by = Math.sin(angle) * rotorRadY;
+                        const bladeW = Math.max(2, Math.floor(s * 0.05));
+                        ctx.fillRect(bx - bladeW / 2, -fuseH * 0.95 + by - 1, bladeW, 2);
+                    }
+                    ctx.globalAlpha = 1.0;
+
+                    ctx.fillStyle = darker;
+                    ctx.fillRect(-s * 0.035, -fuseH * 0.78, s * 0.07, s * 0.2);
+
+                    ctx.fillStyle = body;
+                    ctx.beginPath();
+                    ctx.moveTo(-fuseW * 0.95, -fuseH * 0.55);
+                    ctx.lineTo(fuseW * 0.95, -fuseH * 0.55);
+                    ctx.lineTo(fuseW * 0.85, fuseH * 0.52);
+                    ctx.lineTo(-fuseW * 0.85, fuseH * 0.52);
+                    ctx.closePath();
+                    ctx.fill();
+
+                    ctx.fillStyle = belly;
+                    ctx.fillRect(-fuseW * 0.65, fuseH * 0.05, fuseW * 1.3, fuseH * 0.45);
+
+                    ctx.fillStyle = dark;
+                    ctx.fillRect(-wingSpan * 0.45, -fuseH * 0.02, wingSpan * 0.3, s * 0.08);
+                    ctx.fillRect(fuseW + s * 0.02, -fuseH * 0.02, wingSpan * 0.3, s * 0.08);
+
+                    ctx.fillStyle = dark;
+                    ctx.fillRect(-s * 0.05, fuseH * 0.35, s * 0.1, s * 0.35);
+                    ctx.fillStyle = darker;
+                    ctx.beginPath();
+                    ctx.moveTo(0, fuseH * 0.5);
+                    ctx.lineTo(-s * 0.14, fuseH * 0.88);
+                    ctx.lineTo(s * 0.14, fuseH * 0.88);
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.fillStyle = dark;
+                    ctx.fillRect(-s * 0.32, fuseH * 0.7, s * 0.64, s * 0.06);
+
+                    const fenRadBack = s * 0.15;
+                    ctx.fillStyle = darker;
+                    ctx.beginPath();
+                    ctx.arc(0, fuseH * 0.74, fenRadBack * 1.18, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.fillStyle = body;
+                    ctx.beginPath();
+                    ctx.arc(0, fuseH * 0.74, fenRadBack * 0.82, 0, Math.PI * 2);
+                    ctx.fill();
+                    const fenTimeBack = performance.now() / 18;
+                    ctx.strokeStyle = rotor;
+                    ctx.lineWidth = Math.max(1, s * 0.015);
+                    for (let i = 0; i < 8; i++) {
+                        const fAngle = fenTimeBack + i * (Math.PI / 4);
+                        ctx.beginPath();
+                        ctx.moveTo(0, fuseH * 0.74);
+                        ctx.lineTo(
+                            Math.cos(fAngle) * fenRadBack * 0.7,
+                            fuseH * 0.74 + Math.sin(fAngle) * fenRadBack * 0.7
+                        );
+                        ctx.stroke();
+                    }
+                    ctx.lineWidth = 1;
+                    ctx.fillStyle = exhaust;
+                    ctx.beginPath();
+                    ctx.arc(0, fuseH * 0.74, fenRadBack * 0.18, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    const wheelR = Math.max(1, Math.floor(s * 0.06));
+                    ctx.fillStyle = darker;
+                    ctx.fillRect(-fuseW - s * 0.08, fuseH * 0.12, s * 0.06, s * 0.35);
+                    ctx.fillRect(fuseW + s * 0.02, fuseH * 0.12, s * 0.06, s * 0.35);
+                    ctx.fillStyle = dark;
+                    ctx.beginPath();
+                    ctx.arc(-fuseW - s * 0.06, fuseH * 0.52, wheelR, 0, Math.PI * 2);
+                    ctx.arc(fuseW + s * 0.05, fuseH * 0.52, wheelR, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    ctx.restore();
+                    return;
+                }
+
+                if (showSide) {
+                    ctx.save();
+                    ctx.translate(ix, iy);
+                    ctx.scale(dir, 1);
+
+                    const fuseLen = s * 1.7;
+                    const fuseH = s * 0.24;
+                    const tailLen = s * 1.05;
+                    const tailH = s * 0.08;
+                    const tailRise = s * 0.1;
+                    const finH = s * 0.3;
+                    const skidStrut = Math.max(1, Math.floor(s * 0.03));
+
+                    ctx.fillStyle = dark;
+                    ctx.beginPath();
+                    ctx.moveTo(-fuseLen * 0.35, -tailH * 0.4 - tailRise);
+                    ctx.lineTo(-fuseLen * 0.35 - tailLen, -tailH * 0.2 - tailRise);
+                    ctx.lineTo(-fuseLen * 0.35 - tailLen, tailH * 0.3 - tailRise);
+                    ctx.lineTo(-fuseLen * 0.35, tailH * 0.5 - tailRise);
+                    ctx.closePath();
+                    ctx.fill();
+
+                    ctx.fillStyle = darker;
+                    ctx.beginPath();
+                    ctx.moveTo(-fuseLen * 0.35 - tailLen + s * 0.1, -tailH * 0.2 - tailRise);
+                    ctx.lineTo(-fuseLen * 0.35 - tailLen - s * 0.02, -finH - tailRise);
+                    ctx.lineTo(-fuseLen * 0.35 - tailLen - s * 0.12, -finH - tailRise);
+                    ctx.lineTo(-fuseLen * 0.35 - tailLen - s * 0.04, -tailH * 0.2 - tailRise);
+                    ctx.closePath();
+                    ctx.fill();
+
+                    ctx.fillStyle = dark;
+                    ctx.fillRect(-fuseLen * 0.35 - tailLen - s * 0.04, -tailRise, s * 0.26, s * 0.05);
+
+                    const fenestronRadius = s * 0.16;
+                    const fenestronX = -fuseLen * 0.35 - tailLen - s * 0.02;
+                    const fenestronY = -finH + s * 0.12 - tailRise;
+                    ctx.fillStyle = darker;
+                    ctx.beginPath();
+                    ctx.arc(fenestronX, fenestronY, fenestronRadius * 1.22, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.fillStyle = body;
+                    ctx.beginPath();
+                    ctx.arc(fenestronX, fenestronY, fenestronRadius * 0.85, 0, Math.PI * 2);
+                    ctx.fill();
+                    const fenTime = performance.now() / 18;
+                    ctx.strokeStyle = rotor;
+                    ctx.lineWidth = Math.max(1, s * 0.02);
+                    for (let i = 0; i < 8; i++) {
+                        const fAngle = fenTime + i * (Math.PI / 4);
+                        ctx.beginPath();
+                        ctx.moveTo(fenestronX, fenestronY);
+                        ctx.lineTo(
+                            fenestronX + Math.cos(fAngle) * fenestronRadius * 0.75,
+                            fenestronY + Math.sin(fAngle) * fenestronRadius * 0.75
+                        );
+                        ctx.stroke();
+                    }
+                    ctx.lineWidth = 1;
+                    ctx.fillStyle = exhaust;
+                    ctx.beginPath();
+                    ctx.arc(fenestronX, fenestronY, fenestronRadius * 0.22, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    ctx.fillStyle = body;
+                    ctx.beginPath();
+                    ctx.moveTo(fuseLen * 0.45, -fuseH * 0.2);
+                    ctx.lineTo(fuseLen * 0.55, 0);
+                    ctx.lineTo(fuseLen * 0.45, fuseH * 0.35);
+                    ctx.lineTo(-fuseLen * 0.35, fuseH * 0.5);
+                    ctx.lineTo(-fuseLen * 0.35, -fuseH * 0.4);
+                    ctx.lineTo(fuseLen * 0.2, -fuseH * 0.55);
+                    ctx.closePath();
+                    ctx.fill();
+
+                    ctx.fillStyle = belly;
+                    ctx.beginPath();
+                    ctx.moveTo(fuseLen * 0.35, fuseH * 0.15);
+                    ctx.lineTo(-fuseLen * 0.35, fuseH * 0.5);
+                    ctx.lineTo(-fuseLen * 0.35, fuseH * 0.28);
+                    ctx.lineTo(fuseLen * 0.3, fuseH * 0.1);
+                    ctx.closePath();
+                    ctx.fill();
+
+                    ctx.fillStyle = highlight;
+                    ctx.beginPath();
+                    ctx.moveTo(fuseLen * 0.35, -fuseH * 0.25);
+                    ctx.lineTo(fuseLen * 0.15, -fuseH * 0.55);
+                    ctx.lineTo(-fuseLen * 0.2, -fuseH * 0.42);
+                    ctx.lineTo(-fuseLen * 0.05, -fuseH * 0.22);
+                    ctx.closePath();
+                    ctx.fill();
+
+                    ctx.fillStyle = glass;
+                    ctx.beginPath();
+                    ctx.moveTo(fuseLen * 0.38, -fuseH * 0.18);
+                    ctx.lineTo(fuseLen * 0.48, fuseH * 0.02);
+                    ctx.lineTo(fuseLen * 0.34, fuseH * 0.24);
+                    ctx.lineTo(fuseLen * 0.1, fuseH * 0.2);
+                    ctx.lineTo(fuseLen * 0.08, -fuseH * 0.22);
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.fillStyle = glassHighlight;
+                    ctx.beginPath();
+                    ctx.moveTo(fuseLen * 0.36, -fuseH * 0.12);
+                    ctx.lineTo(fuseLen * 0.42, fuseH * 0.02);
+                    ctx.lineTo(fuseLen * 0.28, fuseH * 0.06);
+                    ctx.closePath();
+                    ctx.fill();
+
+                    ctx.fillStyle = getSpriteColorWithFog('#2a3a3a', fogFactor, ambient, skyColor);
+                    ctx.beginPath();
+                    ctx.arc(0, -fuseH * 0.95, s * 0.07, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    ctx.fillStyle = dark;
+                    ctx.beginPath();
+                    ctx.moveTo(fuseLen * 0.05, -fuseH * 0.05);
+                    ctx.lineTo(fuseLen * 0.05 - s * 0.45, -fuseH * 0.18);
+                    ctx.lineTo(fuseLen * 0.05 - s * 0.45, fuseH * 0.02);
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.fillStyle = darker;
+                    ctx.fillRect(fuseLen * 0.05 - s * 0.4, fuseH * 0.04, s * 0.18, s * 0.08);
+
+                    ctx.fillStyle = darker;
+                    ctx.beginPath();
+                    ctx.arc(fuseLen * 0.35, fuseH * 0.35, s * 0.08, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.fillStyle = exhaust;
+                    ctx.fillRect(fuseLen * 0.35, fuseH * 0.32, s * 0.16, s * 0.04);
+
+                    const wheelR = Math.max(1, Math.floor(s * 0.06));
+                    ctx.fillStyle = darker;
+                    ctx.fillRect(fuseLen * 0.15, fuseH * 0.42, skidStrut, s * 0.16);
+                    ctx.fillRect(-fuseLen * 0.12, fuseH * 0.42, skidStrut, s * 0.16);
+                    ctx.fillStyle = dark;
+                    ctx.beginPath();
+                    ctx.arc(fuseLen * 0.2, fuseH * 0.6, wheelR, 0, Math.PI * 2);
+                    ctx.arc(-fuseLen * 0.08, fuseH * 0.6, wheelR, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    const rotorTime = performance.now() / 42;
+                    const rotorRadX = fuseLen * 0.75;
+                    const rotorRadY = fuseLen * 0.22;
+                    ctx.fillStyle = rotor;
+                    ctx.globalAlpha = 0.25;
+                    ctx.beginPath();
+                    ctx.ellipse(0, -fuseH * 0.72, rotorRadX, rotorRadY, 0, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.globalAlpha = 0.7;
+                    for (let i = 0; i < 4; i++) {
+                        const angle = rotorTime + i * (Math.PI / 2);
+                        const bx = Math.cos(angle) * rotorRadX;
+                        const by = Math.sin(angle) * rotorRadY;
+                        const bladeW = Math.max(2, Math.floor(s * 0.06));
+                        ctx.fillRect(bx - bladeW / 2, -fuseH * 0.72 + by - 1, bladeW, 2);
+                    }
+                    ctx.globalAlpha = 1.0;
+                    ctx.fillStyle = darker;
+                    ctx.fillRect(-s * 0.04, -fuseH * 0.84, s * 0.08, s * 0.14);
+                    ctx.fillStyle = exhaust;
+                    ctx.beginPath();
+                    ctx.arc(0, -fuseH * 0.86, s * 0.05, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    ctx.restore();
+                    return;
+                }
+            }
+
+            // RHINO Tank Unit render pass (override)
+            {
+                if (showFront) {
+                    ctx.save();
+                    ctx.translate(ix, iy);
+
+                    const fuseW = s * 0.5;
+                    const fuseH = s * 0.45;
+                    const rotorRadX = s * 0.9;
+                    const rotorRadY = s * 0.3;
+
+                    const rotorTime = performance.now() / 36;
+                    ctx.fillStyle = rotor;
+                    ctx.globalAlpha = 0.25;
+                    ctx.beginPath();
+                    ctx.ellipse(0, -fuseH * 1.9, rotorRadX, rotorRadY, 0, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.globalAlpha = 0.7;
+                    for (let i = 0; i < 4; i++) {
+                        const angle = rotorTime + i * (Math.PI / 2);
+                        const bx = Math.cos(angle) * rotorRadX;
+                        const by = Math.sin(angle) * rotorRadY;
+                        const bladeW = Math.max(2, Math.floor(s * 0.08));
+                        ctx.fillRect(bx - bladeW / 2, -fuseH * 1.9 + by - 1, bladeW, 2);
+                    }
+                    ctx.globalAlpha = 1.0;
+
+                    ctx.fillStyle = darker;
+                    ctx.fillRect(-s * 0.06, -fuseH * 1.7, s * 0.12, s * 0.35);
+
+                    ctx.fillStyle = body;
+                    ctx.beginPath();
+                    ctx.moveTo(-fuseW * 1.1, -fuseH * 0.2);
+                    ctx.lineTo(-fuseW * 0.8, -fuseH * 1.05);
+                    ctx.lineTo(fuseW * 0.8, -fuseH * 1.05);
+                    ctx.lineTo(fuseW * 1.1, -fuseH * 0.2);
+                    ctx.lineTo(fuseW * 0.9, fuseH * 0.55);
+                    ctx.lineTo(-fuseW * 0.9, fuseH * 0.55);
+                    ctx.closePath();
+                    ctx.fill();
+
+                    ctx.fillStyle = darker;
+                    ctx.beginPath();
+                    ctx.moveTo(-fuseW * 0.25, -fuseH * 0.1);
+                    ctx.lineTo(0, fuseH * 0.1);
+                    ctx.lineTo(fuseW * 0.25, -fuseH * 0.1);
+                    ctx.lineTo(0, -fuseH * 0.3);
+                    ctx.closePath();
+                    ctx.fill();
+
+                    ctx.fillStyle = glass;
+                    ctx.beginPath();
+                    ctx.moveTo(-fuseW * 0.22, -fuseH * 0.55);
+                    ctx.lineTo(fuseW * 0.22, -fuseH * 0.55);
+                    ctx.lineTo(fuseW * 0.18, -fuseH * 0.25);
+                    ctx.lineTo(-fuseW * 0.18, -fuseH * 0.25);
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.fillStyle = glassHighlight;
+                    ctx.fillRect(-fuseW * 0.14, -fuseH * 0.5, fuseW * 0.12, s * 0.08);
+
+                    ctx.fillStyle = weapon;
+                    ctx.fillRect(-fuseW - s * 0.08, -fuseH * 0.8, s * 0.12, s * 0.3);
+                    ctx.fillRect(fuseW - s * 0.04, -fuseH * 0.8, s * 0.12, s * 0.3);
+
+                    ctx.fillStyle = dark;
+                    ctx.fillRect(-fuseW - s * 0.45, -fuseH * 0.18, s * 0.45, s * 0.12);
+                    ctx.fillRect(fuseW, -fuseH * 0.18, s * 0.45, s * 0.12);
+
+                    ctx.fillStyle = weaponDark;
+                    ctx.fillRect(-fuseW - s * 0.4, -fuseH * 0.38, s * 0.18, s * 0.28);
+                    ctx.fillRect(fuseW + s * 0.22, -fuseH * 0.38, s * 0.18, s * 0.28);
+
+                    ctx.fillStyle = weapon;
+                    ctx.beginPath();
+                    ctx.arc(0, fuseH * 0.58, s * 0.16, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.fillStyle = weaponDark;
+                    ctx.fillRect(-s * 0.05, fuseH * 0.7, s * 0.04, s * 0.12);
+                    ctx.fillRect(s * 0.01, fuseH * 0.7, s * 0.04, s * 0.12);
+
+                    ctx.fillStyle = darker;
+                    ctx.fillRect(-fuseW - s * 0.12, fuseH * 0.25, s * 0.1, s * 0.5);
+                    ctx.fillRect(-fuseW - s * 0.18, fuseH * 0.7, s * 0.24, s * 0.06);
+                    ctx.fillRect(fuseW + s * 0.02, fuseH * 0.25, s * 0.1, s * 0.5);
+                    ctx.fillRect(fuseW - s * 0.06, fuseH * 0.7, s * 0.24, s * 0.06);
+
+                    ctx.restore();
+                    return;
+                }
+
+                if (showBack) {
+                    ctx.save();
+                    ctx.translate(ix, iy);
+
+                    const fuseW = s * 0.5;
+                    const fuseH = s * 0.45;
+                    const rotorRadX = s * 0.9;
+                    const rotorRadY = s * 0.3;
+
+                    const rotorTime = performance.now() / 36;
+                    ctx.fillStyle = rotor;
+                    ctx.globalAlpha = 0.25;
+                    ctx.beginPath();
+                    ctx.ellipse(0, -fuseH * 1.9, rotorRadX, rotorRadY, 0, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.globalAlpha = 0.7;
+                    for (let i = 0; i < 4; i++) {
+                        const angle = rotorTime + i * (Math.PI / 2);
+                        const bx = Math.cos(angle) * rotorRadX;
+                        const by = Math.sin(angle) * rotorRadY;
+                        const bladeW = Math.max(2, Math.floor(s * 0.08));
+                        ctx.fillRect(bx - bladeW / 2, -fuseH * 1.9 + by - 1, bladeW, 2);
+                    }
+                    ctx.globalAlpha = 1.0;
+
+                    ctx.fillStyle = darker;
+                    ctx.fillRect(-s * 0.06, -fuseH * 1.7, s * 0.12, s * 0.35);
+
+                    ctx.fillStyle = body;
+                    ctx.beginPath();
+                    ctx.moveTo(-fuseW * 0.95, -fuseH * 0.3);
+                    ctx.lineTo(-fuseW * 0.7, -fuseH);
+                    ctx.lineTo(fuseW * 0.7, -fuseH);
+                    ctx.lineTo(fuseW * 0.95, -fuseH * 0.3);
+                    ctx.lineTo(fuseW * 0.85, fuseH * 0.45);
+                    ctx.lineTo(-fuseW * 0.85, fuseH * 0.45);
+                    ctx.closePath();
+                    ctx.fill();
+
+                    ctx.fillStyle = weaponDark;
+                    ctx.fillRect(-fuseW * 0.55, -fuseH * 0.55, s * 0.18, s * 0.12);
+                    ctx.fillRect(fuseW * 0.37, -fuseH * 0.55, s * 0.18, s * 0.12);
+                    ctx.fillStyle = getSpriteColorWithFog('#4a3a2f', fogFactor, ambient, skyColor);
+                    ctx.fillRect(-fuseW * 0.5, -fuseH * 0.52, s * 0.08, s * 0.06);
+                    ctx.fillRect(fuseW * 0.42, -fuseH * 0.52, s * 0.08, s * 0.06);
+
+                    ctx.fillStyle = dark;
+                    ctx.fillRect(-fuseW - s * 0.4, -fuseH * 0.15, s * 0.4, s * 0.1);
+                    ctx.fillRect(fuseW, -fuseH * 0.15, s * 0.4, s * 0.1);
+
+                    ctx.fillStyle = dark;
+                    ctx.fillRect(-s * 0.08, fuseH * 0.2, s * 0.16, s * 0.6);
+                    ctx.fillStyle = darker;
+                    ctx.beginPath();
+                    ctx.moveTo(0, fuseH * 0.5);
+                    ctx.lineTo(-s * 0.17, fuseH * 0.95);
+                    ctx.lineTo(s * 0.17, fuseH * 0.95);
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.fillStyle = dark;
+                    ctx.fillRect(-s * 0.38, fuseH * 0.7, s * 0.76, s * 0.08);
+
+                    const fenRadBack = s * 0.16;
+                    ctx.fillStyle = weapon;
+                    ctx.beginPath();
+                    ctx.arc(0, fuseH * 0.73, fenRadBack * 1.25, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.fillStyle = dark;
+                    ctx.beginPath();
+                    ctx.arc(0, fuseH * 0.73, fenRadBack * 0.85, 0, Math.PI * 2);
+                    ctx.fill();
+                    const fenTimeBack = performance.now() / 14;
+                    ctx.strokeStyle = rotor;
+                    ctx.lineWidth = Math.max(1, s * 0.02);
+                    for (let i = 0; i < 8; i++) {
+                        const fAngle = fenTimeBack + i * (Math.PI / 4);
+                        ctx.beginPath();
+                        ctx.moveTo(0, fuseH * 0.73);
+                        ctx.lineTo(
+                            Math.cos(fAngle) * fenRadBack * 0.72,
+                            fuseH * 0.73 + Math.sin(fAngle) * fenRadBack * 0.72
+                        );
+                        ctx.stroke();
+                    }
+                    ctx.lineWidth = 1;
+                    ctx.fillStyle = weaponDark;
+                    ctx.beginPath();
+                    ctx.arc(0, fuseH * 0.73, fenRadBack * 0.2, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    ctx.fillStyle = darker;
+                    ctx.fillRect(-fuseW - s * 0.12, fuseH * 0.12, s * 0.1, s * 0.45);
+                    ctx.fillRect(-fuseW - s * 0.2, fuseH * 0.52, s * 0.26, s * 0.07);
+                    ctx.fillRect(fuseW + s * 0.02, fuseH * 0.12, s * 0.1, s * 0.45);
+                    ctx.fillRect(fuseW - s * 0.06, fuseH * 0.52, s * 0.26, s * 0.07);
+
+                    ctx.restore();
+                    return;
+                }
+
+                if (showSide) {
+                    ctx.save();
+                    ctx.translate(ix, iy);
+                    ctx.scale(dir, 1);
+
+                    const fuseLen = s * 1.6;
+                    const fuseH = s * 0.35;
+                    const tailLen = s * 1.05;
+                    const tailH = s * 0.12;
+                    const finH = s * 0.32;
+                    const wingSpan = s * 0.6;
+                    const skidH = Math.max(1, Math.floor(s * 0.05));
+
+                    ctx.fillStyle = dark;
+                    ctx.beginPath();
+                    ctx.moveTo(-fuseLen * 0.32, -tailH * 0.7);
+                    ctx.lineTo(-fuseLen * 0.32 - tailLen, -tailH * 0.35);
+                    ctx.lineTo(-fuseLen * 0.32 - tailLen, tailH * 0.35);
+                    ctx.lineTo(-fuseLen * 0.32, tailH * 0.7);
+                    ctx.closePath();
+                    ctx.fill();
+
+                    ctx.fillStyle = darker;
+                    ctx.beginPath();
+                    ctx.moveTo(-fuseLen * 0.32 - tailLen + s * 0.12, -tailH * 0.35);
+                    ctx.lineTo(-fuseLen * 0.32 - tailLen - s * 0.02, -finH);
+                    ctx.lineTo(-fuseLen * 0.32 - tailLen - s * 0.16, -finH);
+                    ctx.lineTo(-fuseLen * 0.32 - tailLen - s * 0.06, -tailH * 0.35);
+                    ctx.closePath();
+                    ctx.fill();
+
+                    ctx.fillStyle = dark;
+                    ctx.fillRect(-fuseLen * 0.32 - tailLen - s * 0.08, -s * 0.04, s * 0.3, s * 0.08);
+
+                    const enemyFenRadius = s * 0.16;
+                    const enemyFenX = -fuseLen * 0.32 - tailLen - s * 0.02;
+                    const enemyFenY = -finH + s * 0.12;
+                    ctx.fillStyle = weaponDark;
+                    ctx.beginPath();
+                    ctx.arc(enemyFenX, enemyFenY, enemyFenRadius * 1.25, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.fillStyle = dark;
+                    ctx.beginPath();
+                    ctx.arc(enemyFenX, enemyFenY, enemyFenRadius * 0.85, 0, Math.PI * 2);
+                    ctx.fill();
+                    const enemyFenTime = performance.now() / 14;
+                    ctx.strokeStyle = rotor;
+                    ctx.lineWidth = Math.max(1, s * 0.025);
+                    for (let i = 0; i < 8; i++) {
+                        const fAngle = enemyFenTime + i * (Math.PI / 4);
+                        ctx.beginPath();
+                        ctx.moveTo(enemyFenX, enemyFenY);
+                        ctx.lineTo(
+                            enemyFenX + Math.cos(fAngle) * enemyFenRadius * 0.75,
+                            enemyFenY + Math.sin(fAngle) * enemyFenRadius * 0.75
+                        );
+                        ctx.stroke();
+                    }
+                    ctx.lineWidth = 1;
+                    ctx.fillStyle = weaponDark;
+                    ctx.beginPath();
+                    ctx.arc(enemyFenX, enemyFenY, enemyFenRadius * 0.22, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    ctx.fillStyle = body;
+                    ctx.beginPath();
+                    ctx.moveTo(fuseLen * 0.48, -fuseH * 0.08);
+                    ctx.lineTo(fuseLen * 0.58, fuseH * 0.22);
+                    ctx.lineTo(fuseLen * 0.46, fuseH * 0.55);
+                    ctx.lineTo(-fuseLen * 0.32, fuseH * 0.6);
+                    ctx.lineTo(-fuseLen * 0.35, -fuseH * 0.42);
+                    ctx.lineTo(fuseLen * 0.08, -fuseH * 0.6);
+                    ctx.closePath();
+                    ctx.fill();
+
+                    ctx.fillStyle = highlight;
+                    ctx.beginPath();
+                    ctx.moveTo(fuseLen * 0.1, -fuseH * 0.25);
+                    ctx.lineTo(fuseLen * 0.32, -fuseH * 0.25);
+                    ctx.lineTo(fuseLen * 0.26, -fuseH * 0.45);
+                    ctx.lineTo(fuseLen * 0.06, -fuseH * 0.45);
+                    ctx.closePath();
+                    ctx.fill();
+
+                    ctx.fillStyle = dark;
+                    ctx.beginPath();
+                    ctx.moveTo(fuseLen * 0.4, fuseH * 0.4);
+                    ctx.lineTo(-fuseLen * 0.32, fuseH * 0.6);
+                    ctx.lineTo(-fuseLen * 0.32, fuseH * 0.35);
+                    ctx.lineTo(fuseLen * 0.34, fuseH * 0.25);
+                    ctx.closePath();
+                    ctx.fill();
+
+                    ctx.fillStyle = darker;
+                    ctx.fillRect(-fuseLen * 0.22, -fuseH * 0.7, s * 0.32, s * 0.14);
+                    ctx.fillRect(-fuseLen * 0.3, -fuseH * 0.18, s * 0.14, s * 0.1);
+                    ctx.fillRect(-fuseLen * 0.3, fuseH * 0.05, s * 0.14, s * 0.1);
+
+                    ctx.fillStyle = body;
+                    ctx.beginPath();
+                    ctx.moveTo(-fuseLen * 0.05, -fuseH * 0.18);
+                    ctx.lineTo(-fuseLen * 0.05 - wingSpan, -fuseH * 0.28);
+                    ctx.lineTo(-fuseLen * 0.05 - wingSpan, -fuseH * 0.1);
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.beginPath();
+                    ctx.moveTo(-fuseLen * 0.05, fuseH * 0.22);
+                    ctx.lineTo(-fuseLen * 0.05 - wingSpan, fuseH * 0.32);
+                    ctx.lineTo(-fuseLen * 0.05 - wingSpan, fuseH * 0.14);
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.fillStyle = weapon;
+                    ctx.fillRect(-fuseLen * 0.05 - wingSpan * 0.7, -fuseH * 0.35, s * 0.24, s * 0.14);
+                    ctx.fillRect(-fuseLen * 0.05 - wingSpan * 0.7, fuseH * 0.28, s * 0.26, s * 0.1);
+                    ctx.fillStyle = weaponDark;
+                    ctx.fillRect(-fuseLen * 0.05 - wingSpan * 0.62, fuseH * 0.36, s * 0.14, s * 0.04);
+
+                    ctx.fillStyle = glass;
+                    ctx.beginPath();
+                    ctx.moveTo(fuseLen * 0.38, -fuseH * 0.1);
+                    ctx.lineTo(fuseLen * 0.46, fuseH * 0.12);
+                    ctx.lineTo(fuseLen * 0.32, fuseH * 0.32);
+                    ctx.lineTo(fuseLen * 0.18, fuseH * 0.26);
+                    ctx.lineTo(fuseLen * 0.16, -fuseH * 0.12);
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.fillStyle = glassHighlight;
+                    ctx.beginPath();
+                    ctx.moveTo(fuseLen * 0.36, 0);
+                    ctx.lineTo(fuseLen * 0.4, fuseH * 0.12);
+                    ctx.lineTo(fuseLen * 0.3, fuseH * 0.16);
+                    ctx.closePath();
+                    ctx.fill();
+
+                    ctx.fillStyle = weapon;
+                    ctx.beginPath();
+                    ctx.arc(fuseLen * 0.38, fuseH * 0.48, s * 0.12, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.fillStyle = weaponDark;
+                    ctx.fillRect(fuseLen * 0.38, fuseH * 0.44, s * 0.24, s * 0.06);
+                    ctx.fillRect(fuseLen * 0.6, fuseH * 0.42, s * 0.04, s * 0.1);
+
+                    ctx.fillStyle = darker;
+                    ctx.fillRect(fuseLen * 0.12, fuseH * 0.48, Math.max(1, s * 0.03), s * 0.2);
+                    ctx.fillRect(-fuseLen * 0.18, fuseH * 0.48, Math.max(1, s * 0.03), s * 0.2);
+                    ctx.fillRect(-fuseLen * 0.26, fuseH * 0.66, fuseLen * 0.5, skidH);
+
+                    const rotorTime = performance.now() / 36;
+                    const rotorRadX = fuseLen * 0.75;
+                    const rotorRadY = fuseLen * 0.24;
+                    ctx.fillStyle = rotor;
+                    ctx.globalAlpha = 0.25;
+                    ctx.beginPath();
+                    ctx.ellipse(0, -fuseH * 0.78, rotorRadX, rotorRadY, 0, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.globalAlpha = 0.7;
+                    for (let i = 0; i < 4; i++) {
+                        const angle = rotorTime + i * (Math.PI / 2);
+                        const bx = Math.cos(angle) * rotorRadX;
+                        const by = Math.sin(angle) * rotorRadY;
+                        const bladeW = Math.max(2, Math.floor(s * 0.07));
+                        ctx.fillRect(bx - bladeW / 2, -fuseH * 0.78 + by - 1, bladeW, 2);
+                    }
+                    ctx.globalAlpha = 1.0;
+                    ctx.fillStyle = darker;
+                    ctx.fillRect(-s * 0.05, -fuseH * 0.9, s * 0.1, s * 0.16);
+                    ctx.fillStyle = weapon;
+                    ctx.beginPath();
+                    ctx.arc(0, -fuseH * 0.92, s * 0.06, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    ctx.restore();
+                    return;
+                }
+            }
+
+            // Strike plane render pass (override)
+            {
+                if (showFront) {
+                    const wingSpan = s * 1.15;
+                    const fuseH = s * 0.75;
+
+                    ctx.fillStyle = body;
+                    ctx.beginPath();
+                    ctx.moveTo(ix, iy - fuseH * 0.55);
+                    ctx.lineTo(ix - wingSpan, iy + fuseH * 0.1);
+                    ctx.lineTo(ix - wingSpan * 0.2, iy + fuseH * 0.5);
+                    ctx.lineTo(ix + wingSpan * 0.2, iy + fuseH * 0.5);
+                    ctx.lineTo(ix + wingSpan, iy + fuseH * 0.1);
+                    ctx.closePath();
+                    ctx.fill();
+
+                    ctx.fillStyle = highlight;
+                    ctx.fillRect(ix - s * 0.1, iy - fuseH * 0.35, s * 0.2, fuseH * 0.7);
+
+                    ctx.fillStyle = dark;
+                    ctx.fillRect(ix - wingSpan * 0.55, iy + fuseH * 0.05, s * 0.22, s * 0.1);
+                    ctx.fillRect(ix + wingSpan * 0.33, iy + fuseH * 0.05, s * 0.22, s * 0.1);
+
+                    ctx.fillStyle = darker;
+                    ctx.beginPath();
+                    ctx.moveTo(ix - s * 0.2, iy + fuseH * 0.1);
+                    ctx.lineTo(ix - s * 0.3, iy + fuseH * 0.45);
+                    ctx.lineTo(ix - s * 0.08, iy + fuseH * 0.45);
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.beginPath();
+                    ctx.moveTo(ix + s * 0.2, iy + fuseH * 0.1);
+                    ctx.lineTo(ix + s * 0.3, iy + fuseH * 0.45);
+                    ctx.lineTo(ix + s * 0.08, iy + fuseH * 0.45);
+                    ctx.closePath();
+                    ctx.fill();
+
+                    ctx.fillStyle = glass;
+                    ctx.fillRect(ix - s * 0.08, iy - fuseH * 0.3, s * 0.16, s * 0.18);
+                    ctx.fillStyle = glassHighlight;
+                    ctx.fillRect(ix - s * 0.06, iy - fuseH * 0.26, s * 0.06, s * 0.08);
+                    return;
+                }
+
+                if (showBack) {
+                    const wingSpan = s * 1.15;
+                    const fuseH = s * 0.75;
+
+                    ctx.fillStyle = body;
+                    ctx.beginPath();
+                    ctx.moveTo(ix, iy - fuseH * 0.55);
+                    ctx.lineTo(ix - wingSpan, iy + fuseH * 0.1);
+                    ctx.lineTo(ix - wingSpan * 0.2, iy + fuseH * 0.5);
+                    ctx.lineTo(ix + wingSpan * 0.2, iy + fuseH * 0.5);
+                    ctx.lineTo(ix + wingSpan, iy + fuseH * 0.1);
+                    ctx.closePath();
+                    ctx.fill();
+
+                    ctx.fillStyle = dark;
+                    ctx.fillRect(ix - s * 0.1, iy - fuseH * 0.35, s * 0.2, fuseH * 0.7);
+
+                    ctx.fillStyle = darker;
+                    ctx.beginPath();
+                    ctx.moveTo(ix, iy + fuseH * 0.15);
+                    ctx.lineTo(ix - s * 0.12, iy + fuseH * 0.5);
+                    ctx.lineTo(ix + s * 0.12, iy + fuseH * 0.5);
+                    ctx.closePath();
+                    ctx.fill();
+
+                    ctx.fillStyle = exhaust;
+                    ctx.beginPath();
+                    ctx.arc(ix - s * 0.1, iy + fuseH * 0.38, s * 0.07, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.beginPath();
+                    ctx.arc(ix + s * 0.1, iy + fuseH * 0.38, s * 0.07, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.fillStyle = exhaustGlow;
+                    ctx.beginPath();
+                    ctx.arc(ix - s * 0.1, iy + fuseH * 0.4, s * 0.04, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.beginPath();
+                    ctx.arc(ix + s * 0.1, iy + fuseH * 0.4, s * 0.04, 0, Math.PI * 2);
+                    ctx.fill();
+                    return;
+                }
+
+                ctx.save();
+                ctx.translate(ix, iy);
+                ctx.scale(dir, 1);
+
+                const fuseLen = s * 1.85;
+                const fuseH = s * 0.22;
+
+                ctx.fillStyle = body;
+                ctx.beginPath();
+                ctx.moveTo(fuseLen * 0.55, 0);
+                ctx.lineTo(fuseLen * 0.35, -fuseH * 0.9);
+                ctx.lineTo(-fuseLen * 0.35, -fuseH * 0.7);
+                ctx.lineTo(-fuseLen * 0.52, 0);
+                ctx.lineTo(-fuseLen * 0.35, fuseH * 0.7);
+                ctx.lineTo(fuseLen * 0.35, fuseH * 0.9);
+                ctx.closePath();
+                ctx.fill();
+
+                ctx.fillStyle = dark;
+                ctx.fillRect(-fuseLen * 0.1, -s * 0.55, s * 0.6, s * 0.12);
+                ctx.fillRect(-fuseLen * 0.1, s * 0.43, s * 0.6, s * 0.12);
+
+                ctx.fillStyle = darker;
+                ctx.fillRect(-fuseLen * 0.4, -s * 0.35, s * 0.18, s * 0.16);
+                ctx.fillRect(-fuseLen * 0.4, s * 0.19, s * 0.18, s * 0.16);
+
+                ctx.fillStyle = darker;
+                ctx.beginPath();
+                ctx.moveTo(-fuseLen * 0.35, 0);
+                ctx.lineTo(-fuseLen * 0.52, -s * 0.42);
+                ctx.lineTo(-fuseLen * 0.52, 0);
+                ctx.closePath();
+                ctx.fill();
+
+                ctx.fillStyle = glass;
+                ctx.beginPath();
+                ctx.ellipse(fuseLen * 0.28, 0, s * 0.12, s * 0.08, 0, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = glassHighlight;
+                ctx.beginPath();
+                ctx.ellipse(fuseLen * 0.3, -s * 0.02, s * 0.05, s * 0.03, 0, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.fillStyle = darker;
+                ctx.fillRect(-fuseLen * 0.18, -s * 0.45, s * 0.18, s * 0.06);
+                ctx.fillRect(-fuseLen * 0.18, s * 0.39, s * 0.18, s * 0.06);
+
+                ctx.fillStyle = exhaustGlow;
+                ctx.globalAlpha = 0.6;
+                ctx.beginPath();
+                ctx.ellipse(-fuseLen * 0.54, 0, s * 0.08, s * 0.05, 0, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.globalAlpha = 1.0;
+
+                ctx.restore();
+                return;
+            }
 
             if (showFront) {
                 // FRONT VIEW - Apache-style attack helicopter facing camera
@@ -10865,12 +12383,12 @@
                 // Mast-mounted sensor dome (Comanche/EVE style)
                 ctx.fillStyle = getSpriteColorWithFog('#2a3a3a', fogFactor, ambient, skyColor);
                 ctx.beginPath();
-                ctx.arc(0, -fuseH * 1.0, s * 0.08, 0, Math.PI * 2);
+                ctx.arc(0, -fuseH * 1.0, s * 0.09, 0, Math.PI * 2);
                 ctx.fill();
                 // Sensor lens
                 ctx.fillStyle = getSpriteColorWithFog('#1a2a2a', fogFactor, ambient, skyColor);
                 ctx.beginPath();
-                ctx.arc(0, -fuseH * 0.98, s * 0.04, Math.PI * 0.8, Math.PI * 2.2);
+                ctx.arc(0, -fuseH * 0.98, s * 0.045, Math.PI * 0.8, Math.PI * 2.2);
                 ctx.fill();
 
                 // Engine housings (on top sides of fuselage - sleeker for Comanche style)
@@ -10889,6 +12407,19 @@
                 ctx.lineTo(-fuseW * 1.1, fuseH * 0.1); // Left side taper
                 ctx.closePath();
                 ctx.fill();
+
+                // Fuselage panel lines
+                ctx.strokeStyle = darker;
+                ctx.lineWidth = Math.max(1, Math.floor(s * 0.02));
+                ctx.beginPath();
+                ctx.moveTo(-fuseW * 0.7, -fuseH * 0.2);
+                ctx.lineTo(fuseW * 0.7, -fuseH * 0.25);
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.moveTo(-fuseW * 0.6, fuseH * 0.2);
+                ctx.lineTo(fuseW * 0.6, fuseH * 0.18);
+                ctx.stroke();
+                ctx.lineWidth = 1;
 
                 // Fuselage center line (angular detail)
                 ctx.fillStyle = darker;
@@ -10922,6 +12453,12 @@
                 ctx.lineTo(-fuseW * 0.35, -fuseH * 0.15);
                 ctx.closePath();
                 ctx.fill();
+                ctx.beginPath();
+                ctx.moveTo(fuseW * 0.1, -fuseH * 0.28);
+                ctx.lineTo(fuseW * 0.35, -fuseH * 0.2);
+                ctx.lineTo(fuseW * 0.2, -fuseH * 0.1);
+                ctx.closePath();
+                ctx.fill();
 
                 // Stub wings with weapon pylons
                 ctx.fillStyle = dark;
@@ -10953,14 +12490,16 @@
                 ctx.fillStyle = exhaust;
                 ctx.fillRect(-s * 0.02, fuseH * 0.5, s * 0.04, s * 0.12);
 
-                // Landing gear (compact, tucked under)
+                // Landing gear (wheels)
+                const wheelR = Math.max(1, Math.floor(s * 0.06));
                 ctx.fillStyle = darker;
-                // Left gear
-                ctx.fillRect(-fuseW - s * 0.04, fuseH * 0.3, s * 0.04, s * 0.18);
-                ctx.fillRect(-fuseW - s * 0.08, fuseH * 0.45, s * 0.1, s * 0.03);
-                // Right gear  
-                ctx.fillRect(fuseW, fuseH * 0.3, s * 0.04, s * 0.18);
-                ctx.fillRect(fuseW - s * 0.02, fuseH * 0.45, s * 0.1, s * 0.03);
+                ctx.fillRect(-fuseW - s * 0.04, fuseH * 0.3, s * 0.04, s * 0.16);
+                ctx.fillRect(fuseW, fuseH * 0.3, s * 0.04, s * 0.16);
+                ctx.fillStyle = dark;
+                ctx.beginPath();
+                ctx.arc(-fuseW - s * 0.05, fuseH * 0.52, wheelR, 0, Math.PI * 2);
+                ctx.arc(fuseW + s * 0.02, fuseH * 0.52, wheelR, 0, Math.PI * 2);
+                ctx.fill();
 
                 ctx.restore();
                 return;
@@ -11061,7 +12600,7 @@
                 ctx.fillRect(-s * 0.28, fuseH * 0.68, s * 0.56, s * 0.05);
 
                 // Fenestron (enclosed tail rotor) - seen from behind
-                const fenRadBack = s * 0.11;
+                const fenRadBack = s * 0.12;
                 // Shroud
                 ctx.fillStyle = darker;
                 ctx.beginPath();
@@ -11093,12 +12632,16 @@
                 ctx.arc(0, fuseH * 0.72, fenRadBack * 0.18, 0, Math.PI * 2);
                 ctx.fill();
 
-                // Landing skids
+                // Landing gear (wheels)
+                const wheelR = Math.max(1, Math.floor(s * 0.06));
                 ctx.fillStyle = darker;
-                ctx.fillRect(-fuseW - s * 0.08, fuseH * 0.1, s * 0.06, s * 0.4);
-                ctx.fillRect(-fuseW - s * 0.12, fuseH * 0.45, s * 0.14, s * 0.04);
-                ctx.fillRect(fuseW + s * 0.02, fuseH * 0.1, s * 0.06, s * 0.4);
-                ctx.fillRect(fuseW - s * 0.02, fuseH * 0.45, s * 0.14, s * 0.04);
+                ctx.fillRect(-fuseW - s * 0.08, fuseH * 0.12, s * 0.06, s * 0.35);
+                ctx.fillRect(fuseW + s * 0.02, fuseH * 0.12, s * 0.06, s * 0.35);
+                ctx.fillStyle = dark;
+                ctx.beginPath();
+                ctx.arc(-fuseW - s * 0.06, fuseH * 0.52, wheelR, 0, Math.PI * 2);
+                ctx.arc(fuseW + s * 0.05, fuseH * 0.52, wheelR, 0, Math.PI * 2);
+                ctx.fill();
 
                 ctx.restore();
                 return;
@@ -11110,7 +12653,7 @@
             ctx.scale(dir, 1);
 
             // Proportions - sleek Comanche/Apache-like profile
-            const fuseLen = s * 1.4;
+            const fuseLen = s * 1.5;
             const fuseH = s * 0.28;
             const noseLen = s * 0.35;
             const tailLen = s * 0.9;
@@ -11144,7 +12687,7 @@
             ctx.fillRect(-fuseLen * 0.35 - tailLen - s * 0.02, -s * 0.02, s * 0.18, s * 0.04);
 
             // Fenestron (enclosed tail rotor) - Comanche/EVE style
-            const fenestronRadius = s * 0.1;
+            const fenestronRadius = s * 0.12;
             const fenestronX = -fuseLen * 0.35 - tailLen - s * 0.03;
             const fenestronY = -finH + s * 0.08;
             
@@ -11193,6 +12736,19 @@
             ctx.lineTo(fuseLen * 0.15, -fuseH * 0.5); // Top spine
             ctx.closePath();
             ctx.fill();
+
+            // Fuselage panel lines
+            ctx.strokeStyle = darker;
+            ctx.lineWidth = Math.max(1, Math.floor(s * 0.02));
+            ctx.beginPath();
+            ctx.moveTo(fuseLen * 0.25, -fuseH * 0.25);
+            ctx.lineTo(-fuseLen * 0.05, -fuseH * 0.38);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(fuseLen * 0.1, fuseH * 0.15);
+            ctx.lineTo(-fuseLen * 0.2, fuseH * 0.25);
+            ctx.stroke();
+            ctx.lineWidth = 1;
 
             // Fuselage top highlight
             ctx.fillStyle = highlight;
@@ -11244,6 +12800,12 @@
             ctx.closePath();
             ctx.fill();
 
+            // Mast-mounted sensor hint (side silhouette)
+            ctx.fillStyle = getSpriteColorWithFog('#2a3a3a', fogFactor, ambient, skyColor);
+            ctx.beginPath();
+            ctx.arc(0, -fuseH * 0.92, s * 0.06, 0, Math.PI * 2);
+            ctx.fill();
+
             // Chin sensor/gun turret
             ctx.fillStyle = darker;
             ctx.beginPath();
@@ -11252,13 +12814,18 @@
             ctx.fillStyle = exhaust;
             ctx.fillRect(fuseLen * 0.35, fuseH * 0.32, s * 0.15, s * 0.04);
 
-            // Landing skids
+            // Landing gear (wheels)
+            const wheelR = Math.max(1, Math.floor(s * 0.06));
             ctx.fillStyle = darker;
-            // Skid struts
-            ctx.fillRect(fuseLen * 0.15, fuseH * 0.4, skidStrut, s * 0.18);
-            ctx.fillRect(-fuseLen * 0.15, fuseH * 0.4, skidStrut, s * 0.18);
-            // Skid rails
-            ctx.fillRect(-fuseLen * 0.22, fuseH * 0.55, fuseLen * 0.5, skidH);
+            // Struts
+            ctx.fillRect(fuseLen * 0.16, fuseH * 0.4, skidStrut, s * 0.16);
+            ctx.fillRect(-fuseLen * 0.14, fuseH * 0.4, skidStrut, s * 0.16);
+            // Wheels
+            ctx.fillStyle = dark;
+            ctx.beginPath();
+            ctx.arc(fuseLen * 0.2, fuseH * 0.58, wheelR, 0, Math.PI * 2);
+            ctx.arc(-fuseLen * 0.1, fuseH * 0.58, wheelR, 0, Math.PI * 2);
+            ctx.fill();
 
             // Main rotor disc (perspective ellipse)
             const rotorTime = performance.now() / 40;
@@ -11584,6 +13151,169 @@
             }
         }
 
+        function drawFriendlyAircraft(x, y, size, color, heading, fogFactor = 0, ambient = 1, skyColor = CONFIG.SKY_COLOR) {
+            ctx.imageSmoothingEnabled = false;
+            const s = Math.max(Math.floor(size), 12);
+            const ix = Math.floor(x);
+            const iy = Math.floor(y);
+
+            const body = getSpriteColorWithFog(color, fogFactor, ambient, skyColor);
+            const dark = getSpriteColorWithFog(darkenColor(color, 25), fogFactor, ambient, skyColor);
+            const darker = getSpriteColorWithFog(darkenColor(color, 40), fogFactor, ambient, skyColor);
+            const highlight = getSpriteColorWithFog(lightenColor(color, 12), fogFactor, ambient, skyColor);
+            const glass = getSpriteColorWithFog('#2a4a6a', fogFactor, ambient, skyColor);
+            const glassHighlight = getSpriteColorWithFog('#4a7a9a', fogFactor, ambient, skyColor);
+            const exhaust = getSpriteColorWithFog('#1a1a1a', fogFactor, ambient, skyColor);
+            const exhaustGlow = getSpriteColorWithFog('#ff7a2a', fogFactor, ambient, skyColor);
+
+            const relAngle = normalizeAngle(heading - camera.angle);
+            const sinRel = Math.sin(relAngle);
+            const cosRel = Math.cos(relAngle);
+
+            const showFront = sinRel > 0.7;
+            const showBack = sinRel < -0.7;
+            const facingRight = cosRel >= 0;
+            const dir = facingRight ? 1 : -1;
+
+            if (showFront) {
+                const wingSpan = s * 1.0;
+                const fuseH = s * 0.7;
+
+                ctx.fillStyle = body;
+                ctx.beginPath();
+                ctx.moveTo(ix, iy - fuseH * 0.5);
+                ctx.lineTo(ix - wingSpan, iy + fuseH * 0.15);
+                ctx.lineTo(ix, iy + fuseH * 0.5);
+                ctx.lineTo(ix + wingSpan, iy + fuseH * 0.15);
+                ctx.closePath();
+                ctx.fill();
+
+                ctx.fillStyle = highlight;
+                ctx.fillRect(ix - s * 0.08, iy - fuseH * 0.35, s * 0.16, fuseH * 0.7);
+
+                ctx.fillStyle = dark;
+                ctx.fillRect(ix - wingSpan * 0.55, iy + fuseH * 0.05, s * 0.18, s * 0.05);
+                ctx.fillRect(ix + wingSpan * 0.37, iy + fuseH * 0.05, s * 0.18, s * 0.05);
+
+                ctx.fillStyle = darker;
+                ctx.beginPath();
+                ctx.moveTo(ix, iy + fuseH * 0.1);
+                ctx.lineTo(ix - s * 0.08, iy + fuseH * 0.5);
+                ctx.lineTo(ix + s * 0.08, iy + fuseH * 0.5);
+                ctx.closePath();
+                ctx.fill();
+
+                ctx.fillStyle = glass;
+                ctx.fillRect(ix - s * 0.07, iy - fuseH * 0.25, s * 0.14, s * 0.16);
+                ctx.fillStyle = glassHighlight;
+                ctx.fillRect(ix - s * 0.05, iy - fuseH * 0.22, s * 0.05, s * 0.08);
+                return;
+            }
+
+            if (showBack) {
+                const wingSpan = s * 1.0;
+                const fuseH = s * 0.7;
+
+                ctx.fillStyle = body;
+                ctx.beginPath();
+                ctx.moveTo(ix, iy - fuseH * 0.5);
+                ctx.lineTo(ix - wingSpan, iy + fuseH * 0.15);
+                ctx.lineTo(ix, iy + fuseH * 0.5);
+                ctx.lineTo(ix + wingSpan, iy + fuseH * 0.15);
+                ctx.closePath();
+                ctx.fill();
+
+                ctx.fillStyle = dark;
+                ctx.fillRect(ix - s * 0.08, iy - fuseH * 0.35, s * 0.16, fuseH * 0.7);
+
+                ctx.fillStyle = darker;
+                ctx.beginPath();
+                ctx.moveTo(ix, iy + fuseH * 0.15);
+                ctx.lineTo(ix - s * 0.1, iy + fuseH * 0.5);
+                ctx.lineTo(ix + s * 0.1, iy + fuseH * 0.5);
+                ctx.closePath();
+                ctx.fill();
+
+                ctx.fillStyle = exhaust;
+                ctx.beginPath();
+                ctx.arc(ix, iy + fuseH * 0.38, s * 0.08, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = exhaustGlow;
+                ctx.beginPath();
+                ctx.arc(ix, iy + fuseH * 0.4, s * 0.05, 0, Math.PI * 2);
+                ctx.fill();
+                return;
+            }
+
+            // Side view
+            ctx.save();
+            ctx.translate(ix, iy);
+            ctx.scale(dir, 1);
+
+            const fuseLen = s * 1.8;
+            const fuseH = s * 0.2;
+
+            ctx.fillStyle = body;
+            ctx.beginPath();
+            ctx.moveTo(fuseLen * 0.5, 0);
+            ctx.lineTo(fuseLen * 0.3, -fuseH);
+            ctx.lineTo(-fuseLen * 0.4, -fuseH * 0.8);
+            ctx.lineTo(-fuseLen * 0.5, 0);
+            ctx.lineTo(-fuseLen * 0.4, fuseH * 0.8);
+            ctx.lineTo(fuseLen * 0.3, fuseH);
+            ctx.closePath();
+            ctx.fill();
+
+            // Swept wings
+            ctx.fillStyle = dark;
+            ctx.beginPath();
+            ctx.moveTo(fuseLen * 0.05, -fuseH * 0.1);
+            ctx.lineTo(-fuseLen * 0.25, -s * 0.6);
+            ctx.lineTo(-fuseLen * 0.4, -fuseH * 0.4);
+            ctx.closePath();
+            ctx.fill();
+            ctx.beginPath();
+            ctx.moveTo(fuseLen * 0.05, fuseH * 0.1);
+            ctx.lineTo(-fuseLen * 0.25, s * 0.6);
+            ctx.lineTo(-fuseLen * 0.4, fuseH * 0.4);
+            ctx.closePath();
+            ctx.fill();
+
+            // Tail fin
+            ctx.fillStyle = darker;
+            ctx.beginPath();
+            ctx.moveTo(-fuseLen * 0.35, 0);
+            ctx.lineTo(-fuseLen * 0.5, -s * 0.4);
+            ctx.lineTo(-fuseLen * 0.5, 0);
+            ctx.closePath();
+            ctx.fill();
+
+            // Cockpit
+            ctx.fillStyle = glass;
+            ctx.beginPath();
+            ctx.ellipse(fuseLen * 0.25, 0, s * 0.12, s * 0.08, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = glassHighlight;
+            ctx.beginPath();
+            ctx.ellipse(fuseLen * 0.28, -s * 0.02, s * 0.05, s * 0.03, 0, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Under-wing pylons
+            ctx.fillStyle = darker;
+            ctx.fillRect(-fuseLen * 0.22, -s * 0.45, s * 0.16, s * 0.05);
+            ctx.fillRect(-fuseLen * 0.22, s * 0.4, s * 0.16, s * 0.05);
+
+            // Afterburner glow
+            ctx.fillStyle = exhaustGlow;
+            ctx.globalAlpha = 0.6;
+            ctx.beginPath();
+            ctx.ellipse(-fuseLen * 0.52, 0, s * 0.08, s * 0.05, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.globalAlpha = 1.0;
+
+            ctx.restore();
+        }
+
         function drawTransportPlane(x, y, size, color, heading, fogFactor = 0, ambient = 1, skyColor = CONFIG.SKY_COLOR) {
             ctx.imageSmoothingEnabled = false;
             const s = Math.max(Math.floor(size), 18);
@@ -11769,12 +13499,12 @@
             const iy = Math.floor(y);
 
             // Colors - aggressive attack helicopter palette (slightly different from player)
-            const body = getSpriteColorWithFog(color, fogFactor, ambient, skyColor);
-            const dark = getSpriteColorWithFog(darkenColor(color, 22), fogFactor, ambient, skyColor);
-            const darker = getSpriteColorWithFog(darkenColor(color, 38), fogFactor, ambient, skyColor);
-            const highlight = getSpriteColorWithFog(lightenColor(color, 10), fogFactor, ambient, skyColor);
-            const glass = getSpriteColorWithFog('#1a3a3a', fogFactor, ambient, skyColor);
-            const glassHighlight = getSpriteColorWithFog('#3a6a6a', fogFactor, ambient, skyColor);
+            const body = getSpriteColorWithFog(darkenColor(color, 35), fogFactor, ambient, skyColor);
+            const dark = getSpriteColorWithFog(darkenColor(color, 50), fogFactor, ambient, skyColor);
+            const darker = getSpriteColorWithFog(darkenColor(color, 65), fogFactor, ambient, skyColor);
+            const highlight = getSpriteColorWithFog(lightenColor(color, 4), fogFactor, ambient, skyColor);
+            const glass = getSpriteColorWithFog('#122a2a', fogFactor, ambient, skyColor);
+            const glassHighlight = getSpriteColorWithFog('#2f5a5a', fogFactor, ambient, skyColor);
             const rotor = getSpriteColorWithFog('#3a3a3a', fogFactor, ambient, skyColor);
             const weapon = getSpriteColorWithFog('#2a2a2a', fogFactor, ambient, skyColor);
             const weaponDark = getSpriteColorWithFog('#1a1a1a', fogFactor, ambient, skyColor);
@@ -11849,6 +13579,16 @@
                 ctx.lineTo(fuseW * 0.4, -fuseH * 0.95);
                 ctx.lineTo(fuseW * 0.25, -fuseH * 0.55);
                 ctx.lineTo(-fuseW * 0.25, -fuseH * 0.55);
+                ctx.closePath();
+                ctx.fill();
+
+                // Armored nose plate
+                ctx.fillStyle = darker;
+                ctx.beginPath();
+                ctx.moveTo(-fuseW * 0.18, -fuseH * 0.15);
+                ctx.lineTo(0, fuseH * 0.05);
+                ctx.lineTo(fuseW * 0.18, -fuseH * 0.15);
+                ctx.lineTo(0, -fuseH * 0.25);
                 ctx.closePath();
                 ctx.fill();
 
@@ -11999,7 +13739,7 @@
                 ctx.fillRect(-s * 0.35, fuseH * 0.62, s * 0.7, s * 0.08);
 
                 // Fenestron (enclosed tail rotor) - RHINO style back view
-                const fenRadEnemyBack = s * 0.13;
+                const fenRadEnemyBack = s * 0.14;
                 // Heavy shroud
                 ctx.fillStyle = weapon;
                 ctx.beginPath();
@@ -12053,7 +13793,7 @@
             const tailLen = s * 0.95;
             const tailH = s * 0.12;
             const finH = s * 0.28;
-            const wingSpan = s * 0.45;
+            const wingSpan = s * 0.55;
             const skidH = Math.max(1, Math.floor(s * 0.04));
 
             // Tail boom (tapered, slightly thicker than player heli)
@@ -12081,7 +13821,7 @@
             ctx.fillRect(-fuseLen * 0.32 - tailLen - s * 0.06, -s * 0.04, s * 0.26, s * 0.08);
 
             // Fenestron (enclosed tail rotor) - RHINO style, darker and more angular
-            const enemyFenRadius = s * 0.12;
+            const enemyFenRadius = s * 0.14;
             const enemyFenX = -fuseLen * 0.32 - tailLen - s * 0.02;
             const enemyFenY = -finH + s * 0.1;
             
@@ -12122,12 +13862,22 @@
             // Main fuselage (bulkier, more armored RHINO look)
             ctx.fillStyle = body;
             ctx.beginPath();
-            ctx.moveTo(fuseLen * 0.42, -fuseH * 0.1);  // Nose top
-            ctx.lineTo(fuseLen * 0.5, fuseH * 0.2);    // Nose tip (lower, more aggressive)
-            ctx.lineTo(fuseLen * 0.42, fuseH * 0.5);   // Nose bottom
-            ctx.lineTo(-fuseLen * 0.32, fuseH * 0.55); // Rear bottom
-            ctx.lineTo(-fuseLen * 0.32, -fuseH * 0.45);// Rear top
-            ctx.lineTo(fuseLen * 0.1, -fuseH * 0.55);  // Top spine
+            ctx.moveTo(fuseLen * 0.45, -fuseH * 0.05);  // Flat nose top
+            ctx.lineTo(fuseLen * 0.55, fuseH * 0.18);   // Angular nose tip
+            ctx.lineTo(fuseLen * 0.45, fuseH * 0.48);   // Flat nose bottom
+            ctx.lineTo(-fuseLen * 0.32, fuseH * 0.55);  // Rear bottom
+            ctx.lineTo(-fuseLen * 0.34, -fuseH * 0.42); // Rear top
+            ctx.lineTo(fuseLen * 0.05, -fuseH * 0.55);  // Top spine
+            ctx.closePath();
+            ctx.fill();
+
+            // Armored side plate
+            ctx.fillStyle = highlight;
+            ctx.beginPath();
+            ctx.moveTo(fuseLen * 0.1, -fuseH * 0.2);
+            ctx.lineTo(fuseLen * 0.3, -fuseH * 0.2);
+            ctx.lineTo(fuseLen * 0.28, -fuseH * 0.35);
+            ctx.lineTo(fuseLen * 0.08, -fuseH * 0.35);
             ctx.closePath();
             ctx.fill();
 
@@ -12155,6 +13905,13 @@
             ctx.fillStyle = darker;
             ctx.fillRect(-fuseLen * 0.2, -fuseH * 0.65, s * 0.28, s * 0.12);
 
+            // Thruster bay details
+            ctx.fillStyle = darker;
+            ctx.fillRect(-fuseLen * 0.28, -fuseH * 0.15, s * 0.12, s * 0.08);
+            ctx.fillRect(-fuseLen * 0.28, fuseH * 0.05, s * 0.12, s * 0.08);
+            ctx.fillStyle = highlight;
+            ctx.fillRect(-fuseLen * 0.26, -fuseH * 0.12, s * 0.06, s * 0.02);
+
             // Stub wings with weapon pylons
             ctx.fillStyle = body;
             // Upper wing
@@ -12177,16 +13934,16 @@
             // Weapon pylons
             ctx.fillStyle = weapon;
             // Rocket pods (upper wing)
-            ctx.fillRect(-fuseLen * 0.05 - wingSpan * 0.7, -fuseH * 0.35, s * 0.18, s * 0.12);
-            ctx.fillRect(-fuseLen * 0.05 - wingSpan * 0.4, -fuseH * 0.32, s * 0.14, s * 0.1);
+            ctx.fillRect(-fuseLen * 0.05 - wingSpan * 0.7, -fuseH * 0.35, s * 0.22, s * 0.14);
+            ctx.fillRect(-fuseLen * 0.05 - wingSpan * 0.4, -fuseH * 0.32, s * 0.16, s * 0.12);
             // Missile rails (lower wing)
-            ctx.fillRect(-fuseLen * 0.05 - wingSpan * 0.7, fuseH * 0.28, s * 0.2, s * 0.08);
-            ctx.fillRect(-fuseLen * 0.05 - wingSpan * 0.4, fuseH * 0.25, s * 0.16, s * 0.08);
+            ctx.fillRect(-fuseLen * 0.05 - wingSpan * 0.7, fuseH * 0.28, s * 0.24, s * 0.1);
+            ctx.fillRect(-fuseLen * 0.05 - wingSpan * 0.4, fuseH * 0.25, s * 0.18, s * 0.1);
 
             // Missiles on rails
             ctx.fillStyle = weaponDark;
-            ctx.fillRect(-fuseLen * 0.05 - wingSpan * 0.65, fuseH * 0.36, s * 0.12, s * 0.04);
-            ctx.fillRect(-fuseLen * 0.05 - wingSpan * 0.35, fuseH * 0.33, s * 0.1, s * 0.04);
+            ctx.fillRect(-fuseLen * 0.05 - wingSpan * 0.65, fuseH * 0.36, s * 0.14, s * 0.04);
+            ctx.fillRect(-fuseLen * 0.05 - wingSpan * 0.35, fuseH * 0.33, s * 0.12, s * 0.04);
 
             // Cockpit glass (tandem seating, angular)
             ctx.fillStyle = glass;
@@ -12216,6 +13973,33 @@
             ctx.lineTo(fuseLen * 0.3, 0);
             ctx.closePath();
             ctx.fill();
+
+            // Armored canopy frames
+            ctx.fillStyle = darker;
+            ctx.fillRect(fuseLen * 0.32, -fuseH * 0.02, s * 0.02, fuseH * 0.22);
+            ctx.fillRect(fuseLen * 0.18, -fuseH * 0.18, s * 0.02, fuseH * 0.28);
+
+            // F89 marking
+            if (s >= 16) {
+                ctx.fillStyle = highlight;
+                const markX = -fuseLen * 0.02;
+                const markY = -fuseH * 0.15;
+                const markW = Math.max(1, Math.floor(s * 0.06));
+                const markH = Math.max(1, Math.floor(s * 0.02));
+                // F
+                ctx.fillRect(markX, markY, markW, markH);
+                ctx.fillRect(markX, markY, Math.max(1, Math.floor(markW * 0.35)), markH * 4);
+                ctx.fillRect(markX, markY + markH * 2, Math.max(1, Math.floor(markW * 0.7)), markH);
+                // 8
+                ctx.fillRect(markX + markW + markH, markY, markH, markH * 4);
+                ctx.fillRect(markX + markW + markH * 2, markY, markH, markH * 4);
+                ctx.fillRect(markX + markW + markH, markY + markH * 2, markH * 2, markH);
+                // 9
+                ctx.fillRect(markX + markW + markH * 4, markY, markW, markH);
+                ctx.fillRect(markX + markW + markH * 4, markY + markH * 2, markW, markH);
+                ctx.fillRect(markX + markW + markH * 4, markY + markH * 3, Math.max(1, Math.floor(markW * 0.6)), markH);
+                ctx.fillRect(markX + markW + markH * 4 + markW - markH, markY, markH, markH * 4);
+            }
 
             // Chin-mounted gun turret
             ctx.fillStyle = weapon;
@@ -12957,10 +14741,12 @@
                 let dy = proj.y - cam.y;
                 
                 // Handle map wrapping
-                if (dx > CONFIG.MAP_SIZE / 2) dx -= CONFIG.MAP_SIZE;
-                if (dx < -CONFIG.MAP_SIZE / 2) dx += CONFIG.MAP_SIZE;
-                if (dy > CONFIG.MAP_SIZE / 2) dy -= CONFIG.MAP_SIZE;
-                if (dy < -CONFIG.MAP_SIZE / 2) dy += CONFIG.MAP_SIZE;
+                if (!proj.noWrap) {
+                    if (dx > CONFIG.MAP_SIZE / 2) dx -= CONFIG.MAP_SIZE;
+                    if (dx < -CONFIG.MAP_SIZE / 2) dx += CONFIG.MAP_SIZE;
+                    if (dy > CONFIG.MAP_SIZE / 2) dy -= CONFIG.MAP_SIZE;
+                    if (dy < -CONFIG.MAP_SIZE / 2) dy += CONFIG.MAP_SIZE;
+                }
                 
                 // Rotate to camera space
                 const rx = dx * cosAngle - dy * sinAngle;
@@ -13347,7 +15133,10 @@
             ctx.font = '12px Courier New';
             ctx.fillStyle = '#0f0';
             ctx.textAlign = 'right';
-            ctx.fillText(`${state.mag}/${state.mags}`, weaponPanelX + weaponPanelW - 12, weaponPanelY + 35);
+            const ammoDisplay = soldierWeapon.current === 'airstrike'
+                ? `STR ${getAirstrikeCharges(state)}`
+                : `${state.mag}/${state.mags}`;
+            ctx.fillText(ammoDisplay, weaponPanelX + weaponPanelW - 12, weaponPanelY + 35);
 
             // Magazine icon
             ctx.strokeStyle = '#0f0';
@@ -13362,7 +15151,7 @@
             ctx.fillStyle = '#0a0';
             ctx.textAlign = 'left';
             ctx.fillText('[1]M4 [2]SNP [3]PST [4]JAV', weaponPanelX + 12, weaponPanelY + 68);
-            ctx.fillText('[5]STG [6]C4 [R]RLD', weaponPanelX + 12, weaponPanelY + 80);
+            ctx.fillText('[5]STG [6]C4 [7]AIR [R]RLD', weaponPanelX + 12, weaponPanelY + 80);
             
             // Show C4 status if C4 is selected
             if (soldierWeapon.current === 'c4' && placedC4Charges.length > 0) {
@@ -13405,8 +15194,13 @@
             ctx.fillStyle = '#0f0';
             ctx.textAlign = 'left';
             ctx.fillText(`HP ${Math.round(playerHealth)}`, statusPanelX + 12, statusPanelY + 26);
+            const alertTexts = ['UNDETECTED', 'SUSPICIOUS', 'ALERT', 'ALARM!'];
+            const alertColors = ['#00ff66', '#ffff00', '#ff8800', '#ff3333'];
+            ctx.fillStyle = alertColors[alertLevel] || '#00ff66';
+            ctx.fillText(alertTexts[alertLevel] || 'UNDETECTED', statusPanelX + 12, statusPanelY + 54);
             ctx.textAlign = 'right';
-            ctx.fillText(`STANCE: ${SOLDIER.stance.toUpperCase()}`, statusPanelX + statusPanelW - 12, statusPanelY + 58);
+            ctx.fillStyle = '#0f0';
+            ctx.fillText(`STANCE: ${SOLDIER.stance.toUpperCase()}`, statusPanelX + statusPanelW - 12, statusPanelY + 54);
 
             const showCrosshair = !soldierScope.active || soldierWeapon.current !== 'sniper';
             if (showCrosshair) {
@@ -13450,6 +15244,47 @@
                     ctx.fillStyle = '#ff4400';
                     ctx.textAlign = 'left';
                     ctx.fillText(`C4 ARMED: ${placedC4Charges.length} [6]`, 10, screenHeight - 100);
+                }
+            }
+
+            const now = performance.now();
+            const showInbound = airstrikeState.planesInbound.length > 0 || now < airstrikeState.inboundMessageUntil;
+
+            if (airstrikeState.designating) {
+                ctx.font = 'bold 18px Courier New';
+                ctx.fillStyle = '#66ccff';
+                ctx.textAlign = 'center';
+                ctx.fillText('DESIGNATING TARGET', screenWidth / 2, screenHeight * 0.28);
+            }
+
+            if (showInbound) {
+                ctx.font = 'bold 16px Courier New';
+                ctx.fillStyle = '#66ccff';
+                ctx.textAlign = 'center';
+                ctx.fillText('AIRSTRIKE INBOUND', screenWidth / 2, screenHeight * 0.32);
+            }
+
+            // Only show targeting crosshair while designating (not after calling strike)
+            if (airstrikeState.designating) {
+                const markerPoint = getAirstrikeAimPoint();
+                if (markerPoint) {
+                    const projection = projectWorldToScreen(camera, markerPoint.x, markerPoint.y, markerPoint.z);
+                    if (projection) {
+                        const markerSize = Math.max(6, 16 * projection.scaleY);
+                        ctx.save();
+                        ctx.strokeStyle = '#66ccff';
+                        ctx.lineWidth = 2;
+                        ctx.beginPath();
+                        ctx.arc(projection.screenX, projection.screenY, markerSize, 0, Math.PI * 2);
+                        ctx.stroke();
+                        ctx.beginPath();
+                        ctx.moveTo(projection.screenX - markerSize, projection.screenY);
+                        ctx.lineTo(projection.screenX + markerSize, projection.screenY);
+                        ctx.moveTo(projection.screenX, projection.screenY - markerSize);
+                        ctx.lineTo(projection.screenX, projection.screenY + markerSize);
+                        ctx.stroke();
+                        ctx.restore();
+                    }
                 }
             }
             
@@ -14478,10 +16313,7 @@
             ctx.textAlign = 'center';
             
             if (targetingSystem.lockedTarget) {
-                // Locked - show LOCK indicator
-                const blinkOn = Math.floor(performance.now() / 200) % 2 === 0;
-                ctx.fillStyle = blinkOn ? '#ff4400' : '#ff8800';
-                ctx.fillText('◆ TARGET LOCKED ◆', statusX, statusY);
+                // Locked - diamond indicator on target is sufficient, no text needed
             } else if (targetingSystem.selectedTarget && targetingSystem.isLocking) {
                 // Acquiring lock
                 ctx.fillStyle = '#ffaa00';
@@ -14699,6 +16531,54 @@
                     ctx.beginPath();
                     ctx.arc(radarX2, radarY2, 4, 0, Math.PI * 2);
                     ctx.fill();
+                }
+            }
+            
+            // Draw extraction/reach objectives on radar
+            const mission = getActiveMission();
+            if (mission && mission.objectives) {
+                for (const obj of mission.objectives) {
+                    if (obj.type === 'reach_location' && !obj.completed) {
+                        let dx = obj.x - camera.x;
+                        let dy = obj.y - camera.y;
+                        
+                        if (dx > CONFIG.MAP_SIZE / 2) dx -= CONFIG.MAP_SIZE;
+                        if (dx < -CONFIG.MAP_SIZE / 2) dx += CONFIG.MAP_SIZE;
+                        if (dy > CONFIG.MAP_SIZE / 2) dy -= CONFIG.MAP_SIZE;
+                        if (dy < -CONFIG.MAP_SIZE / 2) dy += CONFIG.MAP_SIZE;
+                        
+                        const dist = Math.sqrt(dx * dx + dy * dy);
+                        
+                        // Rotate to match camera heading
+                        const sinAngle = Math.sin(-camera.angle);
+                        const cosAngle = Math.cos(-camera.angle);
+                        const rx = dx * cosAngle - dy * sinAngle;
+                        const ry = dx * sinAngle + dy * cosAngle;
+                        
+                        // Clamp to radar edge if outside range
+                        let radarDist = dist * scale;
+                        const maxRadarDist = radarSize / 2 - 8;
+                        if (radarDist > maxRadarDist) {
+                            radarDist = maxRadarDist;
+                        }
+                        const angle = Math.atan2(rx, -ry);
+                        const clampedRx = Math.sin(angle) * radarDist;
+                        const clampedRy = -Math.cos(angle) * radarDist;
+                        
+                        const objX = radarCenterX + (dist <= CONFIG.RADAR_RANGE ? rx * scale : clampedRx);
+                        const objY = radarCenterY - (dist <= CONFIG.RADAR_RANGE ? ry * scale : clampedRy);
+                        
+                        // Draw extraction point as blinking cyan diamond
+                        const blinkOn = Math.floor(performance.now() / 400) % 2 === 0;
+                        ctx.fillStyle = blinkOn ? '#00ffff' : '#008888';
+                        ctx.beginPath();
+                        ctx.moveTo(objX, objY - 5);
+                        ctx.lineTo(objX + 4, objY);
+                        ctx.lineTo(objX, objY + 5);
+                        ctx.lineTo(objX - 4, objY);
+                        ctx.closePath();
+                        ctx.fill();
+                    }
                 }
             }
             
@@ -15098,6 +16978,7 @@
                 updateMissionTimer();
                 updatePlaytime(deltaTime);
                 updateTelemetry(deltaTime);
+                updateAlertLevel(deltaTime);
                 
                 // Update player movement and combat
                 if (!isPlayerDead && !missionComplete) {
@@ -15129,6 +17010,7 @@
                     // Update enemy AI and projectiles
                     updateEnemyAI(deltaTime, timestamp);
                     updateEnemyProjectiles(deltaTime);
+                    updateAirstrikePlanes(deltaTime);
                     updateAirportSpawns(timestamp);
                     updateHelipadSpawns(timestamp);
                     

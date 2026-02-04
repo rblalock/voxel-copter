@@ -4,9 +4,9 @@
   "difficulty": "medium",
   "weather": "night",
   "playerStart": {
-    "x": 913,
-    "y": 122,
-    "heading": 1.02
+    "x": 982,
+    "y": 132,
+    "heading": 2.77
   },
   "airports": [],
   "bases": [],
@@ -177,7 +177,7 @@
     {
       "trigger": "objective_complete",
       "action": "complete_mission",
-      "objectiveId": "obj-1770174695767-b8c2"
+      "objectiveId": "obj-0-1770214953426"
     }
   ],
   "missionId": 3

@@ -1,0 +1,210 @@
+{
+  "mapIndex": 11,
+  "name": "SHADOW STRIKE",
+  "difficulty": "hard",
+  "weather": "dusk",
+  "playerStart": {
+    "x": 717,
+    "y": 752,
+    "heading": 0.8
+  },
+  "airports": [],
+  "bases": [],
+  "helipads": [],
+  "spawnZones": [],
+  "units": [
+    {
+      "type": "SAM_SITE",
+      "x": 300,
+      "y": 250,
+      "faction": "enemy"
+    },
+    {
+      "type": "SAM_SITE",
+      "x": 400,
+      "y": 250,
+      "faction": "enemy"
+    },
+    {
+      "type": "SAM_SITE",
+      "x": 500,
+      "y": 250,
+      "faction": "enemy"
+    },
+    {
+      "type": "SAM_SITE",
+      "x": 300,
+      "y": 550,
+      "faction": "enemy"
+    },
+    {
+      "type": "SAM_SITE",
+      "x": 400,
+      "y": 550,
+      "faction": "enemy"
+    },
+    {
+      "type": "SAM_SITE",
+      "x": 250,
+      "y": 400,
+      "faction": "enemy"
+    },
+    {
+      "type": "SAM_SITE",
+      "x": 550,
+      "y": 400,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 280,
+      "y": 280,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 350,
+      "y": 270,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 450,
+      "y": 270,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 520,
+      "y": 280,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 280,
+      "y": 520,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 320,
+      "y": 560,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 360,
+      "y": 300,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 440,
+      "y": 300,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 350,
+      "y": 350,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 450,
+      "y": 350,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 350,
+      "y": 450,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 450,
+      "y": 450,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 370,
+      "y": 420,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 430,
+      "y": 420,
+      "faction": "enemy"
+    },
+    {
+      "type": "SNIPER",
+      "x": 320,
+      "y": 320,
+      "faction": "enemy"
+    },
+    {
+      "type": "SNIPER",
+      "x": 480,
+      "y": 320,
+      "faction": "enemy"
+    },
+    {
+      "type": "SNIPER",
+      "x": 320,
+      "y": 480,
+      "faction": "enemy"
+    },
+    {
+      "type": "BARRACKS",
+      "x": 340,
+      "y": 310,
+      "faction": "enemy"
+    },
+    {
+      "type": "BARRACKS",
+      "x": 460,
+      "y": 310,
+      "faction": "enemy"
+    },
+    {
+      "type": "CONTROL_TOWER",
+      "x": 400,
+      "y": 400,
+      "faction": "enemy"
+    },
+    {
+      "type": "FUEL_DEPOT",
+      "x": 340,
+      "y": 400,
+      "faction": "enemy"
+    }
+  ],
+  "objectives": [
+    {
+      "type": "destroy_type",
+      "description": "Destroy the Command Center",
+      "targetType": "CONTROL_TOWER",
+      "count": 1
+    },
+    {
+      "type": "reach_location",
+      "description": "Extract to the insertion point",
+      "x": 110,
+      "y": 110,
+      "radius": 50
+    }
+  ],
+  "events": [
+    {
+      "trigger": "objective_complete",
+      "action": "show_message",
+      "objectiveId": "obj_0",
+      "message": "TARGET DOWN - EXTRACT TO LZ",
+      "duration": 4000
+    }
+  ],
+  "missionId": 6
+}
