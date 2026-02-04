@@ -3882,7 +3882,9 @@
                 startTransition(GAME_STATES.MISSION_GENERATOR, 400);
             } else if (index === 5) {
                 // MAP EDITOR - open mapeditor.html in a new window
-                window.open('./mapeditor.html', '_blank');
+                const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+                const editorUrl = isLocal ? '/src/web/public/mapeditor.html' : '/mapeditor.html';
+                window.open(editorUrl, '_blank');
             } else if (index === 6) {
                 settingsSelectionIndex = 0;
                 startTransition(GAME_STATES.SETTINGS, 600);
