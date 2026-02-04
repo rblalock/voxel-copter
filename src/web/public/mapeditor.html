@@ -318,6 +318,18 @@
                         <option value="base">Base</option>
                         <option value="helipad">Helipad</option>
                         <option value="enemyZone">Enemy Spawn Zone</option>
+                        <optgroup label="Individual Units">
+                            <option value="unit_TANK">Tank</option>
+                            <option value="unit_SOLDIER">Soldier</option>
+                            <option value="unit_SAM_SITE">SAM Site</option>
+                        </optgroup>
+                        <optgroup label="Individual Structures">
+                            <option value="unit_BUILDING">Building</option>
+                            <option value="unit_HANGAR">Hangar</option>
+                            <option value="unit_BARRACKS">Barracks</option>
+                            <option value="unit_FUEL_DEPOT">Fuel Depot</option>
+                            <option value="unit_CONTROL_TOWER">Control Tower</option>
+                        </optgroup>
                     </select>
                 </div>
                 <div class="spawn-list" id="spawnList"></div>
@@ -433,7 +445,16 @@
             airport: { label: 'Airport', color: '#ffaa00' },
             base: { label: 'Base', color: '#00ff00' },
             helipad: { label: 'Helipad', color: '#ff66ff' },
-            enemyZone: { label: 'Enemy Zone', color: '#ff3333' }
+            enemyZone: { label: 'Enemy Zone', color: '#ff3333' },
+            // Individual units
+            unit_TANK: { label: 'Tank', color: '#8b9a6b', isUnit: true, unitType: 'TANK' },
+            unit_SOLDIER: { label: 'Soldier', color: '#7a8b5a', isUnit: true, unitType: 'SOLDIER' },
+            unit_SAM_SITE: { label: 'SAM Site', color: '#5a7a5a', isUnit: true, unitType: 'SAM_SITE' },
+            unit_BUILDING: { label: 'Building', color: '#9b7a5a', isUnit: true, unitType: 'BUILDING' },
+            unit_HANGAR: { label: 'Hangar', color: '#7a7a7a', isUnit: true, unitType: 'HANGAR' },
+            unit_BARRACKS: { label: 'Barracks', color: '#6a7a5a', isUnit: true, unitType: 'BARRACKS' },
+            unit_FUEL_DEPOT: { label: 'Fuel Depot', color: '#5a5a5a', isUnit: true, unitType: 'FUEL_DEPOT' },
+            unit_CONTROL_TOWER: { label: 'Control Tower', color: '#8a8a8a', isUnit: true, unitType: 'CONTROL_TOWER' }
         };
 
         const state = {
@@ -769,6 +790,31 @@
                 mapCtx.lineTo(-4, -2);
                 mapCtx.closePath();
                 mapCtx.stroke();
+            } else if (spawn.type.startsWith('unit_')) {
+                // Individual unit - draw as small filled shape with label
+                const spawnType = SPAWN_TYPES[spawn.type];
+                const unitType = spawnType?.unitType || spawn.type.replace('unit_', '');
+                const isStructure = ['BUILDING', 'HANGAR', 'BARRACKS', 'FUEL_DEPOT', 'CONTROL_TOWER'].includes(unitType);
+                
+                if (isStructure) {
+                    // Draw structure as square
+                    const size = unitType === 'HANGAR' ? 20 : unitType === 'CONTROL_TOWER' ? 12 : 16;
+                    mapCtx.fillRect(-size / 2, -size / 2, size, size);
+                    mapCtx.strokeRect(-size / 2, -size / 2, size, size);
+                } else {
+                    // Draw unit as circle
+                    const radius = unitType === 'SAM_SITE' ? 10 : unitType === 'TANK' ? 8 : 6;
+                    mapCtx.beginPath();
+                    mapCtx.arc(0, 0, radius, 0, Math.PI * 2);
+                    mapCtx.fill();
+                    mapCtx.stroke();
+                }
+                // Draw unit type label
+                mapCtx.font = '9px Courier New';
+                mapCtx.fillStyle = '#fff';
+                mapCtx.textAlign = 'center';
+                const shortLabel = unitType.charAt(0);
+                mapCtx.fillText(shortLabel, 0, 3);
             }
 
             if (selected) {
@@ -1798,8 +1844,8 @@
             // Store in localStorage for the game to pick up
             localStorage.setItem('playtestMission', JSON.stringify(config));
             
-            // Open the game in a new tab with playtest flag
-            const gameUrl = window.location.href.replace('mapeditor.html', 'index.html') + '?playtest=1';
+            // Open the game in a new tab with playtest flag (use root URL)
+            const gameUrl = window.location.origin + '/?playtest=1';
             window.open(gameUrl, '_blank');
         }
 
@@ -1984,6 +2030,17 @@
                 types: s.types || ['TANK', 'SOLDIER'],
                 count: s.count || 10
             }));
+            
+            // Individual units (placed at specific locations)
+            const units = state.spawns.filter((s) => s.type.startsWith('unit_')).map((s) => {
+                const spawnType = SPAWN_TYPES[s.type];
+                return {
+                    type: spawnType?.unitType || s.type.replace('unit_', ''),
+                    x: Math.round(s.x),
+                    y: Math.round(s.y),
+                    faction: s.faction || 'enemy'
+                };
+            });
 
             // Serialize objectives
             const objectives = state.objectives.map(obj => {
@@ -2046,6 +2103,7 @@
                 bases,
                 helipads,
                 spawnZones,
+                units,
                 objectives,
                 events
             };
@@ -2087,6 +2145,14 @@
                 spawn.radius = z.radius || 80;
                 spawn.types = z.types || ['TANK', 'SOLDIER'];
                 spawn.count = z.count || 10;
+                state.spawns.push(spawn);
+            });
+            
+            // Load individual units
+            (config.units || []).forEach((u) => {
+                const spawnType = `unit_${u.type}`;
+                const spawn = createSpawn(spawnType, u.x, u.y);
+                spawn.faction = u.faction || 'enemy';
                 state.spawns.push(spawn);
             });
             
@@ -2238,7 +2304,13 @@
                 if (event.target.files?.[0]) importConfig(event.target.files[0]);
             });
             elements.copyBtn.addEventListener('click', copyJson);
-            elements.heightToggle.addEventListener('change', draw);
+            elements.heightToggle.addEventListener('change', () => {
+                // When enabling heightmap, set alpha to max for better visibility
+                if (elements.heightToggle.checked) {
+                    elements.heightAlpha.value = 100;
+                }
+                draw();
+            });
             elements.gridToggle.addEventListener('change', draw);
             elements.previewToggle.addEventListener('change', draw);
             elements.heightAlpha.addEventListener('input', draw);

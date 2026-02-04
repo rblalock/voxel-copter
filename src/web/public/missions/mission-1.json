@@ -1,32 +1,71 @@
 {
-  "missionId": 1,
+  "mapIndex": 1,
   "name": "TRAINING GROUND",
-  "mapIndex": 0,
   "difficulty": "easy",
   "weather": "clear",
-  "playerStart": { "x": 512, "y": 700 },
-  "airports": [],
+  "playerStart": {
+    "x": 959,
+    "y": 538
+  },
+  "airports": [
+    {
+      "x": 743,
+      "y": 91,
+      "heading": 0.96,
+      "faction": "enemy"
+    }
+  ],
   "bases": [
-    { "x": 400, "y": 300, "size": "small", "faction": "enemy" }
+    {
+      "x": 481,
+      "y": 447,
+      "size": "medium",
+      "faction": "enemy"
+    },
+    {
+      "x": 682,
+      "y": 223,
+      "size": "medium",
+      "faction": "enemy"
+    }
   ],
   "helipads": [
-    { "x": 520, "y": 680, "faction": "friendly" }
+    {
+      "x": 223,
+      "y": 250,
+      "faction": "enemy"
+    }
   ],
   "spawnZones": [
-    { "x": 350, "y": 280, "radius": 80, "types": ["TANK"], "count": 3 },
-    { "x": 450, "y": 350, "radius": 60, "types": ["SAM_SITE"], "count": 1 },
-    { "x": 400, "y": 250, "radius": 40, "types": ["BUILDING"], "count": 2 }
+    {
+      "x": 483,
+      "y": 402,
+      "radius": 90,
+      "types": [
+        "TANK",
+        "SOLDIER"
+      ],
+      "count": 10
+    }
   ],
   "objectives": [
-    { "type": "destroy_all", "description": "Destroy all enemy targets" }
+    {
+      "type": "destroy_all",
+      "description": "Destroy all enemy targets"
+    }
   ],
   "events": [
     {
       "trigger": "kill_count",
-      "count": 2,
       "action": "show_message",
+      "count": 2,
       "message": "Good shooting! Keep it up!",
       "duration": 3000
+    },
+    {
+      "trigger": "objective_complete",
+      "action": "complete_mission",
+      "objectiveId": "obj-0-1770162290088"
     }
   ]
 }

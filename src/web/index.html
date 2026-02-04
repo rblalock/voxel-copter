@@ -4895,6 +4895,17 @@
                     }
                 }
             }
+            
+            // Spawn individual units at specific positions
+            if (config.units && config.units.length > 0) {
+                for (const unit of config.units) {
+                    const typeKey = (unit.type || '').toUpperCase();
+                    if (TARGET_TYPES[typeKey]) {
+                        const faction = unit.faction === 'friendly' ? FACTIONS.FRIENDLY : FACTIONS.ENEMY;
+                        spawnTargetAt(typeKey, unit.x, unit.y, faction);
+                    }
+                }
+            }
         }
 
         function generateHelipad(x, y, faction = FACTIONS.ENEMY) {
