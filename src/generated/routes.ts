@@ -94,6 +94,18 @@ declare module '@agentuity/frontend' {
 	 * Maps route keys (METHOD /path) to their input/output schemas
 	 */
 	export interface RouteRegistry {
+	'GET /api/dev': {
+				inputSchema: never;
+				outputSchema: never;
+				stream: false;
+				params: never;
+			};
+	'POST /api/dev/save-mission': {
+				inputSchema: never;
+				outputSchema: never;
+				stream: false;
+				params: never;
+			};
 	'POST /api/mission/debrief': {
 				inputSchema: never;
 				outputSchema: never;
@@ -163,6 +175,18 @@ declare module '@agentuity/frontend' {
 	 * Used by createClient() from @agentuity/frontend for type-safe RPC calls.
 	 */
 	export interface RPCRouteRegistry {
+		dev: {
+			/**
+			 * Route: GET /api/dev
+			 */
+			get: { input: never; output: never; type: 'api'; params: never; paramsTuple: [] };
+			saveMission: {
+				/**
+				 * Route: POST /api/dev/save-mission
+				 */
+				post: { input: never; output: never; type: 'api'; params: never; paramsTuple: [] };
+			};
+		};
 		mission: {
 			debrief: {
 				/**
@@ -214,6 +238,18 @@ declare module '@agentuity/frontend' {
  * @internal
  */
 const _rpcRouteMetadata = {
+		"dev": {
+				"get": {
+						"type": "api",
+						"path": "/api/dev"
+				},
+				"saveMission": {
+						"post": {
+								"type": "api",
+								"path": "/api/dev/save-mission"
+						}
+				}
+		},
 		"mission": {
 				"debrief": {
 						"post": {

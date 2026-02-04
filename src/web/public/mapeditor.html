@@ -483,7 +483,9 @@
             activeTab: 'spawns',
             metadata: { name: '', difficulty: 'medium', weather: 'clear' },
             previewOverlay: null,
-            previewDirty: true
+            previewDirty: true,
+            isDirty: false,
+            lastMissionValue: ''
         };
 
         // Mission file paths
@@ -967,6 +969,7 @@
             typeSelect.value = spawn.type;
             typeSelect.onchange = () => {
                 spawn.type = typeSelect.value;
+                markDirty();
                 renderSpawnList();
                 renderProperties();
                 draw();
@@ -983,6 +986,7 @@
             factionSelect.value = spawn.faction || 'enemy';
             factionSelect.onchange = () => {
                 spawn.faction = factionSelect.value;
+                markDirty();
                 draw();
             };
             addRow('Faction', factionSelect);
@@ -995,6 +999,7 @@
             headingInput.value = spawn.heading || 0;
             headingInput.oninput = () => {
                 spawn.heading = Number(headingInput.value);
+                markDirty();
                 draw();
             };
             addRow('Heading', headingInput);
@@ -1010,6 +1015,7 @@
                 sizeSelect.value = spawn.size || 'medium';
                 sizeSelect.onchange = () => {
                     spawn.size = sizeSelect.value;
+                    markDirty();
                     draw();
                 };
                 addRow('Size', sizeSelect);
@@ -1021,6 +1027,7 @@
                 radiusInput.value = spawn.radius || 90;
                 radiusInput.onchange = () => {
                     spawn.radius = Number(radiusInput.value) || 90;
+                    markDirty();
                     draw();
                 };
                 addRow('Radius', radiusInput);
@@ -1029,6 +1036,7 @@
                 typesInput.value = (spawn.types || []).join(', ');
                 typesInput.onchange = () => {
                     spawn.types = typesInput.value.split(',').map((t) => t.trim()).filter(Boolean);
+                    markDirty();
                 };
                 addRow('Types', typesInput);
 
@@ -1037,6 +1045,7 @@
                 countInput.value = spawn.count || 10;
                 countInput.onchange = () => {
                     spawn.count = Number(countInput.value) || 0;
+                    markDirty();
                 };
                 addRow('Count', countInput);
             }
@@ -1121,6 +1130,7 @@
             state.objectives.push(obj);
             state.selectedObjectiveId = obj.id;
             state.selectedId = null;
+            markDirty();
             renderObjectivesList();
             renderObjectiveProperties();
             draw();
@@ -1140,6 +1150,7 @@
             if (state.selectedObjectiveId === id) {
                 state.selectedObjectiveId = null;
             }
+            markDirty();
             renderObjectivesList();
             renderObjectiveProperties();
             draw();
@@ -1312,6 +1323,7 @@
             if (!obj) return;
             
             obj[field] = value;
+            markDirty();
             
             // If type changed, reset type-specific fields
             if (field === 'type') {
@@ -1406,6 +1418,7 @@
             state.selectedEventId = evt.id;
             state.selectedId = null;
             state.selectedObjectiveId = null;
+            markDirty();
             renderEventsList();
             renderEventProperties();
             updateStatus();
@@ -1428,6 +1441,7 @@
             if (state.selectedEventId === id) {
                 state.selectedEventId = null;
             }
+            markDirty();
             renderEventsList();
             renderEventProperties();
             updateStatus();
@@ -1573,6 +1587,7 @@
             if (!evt) return;
             
             evt[field] = value;
+            markDirty();
             
             // If trigger changed, reset trigger-specific fields
             if (field === 'trigger') {
@@ -1621,6 +1636,7 @@
                 evt.enemies = [{ type: 'TANK', x: 512, y: 512, count: 3, spread: 50 }];
             }
             evt.enemies[0][field] = value;
+            markDirty();
             draw();
         }
 
@@ -1725,6 +1741,28 @@
                     validationEl.textContent = '✓ Ready';
                     validationEl.style.color = '#0f0';
                 }
+            }
+            
+            // Update dirty indicator in title
+            updateDirtyIndicator();
+        }
+        
+        function markDirty() {
+            state.isDirty = true;
+            updateDirtyIndicator();
+        }
+        
+        function clearDirty() {
+            state.isDirty = false;
+            updateDirtyIndicator();
+        }
+        
+        function updateDirtyIndicator() {
+            const titleEl = document.querySelector('h1');
+            const baseTitle = 'VoxelCopter Map Editor';
+            if (titleEl) {
+                titleEl.textContent = state.isDirty ? `${baseTitle} *` : baseTitle;
+                titleEl.style.color = state.isDirty ? '#ffaa00' : '#00ff00';
             }
         }
         
@@ -1877,6 +1915,7 @@
                 if (spawn) {
                     state.spawns = state.spawns.filter((s) => s.id !== spawn.id);
                     if (state.selectedId === spawn.id) state.selectedId = null;
+                    markDirty();
                     renderSpawnList();
                     renderProperties();
                     draw();
@@ -1897,6 +1936,7 @@
                 if (obj && (obj.type === 'reach_location' || obj.type === 'protect_target')) {
                     obj.x = Math.round(clamp(mapPos.x, 0, state.width));
                     obj.y = Math.round(clamp(mapPos.y, 0, state.height));
+                    markDirty();
                     renderObjectiveProperties();
                     draw();
                     return;
@@ -1910,6 +1950,7 @@
                     if (evt.trigger === 'enter_zone') {
                         evt.x = Math.round(clamp(mapPos.x, 0, state.width));
                         evt.y = Math.round(clamp(mapPos.y, 0, state.height));
+                        markDirty();
                         renderEventProperties();
                         draw();
                         return;
@@ -1917,6 +1958,7 @@
                     if (evt.action === 'spawn_enemies' && evt.enemies?.[0]) {
                         evt.enemies[0].x = Math.round(clamp(mapPos.x, 0, state.width));
                         evt.enemies[0].y = Math.round(clamp(mapPos.y, 0, state.height));
+                        markDirty();
                         renderEventProperties();
                         draw();
                         return;
@@ -1948,6 +1990,7 @@
                 state.spawns.push(spawn);
                 selectSpawn(spawn.id);
             }
+            markDirty();
             renderSpawnList();
             draw();
         }
@@ -1976,6 +2019,7 @@
             if (spawn) {
                 spawn.x = clamp(mapPos.x, 0, state.width);
                 spawn.y = clamp(mapPos.y, 0, state.height);
+                markDirty();
                 renderSpawnList();
                 draw();
             }
@@ -2198,21 +2242,29 @@
             link.download = `voxelcopter-map-${state.mapIndex}.json`;
             link.click();
             URL.revokeObjectURL(link.href);
+            clearDirty();
         }
 
         function saveLocal() {
             const config = serializeConfig();
             localStorage.setItem(CONFIG.LOCAL_KEY, JSON.stringify(config));
             elements.jsonOutput.value = JSON.stringify(config, null, 2);
+            clearDirty();
         }
 
         function loadLocal() {
+            if (state.isDirty) {
+                if (!confirm('You have unsaved changes. Load from local storage anyway?')) {
+                    return;
+                }
+            }
             const raw = localStorage.getItem(CONFIG.LOCAL_KEY);
             if (!raw) return alert('No saved configuration found.');
             try {
                 const config = JSON.parse(raw);
                 applyConfig(config);
                 elements.jsonOutput.value = JSON.stringify(config, null, 2);
+                clearDirty();
             } catch (err) {
                 alert('Saved configuration is invalid.');
             }
@@ -2225,6 +2277,7 @@
                     const config = JSON.parse(reader.result);
                     applyConfig(config);
                     elements.jsonOutput.value = JSON.stringify(config, null, 2);
+                    clearDirty();
                 } catch (err) {
                     alert('Invalid JSON file.');
                 }
@@ -2251,6 +2304,7 @@
             elements.metaDifficulty.value = 'medium';
             elements.metaWeather.value = 'clear';
             elements.jsonOutput.value = '';
+            markDirty();
             renderSpawnList();
             renderObjectivesList();
             renderEventsList();
@@ -2280,6 +2334,8 @@
                 const config = await response.json();
                 applyConfig(config);
                 elements.jsonOutput.value = JSON.stringify(config, null, 2);
+                state.lastMissionValue = missionId;
+                clearDirty();
                 console.log(`Loaded mission ${missionId}: ${config.name || 'Unnamed'}`);
             } catch (err) {
                 console.error('Failed to load mission:', err);
@@ -2300,7 +2356,34 @@
             const missionFile = MISSION_FILES[missionId];
             const filename = missionFile.split('/').pop();
             
-            // Download the JSON file - developer saves it to src/web/public/missions/
+            // Try dev endpoint first (only works locally)
+            try {
+                const response = await fetch('/api/dev/save-mission', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ missionId, mission: config })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    elements.jsonOutput.value = JSON.stringify(config, null, 2);
+                    clearDirty();
+                    console.log(`Mission ${missionId} saved to ${result.path}`);
+                    updateStatusMessage(`Mission ${missionId} saved to ${result.path}`);
+                    return;
+                }
+                
+                // If 403 (production), fall through to download
+                if (response.status !== 403) {
+                    console.warn('Dev save failed:', result.error);
+                }
+            } catch (err) {
+                // Network error or endpoint doesn't exist - fall through to download
+                console.log('Dev endpoint not available, using download');
+            }
+            
+            // Fallback: download the JSON file - developer saves it to src/web/public/missions/
             const json = JSON.stringify(config, null, 2);
             elements.jsonOutput.value = json;
             
@@ -2311,23 +2394,85 @@
             link.click();
             URL.revokeObjectURL(link.href);
             
-            console.log(`Mission ${missionId} exported as ${filename}`);
+            clearDirty();
+            console.log(`Mission ${missionId} downloaded as ${filename} (save to src/web/public/missions/)`);
+            updateStatusMessage(`Mission ${missionId} downloaded (save to src/web/public/missions/)`);
+        }
+        
+        function updateStatusMessage(message) {
+            // Show temporary status message
+            const statusEl = document.getElementById('statusValidation');
+            if (statusEl) {
+                const originalText = statusEl.textContent;
+                const originalColor = statusEl.style.color;
+                statusEl.textContent = message;
+                statusEl.style.color = '#0ff';
+                setTimeout(() => {
+                    statusEl.textContent = originalText;
+                    statusEl.style.color = originalColor;
+                }, 3000);
+            }
         }
 
         function bindEvents() {
             window.addEventListener('resize', resizeCanvas);
-            elements.loadMissionBtn.addEventListener('click', loadMission);
+            elements.loadMissionBtn.addEventListener('click', () => {
+                if (state.isDirty) {
+                    if (!confirm('You have unsaved changes. Load new mission anyway?')) {
+                        return;
+                    }
+                }
+                loadMission();
+            });
             elements.saveMissionBtn.addEventListener('click', saveMission);
-            elements.loadMapBtn.addEventListener('click', () => loadMap(Number(elements.mapSelect.value)));
+            elements.loadMapBtn.addEventListener('click', () => {
+                if (state.isDirty) {
+                    if (!confirm('You have unsaved changes. Load new map anyway?')) {
+                        return;
+                    }
+                }
+                loadMap(Number(elements.mapSelect.value));
+            });
             elements.saveLocalBtn.addEventListener('click', saveLocal);
             elements.loadLocalBtn.addEventListener('click', loadLocal);
             elements.exportBtn.addEventListener('click', exportConfig);
-            elements.importBtn.addEventListener('click', () => elements.importFile.click());
+            elements.importBtn.addEventListener('click', () => {
+                if (state.isDirty) {
+                    if (!confirm('You have unsaved changes. Import will overwrite them. Continue?')) {
+                        return;
+                    }
+                }
+                elements.importFile.click();
+            });
             elements.importFile.addEventListener('change', (event) => {
                 if (event.target.files?.[0]) importConfig(event.target.files[0]);
             });
             elements.copyBtn.addEventListener('click', copyJson);
             elements.clearBtn.addEventListener('click', clearAll);
+            
+            // Auto-load on dropdown change with dirty warning
+            elements.mapSelect.addEventListener('change', () => {
+                if (state.isDirty) {
+                    if (!confirm('You have unsaved changes. Load new map anyway?')) {
+                        elements.mapSelect.value = String(state.mapIndex); // Revert
+                        return;
+                    }
+                }
+                loadMap(Number(elements.mapSelect.value));
+            });
+            
+            elements.missionSelect.addEventListener('change', () => {
+                if (state.isDirty) {
+                    if (!confirm('You have unsaved changes. Load new mission anyway?')) {
+                        elements.missionSelect.value = state.lastMissionValue; // Revert
+                        return;
+                    }
+                }
+                if (elements.missionSelect.value) {
+                    loadMission();
+                }
+            });
+            
             elements.heightToggle.addEventListener('change', () => {
                 // When enabling heightmap, set alpha to max for better visibility
                 if (elements.heightToggle.checked) {
@@ -2345,12 +2490,15 @@
             elements.footprintScale.addEventListener('input', draw);
             elements.metaName.addEventListener('input', () => {
                 state.metadata.name = elements.metaName.value;
+                markDirty();
             });
             elements.metaDifficulty.addEventListener('change', () => {
                 state.metadata.difficulty = elements.metaDifficulty.value;
+                markDirty();
             });
             elements.metaWeather.addEventListener('change', () => {
                 state.metadata.weather = elements.metaWeather.value;
+                markDirty();
             });
             elements.mapCanvas.addEventListener('contextmenu', (e) => e.preventDefault());
             elements.mapCanvas.addEventListener('mousedown', handleCanvasPointerDown);
@@ -2358,6 +2506,27 @@
             elements.mapCanvas.addEventListener('mouseup', handleCanvasPointerUp);
             elements.mapCanvas.addEventListener('mouseleave', handleCanvasPointerUp);
             elements.mapCanvas.addEventListener('wheel', handleWheel, { passive: false });
+        }
+
+        // Check if dev endpoint is available and show indicator
+        async function checkDevMode() {
+            try {
+                const response = await fetch('/api/dev/save-mission', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ missionId: 'test', mission: null })
+                });
+                // 400 means endpoint exists but data invalid = dev mode
+                // 403 means production mode
+                if (response.status === 400) {
+                    const devIndicator = document.createElement('span');
+                    devIndicator.textContent = '[DEV MODE]';
+                    devIndicator.style.cssText = 'color: #ff0; margin-left: 10px; font-size: 12px;';
+                    document.querySelector('h1').appendChild(devIndicator);
+                }
+            } catch (err) {
+                // Endpoint doesn't exist
+            }
         }
 
         initMapOptions();
@@ -2369,6 +2538,7 @@
         renderObjectivesList();
         renderEventsList();
         renderProperties();
+        checkDevMode();
     </script>
 </body>
 </html>
