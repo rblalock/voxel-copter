@@ -1391,7 +1391,7 @@
             AIR_ATTACK_HELI: {
                 type: 'air_attack_heli', domain: DOMAINS.AIR, faction: FACTIONS.ENEMY,
                 health: 120, size: 22, hitHeight: 10, points: 350,
-                color: '#4a5a4a',
+                color: '#3a3a3a',  // Dark charcoal for aggressive RHINO style
                 ai: {
                     type: 'aircraft',
                     role: 'attack_heli',
@@ -9796,7 +9796,7 @@
                 const fogFactor = Math.min(1, ry / cam.distance);
                 const weather = WEATHER_SETTINGS[weatherCondition];
 
-                drawHelicopter(screenX, screenY, size, '#4a5a4a', heli.angle, fogFactor, weather.ambient, weather.skyColor);
+                drawHelicopter(screenX, screenY, size, '#6a7a7a', heli.angle, fogFactor, weather.ambient, weather.skyColor);  // Light gray for sleek Comanche/EVE style
             }
         }
         
@@ -10057,8 +10057,19 @@
                 // Rotor mast
                 ctx.fillStyle = darker;
                 ctx.fillRect(-s * 0.03, -fuseH * 0.75, s * 0.06, s * 0.18);
+                
+                // Mast-mounted sensor dome (Comanche/EVE style)
+                ctx.fillStyle = getSpriteColorWithFog('#2a3a3a', fogFactor, ambient, skyColor);
+                ctx.beginPath();
+                ctx.arc(0, -fuseH * 1.0, s * 0.08, 0, Math.PI * 2);
+                ctx.fill();
+                // Sensor lens
+                ctx.fillStyle = getSpriteColorWithFog('#1a2a2a', fogFactor, ambient, skyColor);
+                ctx.beginPath();
+                ctx.arc(0, -fuseH * 0.98, s * 0.04, Math.PI * 0.8, Math.PI * 2.2);
+                ctx.fill();
 
-                // Engine housings (on top sides of fuselage)
+                // Engine housings (on top sides of fuselage - sleeker for Comanche style)
                 ctx.fillStyle = dark;
                 ctx.fillRect(-fuseW - s * 0.12, -fuseH * 0.45, s * 0.14, s * 0.22);
                 ctx.fillRect(fuseW - s * 0.02, -fuseH * 0.45, s * 0.14, s * 0.22);
@@ -10232,17 +10243,51 @@
                 ctx.fillStyle = dark;
                 ctx.fillRect(-s * 0.05, fuseH * 0.35, s * 0.1, s * 0.35);
 
-                // Tail fin (horizontal stabilizer visible)
+                // Tail fin (vertical stabilizer with fenestron)
                 ctx.fillStyle = darker;
-                ctx.fillRect(-s * 0.25, fuseH * 0.6, s * 0.5, s * 0.06);
-
-                // Tail rotor (small disc on side of tail)
-                ctx.fillStyle = rotor;
-                ctx.globalAlpha = 0.5;
                 ctx.beginPath();
-                ctx.ellipse(s * 0.15, fuseH * 0.5, s * 0.12, s * 0.04, 0, 0, Math.PI * 2);
+                ctx.moveTo(0, fuseH * 0.5);
+                ctx.lineTo(-s * 0.12, fuseH * 0.85);
+                ctx.lineTo(s * 0.12, fuseH * 0.85);
+                ctx.closePath();
                 ctx.fill();
-                ctx.globalAlpha = 1.0;
+                
+                // Horizontal stabilizer
+                ctx.fillStyle = dark;
+                ctx.fillRect(-s * 0.28, fuseH * 0.68, s * 0.56, s * 0.05);
+
+                // Fenestron (enclosed tail rotor) - seen from behind
+                const fenRadBack = s * 0.11;
+                // Shroud
+                ctx.fillStyle = darker;
+                ctx.beginPath();
+                ctx.arc(0, fuseH * 0.72, fenRadBack * 1.15, 0, Math.PI * 2);
+                ctx.fill();
+                // Inner disc
+                ctx.fillStyle = body;
+                ctx.beginPath();
+                ctx.arc(0, fuseH * 0.72, fenRadBack * 0.8, 0, Math.PI * 2);
+                ctx.fill();
+                // Animated fan blades
+                const fenTimeBack = performance.now() / 20;
+                ctx.strokeStyle = rotor;
+                ctx.lineWidth = Math.max(1, s * 0.015);
+                for (let i = 0; i < 8; i++) {
+                    const fAngle = fenTimeBack + (i * Math.PI / 4);
+                    ctx.beginPath();
+                    ctx.moveTo(0, fuseH * 0.72);
+                    ctx.lineTo(
+                        Math.cos(fAngle) * fenRadBack * 0.7,
+                        fuseH * 0.72 + Math.sin(fAngle) * fenRadBack * 0.7
+                    );
+                    ctx.stroke();
+                }
+                ctx.lineWidth = 1;
+                // Center hub
+                ctx.fillStyle = exhaust;
+                ctx.beginPath();
+                ctx.arc(0, fuseH * 0.72, fenRadBack * 0.18, 0, Math.PI * 2);
+                ctx.fill();
 
                 // Landing skids
                 ctx.fillStyle = darker;
@@ -10294,9 +10339,44 @@
             ctx.fillStyle = dark;
             ctx.fillRect(-fuseLen * 0.35 - tailLen - s * 0.02, -s * 0.02, s * 0.18, s * 0.04);
 
-            // Tail rotor housing
+            // Fenestron (enclosed tail rotor) - Comanche/EVE style
+            const fenestronRadius = s * 0.1;
+            const fenestronX = -fuseLen * 0.35 - tailLen - s * 0.03;
+            const fenestronY = -finH + s * 0.08;
+            
+            // Fenestron shroud (circular enclosure)
             ctx.fillStyle = darker;
-            ctx.fillRect(-fuseLen * 0.35 - tailLen - s * 0.08, -finH + s * 0.02, s * 0.1, s * 0.08);
+            ctx.beginPath();
+            ctx.arc(fenestronX, fenestronY, fenestronRadius * 1.2, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Inner spinning fan
+            ctx.fillStyle = body;
+            ctx.beginPath();
+            ctx.arc(fenestronX, fenestronY, fenestronRadius * 0.85, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Fan blade hints (animated)
+            const fenTime = performance.now() / 20;
+            ctx.strokeStyle = rotor;
+            ctx.lineWidth = Math.max(1, s * 0.02);
+            for (let i = 0; i < 8; i++) {
+                const fAngle = fenTime + (i * Math.PI / 4);
+                ctx.beginPath();
+                ctx.moveTo(fenestronX, fenestronY);
+                ctx.lineTo(
+                    fenestronX + Math.cos(fAngle) * fenestronRadius * 0.75,
+                    fenestronY + Math.sin(fAngle) * fenestronRadius * 0.75
+                );
+                ctx.stroke();
+            }
+            ctx.lineWidth = 1;
+            
+            // Fenestron center hub
+            ctx.fillStyle = exhaust;
+            ctx.beginPath();
+            ctx.arc(fenestronX, fenestronY, fenestronRadius * 0.2, 0, Math.PI * 2);
+            ctx.fill();
 
             // Main fuselage (angular stealth shape)
             ctx.fillStyle = body;
@@ -10938,70 +11018,85 @@
                 ctx.fillStyle = darker;
                 ctx.fillRect(-s * 0.05, -fuseH * 1.7, s * 0.1, s * 0.35);
 
-                // Engine housing (bulge on top)
+                // Engine housings (LARGER bulges for RHINO aggressive look)
                 ctx.fillStyle = darker;
-                ctx.fillRect(-s * 0.2, -fuseH * 1.3, s * 0.4, s * 0.15);
+                ctx.fillRect(-s * 0.28, -fuseH * 1.35, s * 0.56, s * 0.2);
+                // Side engine intakes (more prominent)
+                ctx.fillStyle = weapon;
+                ctx.fillRect(-fuseW - s * 0.08, -fuseH * 0.9, s * 0.12, s * 0.25);
+                ctx.fillRect(fuseW - s * 0.04, -fuseH * 0.9, s * 0.12, s * 0.25);
 
-                // Main fuselage (narrower, more angular)
+                // Main fuselage (WIDER, more angular for RHINO)
                 ctx.fillStyle = body;
                 ctx.beginPath();
-                ctx.moveTo(-fuseW, -fuseH * 0.3);
-                ctx.lineTo(-fuseW * 0.7, -fuseH);
-                ctx.lineTo(fuseW * 0.7, -fuseH);
-                ctx.lineTo(fuseW, -fuseH * 0.3);
-                ctx.lineTo(fuseW * 0.8, fuseH * 0.5);
-                ctx.lineTo(-fuseW * 0.8, fuseH * 0.5);
+                ctx.moveTo(-fuseW * 1.1, -fuseH * 0.25);  // Wider top
+                ctx.lineTo(-fuseW * 0.8, -fuseH * 1.05);
+                ctx.lineTo(fuseW * 0.8, -fuseH * 1.05);
+                ctx.lineTo(fuseW * 1.1, -fuseH * 0.25);   // Wider top
+                ctx.lineTo(fuseW * 0.9, fuseH * 0.55);
+                ctx.lineTo(-fuseW * 0.9, fuseH * 0.55);
                 ctx.closePath();
                 ctx.fill();
 
-                // Fuselage highlight
+                // Fuselage highlight (subtle for dark RHINO look)
                 ctx.fillStyle = highlight;
                 ctx.beginPath();
-                ctx.moveTo(-fuseW * 0.5, -fuseH * 0.9);
-                ctx.lineTo(fuseW * 0.5, -fuseH * 0.9);
-                ctx.lineTo(fuseW * 0.3, -fuseH * 0.5);
-                ctx.lineTo(-fuseW * 0.3, -fuseH * 0.5);
+                ctx.moveTo(-fuseW * 0.4, -fuseH * 0.95);
+                ctx.lineTo(fuseW * 0.4, -fuseH * 0.95);
+                ctx.lineTo(fuseW * 0.25, -fuseH * 0.55);
+                ctx.lineTo(-fuseW * 0.25, -fuseH * 0.55);
                 ctx.closePath();
                 ctx.fill();
 
-                // Stub wings with weapons (visible from front)
+                // Stub wings with weapons (LARGER for RHINO)
                 ctx.fillStyle = body;
                 // Left wing
-                ctx.fillRect(-fuseW - s * 0.35, -fuseH * 0.2, s * 0.35, s * 0.1);
+                ctx.fillRect(-fuseW - s * 0.42, -fuseH * 0.18, s * 0.42, s * 0.12);
                 // Right wing
-                ctx.fillRect(fuseW, -fuseH * 0.2, s * 0.35, s * 0.1);
+                ctx.fillRect(fuseW, -fuseH * 0.18, s * 0.42, s * 0.12);
 
-                // Weapon pylons
+                // Weapon pylons (LARGER and MORE VISIBLE for RHINO - intimidating)
                 ctx.fillStyle = weapon;
-                ctx.fillRect(-fuseW - s * 0.3, -fuseH * 0.35, s * 0.12, s * 0.2);
-                ctx.fillRect(fuseW + s * 0.18, -fuseH * 0.35, s * 0.12, s * 0.2);
+                // Left pylon with multiple weapons
+                ctx.fillRect(-fuseW - s * 0.38, -fuseH * 0.4, s * 0.14, s * 0.25);
+                ctx.fillRect(-fuseW - s * 0.22, -fuseH * 0.35, s * 0.1, s * 0.2);
+                // Right pylon with multiple weapons
+                ctx.fillRect(fuseW + s * 0.24, -fuseH * 0.4, s * 0.14, s * 0.25);
+                ctx.fillRect(fuseW + s * 0.12, -fuseH * 0.35, s * 0.1, s * 0.2);
+                // Additional missile rails (visible from front)
+                ctx.fillStyle = weaponDark;
+                ctx.fillRect(-fuseW - s * 0.36, fuseH * 0.0, s * 0.08, s * 0.18);
+                ctx.fillRect(fuseW + s * 0.28, fuseH * 0.0, s * 0.08, s * 0.18);
 
-                // Tandem cockpit glass (front gunner visible)
+                // Cockpit glass (SMALLER/more armored for RHINO - less exposed)
                 ctx.fillStyle = glass;
                 ctx.beginPath();
-                ctx.ellipse(0, -fuseH * 0.2, fuseW * 0.45, fuseH * 0.45, 0, 0, Math.PI * 2);
+                ctx.ellipse(0, -fuseH * 0.15, fuseW * 0.35, fuseH * 0.35, 0, 0, Math.PI * 2);
                 ctx.fill();
+                // Armored cockpit frame
+                ctx.fillStyle = darker;
+                ctx.fillRect(-fuseW * 0.4, -fuseH * 0.3, fuseW * 0.8, s * 0.03);
                 ctx.fillStyle = glassHighlight;
                 ctx.beginPath();
-                ctx.ellipse(-fuseW * 0.1, -fuseH * 0.4, fuseW * 0.15, fuseH * 0.15, 0, 0, Math.PI * 2);
+                ctx.ellipse(-fuseW * 0.08, -fuseH * 0.35, fuseW * 0.1, fuseH * 0.1, 0, 0, Math.PI * 2);
                 ctx.fill();
 
-                // Chin gun turret
+                // Chin gun turret (LARGER for RHINO)
                 ctx.fillStyle = weapon;
                 ctx.beginPath();
-                ctx.arc(0, fuseH * 0.6, s * 0.12, 0, Math.PI * 2);
+                ctx.arc(0, fuseH * 0.55, s * 0.15, 0, Math.PI * 2);
                 ctx.fill();
                 ctx.fillStyle = weaponDark;
-                ctx.beginPath();
-                ctx.arc(0, fuseH * 0.75, s * 0.05, 0, Math.PI * 2);
-                ctx.fill();
+                // Dual gun barrels
+                ctx.fillRect(-s * 0.04, fuseH * 0.65, s * 0.03, s * 0.12);
+                ctx.fillRect(s * 0.01, fuseH * 0.65, s * 0.03, s * 0.12);
 
-                // Landing skids
+                // Landing skids (HEAVIER for RHINO)
                 ctx.fillStyle = darker;
-                ctx.fillRect(-fuseW - s * 0.1, fuseH * 0.3, s * 0.08, s * 0.45);
-                ctx.fillRect(-fuseW - s * 0.15, fuseH * 0.7, s * 0.18, s * 0.05);
-                ctx.fillRect(fuseW + s * 0.02, fuseH * 0.3, s * 0.08, s * 0.45);
-                ctx.fillRect(fuseW - s * 0.03, fuseH * 0.7, s * 0.18, s * 0.05);
+                ctx.fillRect(-fuseW - s * 0.12, fuseH * 0.25, s * 0.1, s * 0.5);
+                ctx.fillRect(-fuseW - s * 0.18, fuseH * 0.7, s * 0.22, s * 0.06);
+                ctx.fillRect(fuseW + s * 0.02, fuseH * 0.25, s * 0.1, s * 0.5);
+                ctx.fillRect(fuseW - s * 0.04, fuseH * 0.7, s * 0.22, s * 0.06);
 
                 ctx.restore();
                 return;
@@ -11095,24 +11190,49 @@
                 ctx.closePath();
                 ctx.fill();
 
-                // Horizontal stabilizer
+                // Horizontal stabilizer (heavier for RHINO)
                 ctx.fillStyle = dark;
-                ctx.fillRect(-s * 0.3, fuseH * 0.65, s * 0.6, s * 0.07);
+                ctx.fillRect(-s * 0.35, fuseH * 0.62, s * 0.7, s * 0.08);
 
-                // Tail rotor
-                ctx.fillStyle = rotor;
-                ctx.globalAlpha = 0.5;
+                // Fenestron (enclosed tail rotor) - RHINO style back view
+                const fenRadEnemyBack = s * 0.13;
+                // Heavy shroud
+                ctx.fillStyle = weapon;
                 ctx.beginPath();
-                ctx.ellipse(s * 0.18, fuseH * 0.55, s * 0.14, s * 0.05, 0, 0, Math.PI * 2);
+                ctx.arc(0, fuseH * 0.7, fenRadEnemyBack * 1.2, 0, Math.PI * 2);
                 ctx.fill();
-                ctx.globalAlpha = 1.0;
+                // Inner disc
+                ctx.fillStyle = dark;
+                ctx.beginPath();
+                ctx.arc(0, fuseH * 0.7, fenRadEnemyBack * 0.82, 0, Math.PI * 2);
+                ctx.fill();
+                // Animated fan blades (fast spin)
+                const fenTimeEnemyBack = performance.now() / 15;
+                ctx.strokeStyle = rotor;
+                ctx.lineWidth = Math.max(1, s * 0.02);
+                for (let i = 0; i < 8; i++) {
+                    const fAngle = fenTimeEnemyBack + (i * Math.PI / 4);
+                    ctx.beginPath();
+                    ctx.moveTo(0, fuseH * 0.7);
+                    ctx.lineTo(
+                        Math.cos(fAngle) * fenRadEnemyBack * 0.72,
+                        fuseH * 0.7 + Math.sin(fAngle) * fenRadEnemyBack * 0.72
+                    );
+                    ctx.stroke();
+                }
+                ctx.lineWidth = 1;
+                // Center hub
+                ctx.fillStyle = weaponDark;
+                ctx.beginPath();
+                ctx.arc(0, fuseH * 0.7, fenRadEnemyBack * 0.2, 0, Math.PI * 2);
+                ctx.fill();
 
-                // Landing skids
+                // Landing skids (heavier for RHINO)
                 ctx.fillStyle = darker;
-                ctx.fillRect(-fuseW - s * 0.1, fuseH * 0.15, s * 0.08, s * 0.4);
-                ctx.fillRect(-fuseW - s * 0.15, fuseH * 0.5, s * 0.18, s * 0.05);
-                ctx.fillRect(fuseW + s * 0.02, fuseH * 0.15, s * 0.08, s * 0.4);
-                ctx.fillRect(fuseW - s * 0.03, fuseH * 0.5, s * 0.18, s * 0.05);
+                ctx.fillRect(-fuseW - s * 0.12, fuseH * 0.12, s * 0.1, s * 0.45);
+                ctx.fillRect(-fuseW - s * 0.18, fuseH * 0.52, s * 0.22, s * 0.06);
+                ctx.fillRect(fuseW + s * 0.02, fuseH * 0.12, s * 0.1, s * 0.45);
+                ctx.fillRect(fuseW - s * 0.04, fuseH * 0.52, s * 0.22, s * 0.06);
 
                 ctx.restore();
                 return;
@@ -11152,15 +11272,50 @@
             ctx.closePath();
             ctx.fill();
 
-            // Horizontal stabilizer (larger)
+            // Horizontal stabilizer (larger, more aggressive)
             ctx.fillStyle = dark;
-            ctx.fillRect(-fuseLen * 0.32 - tailLen - s * 0.04, -s * 0.03, s * 0.22, s * 0.06);
+            ctx.fillRect(-fuseLen * 0.32 - tailLen - s * 0.06, -s * 0.04, s * 0.26, s * 0.08);
 
-            // Tail rotor housing
-            ctx.fillStyle = darker;
-            ctx.fillRect(-fuseLen * 0.32 - tailLen - s * 0.1, -finH + s * 0.03, s * 0.12, s * 0.1);
+            // Fenestron (enclosed tail rotor) - RHINO style, darker and more angular
+            const enemyFenRadius = s * 0.12;
+            const enemyFenX = -fuseLen * 0.32 - tailLen - s * 0.02;
+            const enemyFenY = -finH + s * 0.1;
+            
+            // Fenestron shroud (heavier/darker for RHINO look)
+            ctx.fillStyle = weaponDark;
+            ctx.beginPath();
+            ctx.arc(enemyFenX, enemyFenY, enemyFenRadius * 1.25, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Inner fan area
+            ctx.fillStyle = dark;
+            ctx.beginPath();
+            ctx.arc(enemyFenX, enemyFenY, enemyFenRadius * 0.85, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Animated fan blades (faster spin for enemy)
+            const enemyFenTime = performance.now() / 15;
+            ctx.strokeStyle = rotor;
+            ctx.lineWidth = Math.max(1, s * 0.025);
+            for (let i = 0; i < 8; i++) {
+                const fAngle = enemyFenTime + (i * Math.PI / 4);
+                ctx.beginPath();
+                ctx.moveTo(enemyFenX, enemyFenY);
+                ctx.lineTo(
+                    enemyFenX + Math.cos(fAngle) * enemyFenRadius * 0.75,
+                    enemyFenY + Math.sin(fAngle) * enemyFenRadius * 0.75
+                );
+                ctx.stroke();
+            }
+            ctx.lineWidth = 1;
+            
+            // Center hub
+            ctx.fillStyle = weaponDark;
+            ctx.beginPath();
+            ctx.arc(enemyFenX, enemyFenY, enemyFenRadius * 0.22, 0, Math.PI * 2);
+            ctx.fill();
 
-            // Main fuselage (bulkier, more armored look)
+            // Main fuselage (bulkier, more armored RHINO look)
             ctx.fillStyle = body;
             ctx.beginPath();
             ctx.moveTo(fuseLen * 0.42, -fuseH * 0.1);  // Nose top

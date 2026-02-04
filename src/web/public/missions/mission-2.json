@@ -1,41 +1,123 @@
 {
-  "missionId": 2,
+  "mapIndex": 1,
   "name": "VALLEY ASSAULT",
-  "mapIndex": 0,
   "difficulty": "medium",
   "weather": "clear",
-  "playerStart": { "x": 512, "y": 800 },
+  "playerStart": {
+    "x": 527,
+    "y": 888
+  },
   "airports": [
-    { "x": 300, "y": 200, "heading": 0, "faction": "enemy" }
+    {
+      "x": 240,
+      "y": 250,
+      "heading": 0,
+      "faction": "enemy"
+    }
   ],
   "bases": [
-    { "x": 600, "y": 350, "size": "medium", "faction": "enemy" }
+    {
+      "x": 668,
+      "y": 215,
+      "size": "medium",
+      "faction": "enemy"
+    }
   ],
   "helipads": [
-    { "x": 500, "y": 780, "faction": "friendly" }
+    {
+      "x": 729,
+      "y": 88,
+      "faction": "enemy"
+    }
   ],
-  "spawnZones": [
-    { "x": 350, "y": 300, "radius": 100, "types": ["TANK"], "count": 5 },
-    { "x": 550, "y": 400, "radius": 80, "types": ["SAM_SITE"], "count": 2 },
-    { "x": 450, "y": 250, "radius": 50, "types": ["BUILDING"], "count": 1 },
-    { "x": 300, "y": 220, "radius": 40, "types": ["SOLDIER"], "count": 4 }
+  "spawnZones": [],
+  "units": [
+    {
+      "type": "SAM_SITE",
+      "x": 432,
+      "y": 165,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 380,
+      "y": 154,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 437,
+      "y": 81,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 490,
+      "y": 122,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 497,
+      "y": 198,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 365,
+      "y": 219,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 400,
+      "y": 198,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 396,
+      "y": 130,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 424,
+      "y": 207,
+      "faction": "enemy"
+    },
+    {
+      "type": "SOLDIER",
+      "x": 452,
+      "y": 130,
+      "faction": "enemy"
+    }
   ],
   "objectives": [
-    { "type": "destroy_all", "description": "Destroy all enemy forces" }
+    {
+      "type": "destroy_all",
+      "description": "Destroy all enemy forces"
+    }
   ],
   "events": [
     {
       "trigger": "time_elapsed",
-      "time": 30,
-      "action": "show_message",
-      "message": "Enemy reinforcements spotted!",
-      "duration": 3000
+      "action": "spawn_enemies",
+      "time": 35,
+      "enemies": [
+        {
+          "type": "TANK",
+          "x": 250,
+          "y": 400,
+          "count": 2,
+          "spread": 40
+        }
+      ]
     },
     {
-      "trigger": "time_elapsed",
-      "time": 35,
-      "action": "spawn_enemies",
-      "enemies": [{ "type": "TANK", "x": 250, "y": 400, "count": 2, "spread": 40 }]
+      "trigger": "objective_complete",
+      "action": "complete_mission",
+      "objectiveId": "obj-0-1770170860186"
     }
   ]
 }

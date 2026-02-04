@@ -1,77 +1,40 @@
 {
   "mapIndex": 1,
-  "name": "TRAINING GROUND",
+  "name": "Custom Mission 1",
   "difficulty": "easy",
   "weather": "clear",
   "playerStart": {
-    "x": 959,
-    "y": 538
+    "x": 972,
+    "y": 561
   },
-  "airports": [
+  "airports": [],
+  "bases": [
     {
-      "x": 743,
-      "y": 91,
-      "heading": 0.96,
+      "x": 731,
+      "y": 75,
+      "size": "medium",
       "faction": "enemy"
     },
     {
-      "x": 665,
-      "y": 227,
-      "heading": 0,
-      "faction": "enemy"
-    },
-    {
-      "x": 222,
-      "y": 248,
-      "heading": 0,
-      "faction": "enemy"
-    },
-    {
-      "x": 479,
-      "y": 449,
-      "heading": 0,
-      "faction": "enemy"
-    },
-    {
-      "x": 692,
-      "y": 506,
-      "heading": 0,
-      "faction": "enemy"
-    },
-    {
-      "x": 626,
-      "y": 723,
-      "heading": 0,
-      "faction": "enemy"
-    },
-    {
-      "x": 498,
-      "y": 814,
-      "heading": 0,
-      "faction": "enemy"
-    },
-    {
-      "x": 261,
-      "y": 745,
-      "heading": 0,
-      "faction": "enemy"
-    },
-    {
-      "x": 85,
-      "y": 731,
-      "heading": 0,
-      "faction": "enemy"
-    },
-    {
-      "x": 117,
-      "y": 397,
-      "heading": 0,
+      "x": 225,
+      "y": 253,
+      "size": "medium",
       "faction": "enemy"
     }
   ],
-  "bases": [],
   "helipads": [],
-  "spawnZones": [],
+  "spawnZones": [
+    {
+      "x": 480,
+      "y": 239,
+      "radius": 90,
+      "types": [
+        "TANK",
+        "SOLDIER"
+      ],
+      "count": 10
+    }
+  ],
   "units": [],
   "objectives": [
     {
@@ -81,16 +44,10 @@
   ],
   "events": [
     {
-      "trigger": "kill_count",
-      "action": "show_message",
-      "count": 2,
-      "message": "Good shooting! Keep it up!",
-      "duration": 3000
-    },
-    {
       "trigger": "objective_complete",
       "action": "complete_mission",
-      "objectiveId": "obj-0-1770162290088"
+      "objectiveId": "obj-1770170741900-b711"
     }
-  ]
+  ],
+  "missionId": 1
 }
