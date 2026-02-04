@@ -278,6 +278,7 @@
         <button id="exportBtn">Export</button>
         <button id="importBtn">Import</button>
         <button id="copyBtn">Copy JSON</button>
+        <button id="clearBtn" style="background:#400;border-color:#f44;">Clear All</button>
         <input type="file" id="importFile" accept="application/json" hidden>
     </div>
 
@@ -506,6 +507,7 @@
             exportBtn: document.getElementById('exportBtn'),
             importBtn: document.getElementById('importBtn'),
             copyBtn: document.getElementById('copyBtn'),
+            clearBtn: document.getElementById('clearBtn'),
             importFile: document.getElementById('importFile'),
             heightToggle: document.getElementById('heightToggle'),
             gridToggle: document.getElementById('gridToggle'),
@@ -2235,6 +2237,27 @@
             elements.jsonOutput.value = json;
             navigator.clipboard?.writeText(json);
         }
+        
+        function clearAll() {
+            if (!confirm('Clear all spawns, objectives, and events?')) return;
+            state.spawns = [];
+            state.selectedId = null;
+            state.objectives = [];
+            state.selectedObjectiveId = null;
+            state.events = [];
+            state.selectedEventId = null;
+            state.metadata = { name: '', difficulty: 'medium', weather: 'clear' };
+            elements.metaName.value = '';
+            elements.metaDifficulty.value = 'medium';
+            elements.metaWeather.value = 'clear';
+            elements.jsonOutput.value = '';
+            renderSpawnList();
+            renderObjectivesList();
+            renderEventsList();
+            renderProperties();
+            updateStatusBar();
+            draw();
+        }
 
         async function loadMission() {
             const missionId = elements.missionSelect.value;
@@ -2304,6 +2327,7 @@
                 if (event.target.files?.[0]) importConfig(event.target.files[0]);
             });
             elements.copyBtn.addEventListener('click', copyJson);
+            elements.clearBtn.addEventListener('click', clearAll);
             elements.heightToggle.addEventListener('change', () => {
                 // When enabling heightmap, set alpha to max for better visibility
                 if (elements.heightToggle.checked) {

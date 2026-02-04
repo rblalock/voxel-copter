@@ -13,41 +13,66 @@
       "y": 91,
       "heading": 0.96,
       "faction": "enemy"
-    }
-  ],
-  "bases": [
+    },
     {
-      "x": 481,
-      "y": 447,
-      "size": "medium",
+      "x": 665,
+      "y": 227,
+      "heading": 0,
       "faction": "enemy"
     },
     {
-      "x": 682,
-      "y": 223,
-      "size": "medium",
+      "x": 222,
+      "y": 248,
+      "heading": 0,
+      "faction": "enemy"
+    },
+    {
+      "x": 479,
+      "y": 449,
+      "heading": 0,
+      "faction": "enemy"
+    },
+    {
+      "x": 692,
+      "y": 506,
+      "heading": 0,
+      "faction": "enemy"
+    },
+    {
+      "x": 626,
+      "y": 723,
+      "heading": 0,
+      "faction": "enemy"
+    },
+    {
+      "x": 498,
+      "y": 814,
+      "heading": 0,
+      "faction": "enemy"
+    },
+    {
+      "x": 261,
+      "y": 745,
+      "heading": 0,
+      "faction": "enemy"
+    },
+    {
+      "x": 85,
+      "y": 731,
+      "heading": 0,
+      "faction": "enemy"
+    },
+    {
+      "x": 117,
+      "y": 397,
+      "heading": 0,
       "faction": "enemy"
     }
   ],
-  "helipads": [
-    {
-      "x": 223,
-      "y": 250,
-      "faction": "enemy"
-    }
-  ],
-  "spawnZones": [
-    {
-      "x": 483,
-      "y": 402,
-      "radius": 90,
-      "types": [
-        "TANK",
-        "SOLDIER"
-      ],
-      "count": 10
-    }
-  ],
+  "bases": [],
+  "helipads": [],
+  "spawnZones": [],
+  "units": [],
   "objectives": [
     {
       "type": "destroy_all",
