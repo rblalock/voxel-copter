@@ -4,8 +4,9 @@
   "difficulty": "medium",
   "weather": "night",
   "playerStart": {
-    "x": 801,
-    "y": 142
+    "x": 917,
+    "y": 123,
+    "heading": 1.72
   },
   "airports": [],
   "bases": [],

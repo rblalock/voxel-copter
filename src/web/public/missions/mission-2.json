@@ -5,7 +5,8 @@
   "weather": "dusk",
   "playerStart": {
     "x": 973,
-    "y": 154
+    "y": 154,
+    "heading": 0
   },
   "airports": [],
   "bases": [],
@@ -104,7 +105,7 @@
     {
       "trigger": "objective_complete",
       "action": "complete_mission",
-      "objectiveId": "obj-1770172733172-3a60"
+      "objectiveId": "obj-0-1770174313127"
     }
   ],
   "missionId": 2

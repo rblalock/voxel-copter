@@ -903,18 +903,6 @@
 
             ctx.restore();
         }
-            ctx.globalAlpha = 1.0;
-
-            // Rotor hub/mast
-            ctx.fillStyle = darker;
-            ctx.fillRect(-s * 0.04, -fuseH * 0.8, s * 0.08, s * 0.12);
-            ctx.fillStyle = exhaust;
-            ctx.beginPath();
-            ctx.arc(0, -fuseH * 0.82, s * 0.05, 0, Math.PI * 2);
-            ctx.fill();
-
-            ctx.restore();
-        }
 
         function drawAttackHelicopter(ctx, x, y, size, color, heading, fogFactor = 0, ambient = 1, skyColor = 0xFFD4A088) {
             ctx.imageSmoothingEnabled = false;
