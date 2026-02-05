@@ -260,13 +260,15 @@
     <h1>VoxelCopter Map Editor</h1>
 
     <div class="toolbar">
-        <label>Mission:
-            <select id="missionSelect">
-                <option value="">-- Custom --</option>
-            </select>
-        </label>
-        <button id="saveMissionBtn" style="display:none;">Save Mission</button>
-        <span style="color: #555;">|</span>
+        <span id="missionControls">
+            <label>Mission:
+                <select id="missionSelect">
+                    <option value="">-- Custom --</option>
+                </select>
+            </label>
+            <button id="saveMissionBtn" style="display:none;">Save Mission</button>
+            <span style="color: #555;">|</span>
+        </span>
         <label>Map:
             <select id="mapSelect"></select>
         </label>
@@ -2522,11 +2524,15 @@
         function bindEvents() {
             window.addEventListener('resize', resizeCanvas);
             
-            // Show Save Mission button only in dev mode (localhost)
+            // Show mission controls only in dev mode (localhost)
             const isDevMode = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
             if (isDevMode) {
                 elements.saveMissionBtn.style.display = '';
                 elements.saveMissionBtn.addEventListener('click', saveMission);
+            } else {
+                // Hide entire mission selector in production
+                const missionControls = document.getElementById('missionControls');
+                if (missionControls) missionControls.style.display = 'none';
             }
             
             elements.exportBtn.addEventListener('click', exportConfig);
