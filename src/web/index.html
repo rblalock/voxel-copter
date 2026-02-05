@@ -219,6 +219,7 @@
     
     <div id="loading">LOADING TERRAIN...</div>
 
+    <script src="/src/web/public/game.js"></script>
     <script>
     (function() {
         'use strict';
@@ -243,7 +244,17 @@
             // Combat settings
             TARGET_COUNT: 8,
             RADAR_SIZE: 100,
-            RADAR_RANGE: 500
+            RADAR_RANGE: 500,
+            // Map boundaries (no wrapping)
+            BOUNDARY_MARGIN: 50,          // Distance from edge where warning starts
+            BOUNDARY_HARD: 20             // Hard boundary - can't go past this
+        };
+        
+        // Boundary warning state
+        let boundaryWarning = {
+            active: false,
+            direction: null,  // 'north', 'south', 'east', 'west'
+            intensity: 0
         };
 
         // ============================================
@@ -4259,8 +4270,15 @@
             camera.x += SOLDIER.velocity.x;
             camera.y += SOLDIER.velocity.y;
 
-            camera.x = ((camera.x % CONFIG.MAP_SIZE) + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
-            camera.y = ((camera.y % CONFIG.MAP_SIZE) + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
+            // Map boundary enforcement for soldier (stop at edges)
+            const boundaryResult = enforceMapBoundary(camera.x, camera.y, camera.angle, dt, true);
+            camera.x = boundaryResult.x;
+            camera.y = boundaryResult.y;
+            // Don't auto-turn soldier, just stop movement
+            if (boundaryResult.hitBoundary) {
+                SOLDIER.velocity.x = 0;
+                SOLDIER.velocity.y = 0;
+            }
 
             const terrainHeight = getTerrainHeight(camera.x, camera.y);
             const eyeHeight = SOLDIER.eyeHeights[SOLDIER.stance] || SOLDIER.eyeHeights.stand;
@@ -4431,9 +4449,11 @@
             camera.horizon = Math.max(0, Math.min(screenHeight, camera.horizon));
             camera.height = Math.max(CONFIG.MIN_ALTITUDE, Math.min(CONFIG.MAX_ALTITUDE, camera.height));
             
-            // Wrap position around map
-            camera.x = ((camera.x % CONFIG.MAP_SIZE) + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
-            camera.y = ((camera.y % CONFIG.MAP_SIZE) + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
+            // Map boundary enforcement (no wrapping - auto turn at edges)
+            const boundaryResult = enforceMapBoundary(camera.x, camera.y, camera.angle, dt);
+            camera.x = boundaryResult.x;
+            camera.y = boundaryResult.y;
+            camera.angle = boundaryResult.angle;
             
             // Terrain collision
             const terrainHeight = getTerrainHeight(camera.x, camera.y);
@@ -4441,6 +4461,74 @@
                 camera.height = terrainHeight + CONFIG.COLLISION_MARGIN;
                 camera.verticalSpeed = Math.max(0, camera.verticalSpeed); // Stop descending
             }
+        }
+        
+        // Enforce map boundaries - no wrapping, auto-turn at edges
+        function enforceMapBoundary(x, y, angle, dt, isSoldier = false) {
+            const margin = CONFIG.BOUNDARY_MARGIN;
+            const hard = CONFIG.BOUNDARY_HARD;
+            const maxPos = CONFIG.MAP_SIZE - hard;
+            const minPos = hard;
+            
+            let newX = x;
+            let newY = y;
+            let newAngle = angle;
+            let hitBoundary = false;
+            let warningDir = null;
+            
+            // Check boundaries and apply auto-turn for aircraft
+            const turnRate = isSoldier ? 0 : 0.08 * dt;  // Aircraft turn rate
+            
+            // West boundary (x near 0)
+            if (x < minPos) {
+                newX = minPos;
+                hitBoundary = true;
+                warningDir = 'west';
+                if (!isSoldier) newAngle += turnRate;  // Turn right (east)
+            } else if (x < margin) {
+                warningDir = 'west';
+                if (!isSoldier && Math.sin(angle) < 0) newAngle += turnRate * 0.5;
+            }
+            
+            // East boundary (x near MAP_SIZE)
+            if (x > maxPos) {
+                newX = maxPos;
+                hitBoundary = true;
+                warningDir = 'east';
+                if (!isSoldier) newAngle -= turnRate;  // Turn left (west)
+            } else if (x > CONFIG.MAP_SIZE - margin) {
+                warningDir = 'east';
+                if (!isSoldier && Math.sin(angle) > 0) newAngle -= turnRate * 0.5;
+            }
+            
+            // North boundary (y near 0)
+            if (y < minPos) {
+                newY = minPos;
+                hitBoundary = true;
+                warningDir = 'north';
+                if (!isSoldier) newAngle += turnRate;  // Turn away
+            } else if (y < margin) {
+                warningDir = 'north';
+                if (!isSoldier && Math.cos(angle) < 0) newAngle += turnRate * 0.5;
+            }
+            
+            // South boundary (y near MAP_SIZE)
+            if (y > maxPos) {
+                newY = maxPos;
+                hitBoundary = true;
+                warningDir = 'south';
+                if (!isSoldier) newAngle -= turnRate;  // Turn away
+            } else if (y > CONFIG.MAP_SIZE - margin) {
+                warningDir = 'south';
+                if (!isSoldier && Math.cos(angle) > 0) newAngle -= turnRate * 0.5;
+            }
+            
+            // Update warning state
+            boundaryWarning.active = warningDir !== null;
+            boundaryWarning.direction = warningDir;
+            boundaryWarning.intensity = hitBoundary ? 1.0 : (warningDir ? 0.5 : 0);
+            
+            return { x: newX, y: newY, angle: newAngle, hitBoundary };
         }
         
         function getTerrainHeight(x, y) {
@@ -8578,14 +8666,7 @@
 
                             const hitRadius = ep.type === 'air_missile' ? 22 : 15;
                             if (dist < hitRadius) {
-                                if (!godMode) {
-                                    playerHealth -= ep.damage;
-                                    telemetry.damageTaken += ep.damage;
-                                    damageVignetteTime = performance.now();
-                                    damageVignetteIntensity = Math.min(1, ep.damage / 30);
-                                    screenShake.intensity = Math.min(15, ep.damage * 0.5);
-                                    screenShake.duration = 200;
-                                }
+                                damagePlayer(ep.damage);
                                 enemyProjectiles.splice(i, 1);
                                 continue;
                             }
@@ -15262,6 +15343,19 @@
                 ctx.fillStyle = '#66ccff';
                 ctx.textAlign = 'center';
                 ctx.fillText('AIRSTRIKE INBOUND', screenWidth / 2, screenHeight * 0.32);
+            }
+            
+            // Boundary warning
+            if (boundaryWarning.active) {
+                const blinkOn = Math.floor(performance.now() / 250) % 2 === 0;
+                if (blinkOn || boundaryWarning.intensity >= 1.0) {
+                    ctx.font = 'bold 20px Courier New';
+                    ctx.fillStyle = boundaryWarning.intensity >= 1.0 ? '#ff3333' : '#ffaa00';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('⚠ LEAVING MISSION AREA ⚠', screenWidth / 2, screenHeight * 0.15);
+                    ctx.font = '14px Courier New';
+                    ctx.fillText('TURN BACK', screenWidth / 2, screenHeight * 0.15 + 25);
+                }
             }
 
             // Only show targeting crosshair while designating (not after calling strike)
