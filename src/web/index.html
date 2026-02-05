@@ -4895,13 +4895,14 @@
             
             // Determine which map to load:
             // 1. AI mission map index (if generating AI mission)
-            // 2. Layout file's mapIndex (loaded above)
+            // 2. Layout file's mapIndex (loaded above) - NOTE: JSON uses 1-based, game uses 0-based
             // 3. Hardcoded mission.map as fallback
             let mapIndex = mission.map;
             if (activeAIMission && typeof aiMissionMapIndex === 'number') {
                 mapIndex = aiMissionMapIndex;
             } else if (missionLayout && typeof missionLayout.mapIndex === 'number') {
-                mapIndex = missionLayout.mapIndex;
+                // Convert from 1-based (JSON) to 0-based (game internal)
+                mapIndex = missionLayout.mapIndex - 1;
             }
             aiMissionMapIndex = null;
             loadMapForMission(mapIndex, async () => {
