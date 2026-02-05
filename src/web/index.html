@@ -4886,18 +4886,22 @@
             loadingEl.style.display = 'block';
             loadingEl.textContent = `LOADING ${mission.name}...`;
             
+            // IMPORTANT: Load layout JSON FIRST to get the correct mapIndex
+            // Don't rely on preload cache - it might not be ready
+            let missionLayout = null;
+            if (baseMission.layoutFile) {
+                missionLayout = await loadMissionLayout(baseMission.layoutFile);
+            }
+            
             // Determine which map to load:
             // 1. AI mission map index (if generating AI mission)
-            // 2. Layout file's mapIndex (if layout was preloaded and has mapIndex)
+            // 2. Layout file's mapIndex (loaded above)
             // 3. Hardcoded mission.map as fallback
             let mapIndex = mission.map;
             if (activeAIMission && typeof aiMissionMapIndex === 'number') {
                 mapIndex = aiMissionMapIndex;
-            } else if (baseMission.layoutFile && missionLayoutCache[baseMission.layoutFile]) {
-                const cachedLayout = missionLayoutCache[baseMission.layoutFile];
-                if (typeof cachedLayout.mapIndex === 'number') {
-                    mapIndex = cachedLayout.mapIndex;
-                }
+            } else if (missionLayout && typeof missionLayout.mapIndex === 'number') {
+                mapIndex = missionLayout.mapIndex;
             }
             aiMissionMapIndex = null;
             loadMapForMission(mapIndex, async () => {
@@ -4946,22 +4950,14 @@
                 screenFlashTime = 0;
                 targetingSystem.reset();
                 
-                // Spawn mission targets - try to load layout file first
+                // Spawn mission targets using the layout we already loaded
                 if (activeAIMission) {
                     applyAIMission(activeAIMission);
-                } else if (baseMission.layoutFile) {
-                    // Load and apply the mission layout from JSON file
-                    const layout = await loadMissionLayout(baseMission.layoutFile);
-                    if (layout) {
-                        applyMissionLayout(layout, mission);
-                    } else {
-                        // Fallback to random generation if layout fails to load
-                        console.warn('Falling back to random generation');
-                        generateWorldStructures();
-                        spawnMissionTargets(mission);
-                    }
+                } else if (missionLayout) {
+                    // Apply the mission layout from JSON file (already loaded above)
+                    applyMissionLayout(missionLayout, mission);
                 } else {
-                    // No layout file, use random generation
+                    // No layout file or failed to load, use random generation
                     generateWorldStructures();
                     spawnMissionTargets(mission);
                 }
