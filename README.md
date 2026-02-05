@@ -1,4 +1,4 @@
-# voxel-world
+# voxel-copter
 
 VoxelCopter is a Comanche-style voxel terrain game and mission sandbox built on Agentuity. It renders classic heightmap terrain in the browser and layers missions, AI-generated objectives, and a map editor on top.
 
