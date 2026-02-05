@@ -4929,6 +4929,7 @@
 
         function applyMissionLayout(layout, mission) {
             // Apply the layout from JSON file using existing applyCustomMissionConfig
+            // This spawns all units from spawnZones and units arrays in the JSON
             applyCustomMissionConfig(layout);
             
             // Set player start position if specified
@@ -4963,9 +4964,10 @@
                 mission.timeLimit = layout.timeLimit;
             }
             
-            // Spawn mission targets based on mission definition (not layout)
-            // The layout defines WHERE things go, mission defines HOW MANY
-            spawnMissionTargets(mission);
+            // NOTE: We do NOT call spawnMissionTargets() here because the JSON layout
+            // already defines all units via spawnZones and units arrays.
+            // spawnMissionTargets() would add duplicate random targets on top of the 
+            // carefully placed JSON units.
         }
 
         function startMission(missionIndex, options = {}) {
@@ -4989,8 +4991,19 @@
             loadingEl.style.display = 'block';
             loadingEl.textContent = `LOADING ${mission.name}...`;
             
-            // Load the correct map
-            const mapIndex = activeAIMission && typeof aiMissionMapIndex === 'number' ? aiMissionMapIndex : mission.map;
+            // Determine which map to load:
+            // 1. AI mission map index (if generating AI mission)
+            // 2. Layout file's mapIndex (if layout was preloaded and has mapIndex)
+            // 3. Hardcoded mission.map as fallback
+            let mapIndex = mission.map;
+            if (activeAIMission && typeof aiMissionMapIndex === 'number') {
+                mapIndex = aiMissionMapIndex;
+            } else if (baseMission.layoutFile && missionLayoutCache[baseMission.layoutFile]) {
+                const cachedLayout = missionLayoutCache[baseMission.layoutFile];
+                if (typeof cachedLayout.mapIndex === 'number') {
+                    mapIndex = cachedLayout.mapIndex;
+                }
+            }
             aiMissionMapIndex = null;
             loadMapForMission(mapIndex, async () => {
                 // Reset player state
