@@ -2025,9 +2025,11 @@
                     p.z += p.vz * dt;
                 }
 
-                // Wrap around map
-                p.x = ((p.x % CONFIG.MAP_SIZE) + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
-                p.y = ((p.y % CONFIG.MAP_SIZE) + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
+                // Despawn particles outside map boundaries (no wrapping)
+                if (isOutsideBoundary(p.x, p.y)) {
+                    particles.splice(i, 1);
+                    continue;
+                }
 
                 if (p.type === 'smoke') {
                     p.size += p.growth * dt;
@@ -4529,6 +4531,23 @@
             boundaryWarning.intensity = hitBoundary ? 1.0 : (warningDir ? 0.5 : 0);
             
             return { x: newX, y: newY, angle: newAngle, hitBoundary };
+        }
+        
+        // Simple boundary clamp for AI entities - returns clamped position
+        function clampToBoundary(x, y) {
+            const hard = CONFIG.BOUNDARY_HARD;
+            const maxPos = CONFIG.MAP_SIZE - hard;
+            return {
+                x: Math.max(hard, Math.min(maxPos, x)),
+                y: Math.max(hard, Math.min(maxPos, y))
+            };
+        }
+        
+        // Check if position is outside map boundaries
+        function isOutsideBoundary(x, y) {
+            const hard = CONFIG.BOUNDARY_HARD;
+            const maxPos = CONFIG.MAP_SIZE - hard;
+            return x < hard || x > maxPos || y < hard || y > maxPos;
         }
         
         function getTerrainHeight(x, y) {
@@ -7494,10 +7513,10 @@
                     p.z += p.pitch * p.speed * dt;
                 }
                 
-                // Wrap around map
-                if (!p.noWrap) {
-                    p.x = ((p.x % CONFIG.MAP_SIZE) + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
-                    p.y = ((p.y % CONFIG.MAP_SIZE) + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
+                // Despawn projectiles that leave map boundaries (no wrapping)
+                if (isOutsideBoundary(p.x, p.y)) {
+                    projectiles.splice(i, 1);
+                    continue;
                 }
 
                 // Rocket/missile smoke trail - subtle, 30% spawn rate
@@ -7912,9 +7931,10 @@
             target.x = ai.patrolCenter.x + Math.cos(ai.patrolAngle) * ai.patrolRadius;
             target.y = ai.patrolCenter.y + Math.sin(ai.patrolAngle) * ai.patrolRadius;
 
-            // Wrap around map
-            target.x = ((target.x % CONFIG.MAP_SIZE) + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
-            target.y = ((target.y % CONFIG.MAP_SIZE) + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
+            // Clamp to map boundaries (no wrapping)
+            const clamped = clampToBoundary(target.x, target.y);
+            target.x = clamped.x;
+            target.y = clamped.y;
 
             // Update Z position based on terrain
             const terrainHeight = getTerrainHeight(target.x, target.y);
@@ -8108,8 +8128,10 @@
                 }
             }
 
-            target.x = ((target.x % CONFIG.MAP_SIZE) + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
-            target.y = ((target.y % CONFIG.MAP_SIZE) + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
+            // Clamp to map boundaries (no wrapping)
+            const soldierClamped = clampToBoundary(target.x, target.y);
+            target.x = soldierClamped.x;
+            target.y = soldierClamped.y;
 
             const terrainHeight = getTerrainHeight(target.x, target.y);
             target.z = terrainHeight + TARGET_TYPES.SOLDIER.heightOffset;
@@ -8193,8 +8215,10 @@
                 }
             }
 
-            target.x = ((target.x % CONFIG.MAP_SIZE) + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
-            target.y = ((target.y % CONFIG.MAP_SIZE) + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
+            // Clamp to map boundaries (no wrapping)
+            const sniperClamped = clampToBoundary(target.x, target.y);
+            target.x = sniperClamped.x;
+            target.y = sniperClamped.y;
 
             const terrainHeight = getTerrainHeight(target.x, target.y);
             target.z = terrainHeight + TARGET_TYPES.SNIPER.heightOffset;
@@ -8382,9 +8406,11 @@
             entity.x += Math.cos(ai.heading) * ai.speed * dt * 60;
             entity.y += Math.sin(ai.heading) * ai.speed * dt * 60;
 
-            // Wrap around map
-            entity.x = ((entity.x % CONFIG.MAP_SIZE) + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
-            entity.y = ((entity.y % CONFIG.MAP_SIZE) + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
+            // Map boundary enforcement for AI aircraft (auto-turn at edges)
+            const boundaryResult = enforceMapBoundary(entity.x, entity.y, ai.heading, dt);
+            entity.x = boundaryResult.x;
+            entity.y = boundaryResult.y;
+            ai.heading = boundaryResult.angle;
         }
 
         function airSteerToward(entity, targetX, targetY, maxTurnRate, dt) {
@@ -8649,6 +8675,15 @@
                     ep.lifetime -= dt;
                 }
                 
+                // Despawn projectiles that leave map boundaries (no wrapping)
+                if (isOutsideBoundary(ep.x, ep.y)) {
+                    if (ep.type === 'sam_missile') {
+                        telemetry.missilesDodged += 1;
+                    }
+                    enemyProjectiles.splice(i, 1);
+                    continue;
+                }
+                
                 // Check hit targets (AI vs AI)
                 if (checkAIProjectileTargetHit(ep)) {
                     enemyProjectiles.splice(i, 1);
@@ -8708,13 +8743,9 @@
         }
         
         function distance3D(x1, y1, z1, x2, y2, z2) {
-            // Handle map wrapping for x and y
-            let dx = x1 - x2;
-            let dy = y1 - y2;
-            if (dx > CONFIG.MAP_SIZE / 2) dx -= CONFIG.MAP_SIZE;
-            if (dx < -CONFIG.MAP_SIZE / 2) dx += CONFIG.MAP_SIZE;
-            if (dy > CONFIG.MAP_SIZE / 2) dy -= CONFIG.MAP_SIZE;
-            if (dy < -CONFIG.MAP_SIZE / 2) dy += CONFIG.MAP_SIZE;
+            // Simple distance calculation (no map wrapping)
+            const dx = x1 - x2;
+            const dy = y1 - y2;
             const dz = z1 - z2;
             return Math.sqrt(dx * dx + dy * dy + dz * dz);
         }
