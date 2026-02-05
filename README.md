@@ -1,215 +1,74 @@
 # voxel-world
 
-A new Agentuity project created with `agentuity create`.
+VoxelCopter is a Comanche-style voxel terrain game and mission sandbox built on Agentuity. It renders classic heightmap terrain in the browser and layers missions, AI-generated objectives, and a map editor on top.
 
-## What You Get
+## What this is
 
-A fully configured Agentuity project with:
+- A browser-playable voxel terrain demo with helicopter (Comanche) and on-foot (Delta) modes.
+- A mission system with objectives, events, and spawn layouts defined in JSON.
+- A map editor to build or iterate on mission layouts.
 
-- ✅ **TypeScript** - Full type safety out of the box
-- ✅ **Bun runtime** - Fast JavaScript runtime and package manager
-- ✅ **Hot reload** - Development server with auto-rebuild
-- ✅ **Example agent** - Sample "hello" agent to get started
-- ✅ **React frontend** - Pre-configured web interface
-- ✅ **API routes** - Example API endpoints
-- ✅ **Type checking** - TypeScript configuration ready to go
+## How it works
 
-## Project Structure
+- `src/web/index.html` runs the game loop and canvas renderer.
+- Terrain rendering uses a VoxelSpace-style heightmap ray-caster driven by color/height map pairs in `src/web/public/maps/` (`C*.png` color, `D*.png` height).
+- Missions are loaded from `src/web/public/missions/*.json` and merged with scripted objectives and events at runtime.
+- `src/web/public/mapeditor.html` loads the same maps to place spawns, objectives, and events, exporting JSON.
+- Agentuity routes power AI mission generation and debriefs (`src/api/mission/route.ts`) plus global stats/leaderboards (`src/api/stats/route.ts`).
+- Shared constants are bundled from `src/voxelvibe/index.ts` into `src/web/public/game.js` via `bun run build`.
+
+## Project layout
 
 ```
-my-app/
-├── src/
-│   ├── agent/            # Agent definitions
-│   │   └── hello/
-│   │       ├── agent.ts  # Example agent
-│   │       └── index.ts  # Default exports
-│   ├── api/              # API definitions
-│   │   └── index.ts      # Example routes
-│   └── web/              # React web application
-│       ├── public/       # Static assets
-│       ├── App.tsx       # Main React component
-│       ├── frontend.tsx  # Entry point
-│       └── index.html    # HTML template
-├── AGENTS.md             # Agent guidelines
-├── app.ts                # Application entry point
-├── tsconfig.json         # TypeScript configuration
-├── package.json          # Dependencies and scripts
-└── README.md             # Project documentation
+src/
+  agent/        # Mission + debrief agents
+  api/          # Mission + stats endpoints
+  lib/          # Shared game utilities
+  voxelvibe/    # Shared constants/types bundled for the client
+  web/
+    index.html  # Main game canvas + engine
+    public/
+      game.js           # Bundled constants (generated)
+      mapeditor.html    # Map/mission editor
+      maps/             # Color + height map PNGs
+      missions/         # Mission JSON layouts
 ```
 
-## Available Commands
+## Attribution
 
-After creating your project, you can run:
+- Terrain rendering approach and the base map assets come from the VoxelSpace project: https://github.com/s-macke/VoxelSpace?tab=readme-ov-file
+
+## Running and deploying
+
+### Requirements
+
+- Bun v1.0+
+- TypeScript 5+
 
 ### Development
 
 ```bash
-bun dev
+bun run dev
 ```
 
-Starts the development server at `http://localhost:3500`
+Starts the dev server at `http://localhost:3500`.
 
 ### Build
 
 ```bash
-bun build
+bun run build
 ```
 
-Compiles your application into the `.agentuity/` directory
+Compiles the Agentuity app and rebuilds `src/web/public/game.js`.
 
-### Type Check
+### Typecheck
 
 ```bash
-bun typecheck
+bun run typecheck
 ```
 
-Runs TypeScript type checking
-
-### Deploy to Agentuity
+### Deploy
 
 ```bash
 bun run deploy
 ```
-
-Deploys your application to the Agentuity cloud
-
-## Next Steps
-
-After creating your project:
-
-1. **Customize the example agent** - Edit `src/agent/hello/agent.ts`
-2. **Add new agents** - Create new folders in `src/agent/`
-3. **Add new APIs** - Create new folders in `src/api/`
-4. **Add Web files** - Create new routes in `src/web/`
-5. **Customize the UI** - Edit `src/web/app.tsx`
-6. **Configure your app** - Modify `app.ts` to add middleware, configure services, etc.
-
-## Creating Custom Agents
-
-Create a new agent by adding a folder in `src/agent/`:
-
-```typescript
-// src/agent/my-agent/agent.ts
-import { createAgent } from '@agentuity/runtime';
-import { s } from '@agentuity/schema';
-
-const agent = createAgent({
-	description: 'My amazing agent',
-	schema: {
-		input: s.object({
-			name: s.string(),
-		}),
-		output: s.string(),
-	},
-	handler: async (_ctx, { name }) => {
-		return `Hello, ${name}! This is my custom agent.`;
-	},
-});
-
-export default agent;
-```
-
-## Adding API Routes
-
-Create custom routes in `src/api/`:
-
-```typescript
-// src/api/my-agent/route.ts
-import { createRouter } from '@agentuity/runtime';
-import myAgent from './agent';
-
-const router = createRouter();
-
-router.get('/', async (c) => {
-	const result = await myAgent.run({ message: 'Hello!' });
-	return c.json(result);
-});
-
-router.post('/', myAgent.validator(), async (c) => {
-	const data = c.req.valid('json');
-	const result = await myAgent.run(data);
-	return c.json(result);
-});
-
-export default router;
-```
-
-## Map Editor
-
-VoxelCopter includes a built-in map editor for customizing missions.
-
-### Accessing the Map Editor
-
-- **Development:** `http://localhost:3500/src/web/public/mapeditor.html`
-- **Production:** `http://localhost:3500/mapeditor.html`
-
-### For Developers: Editing Main Missions
-
-1. Open the map editor
-2. Select a mission from the **Mission** dropdown (Mission 1-5)
-3. Click **Load Mission** to load the existing mission data
-4. Edit the mission:
-   - **Spawns tab:** Place player start, airports, bases, helipads, enemy spawn zones
-   - **Objectives tab:** Define mission objectives (destroy all, destroy type, reach location, etc.)
-   - **Events tab:** Set up triggered events (timed spawns, messages, zone triggers)
-5. Click **Save Mission** to download the JSON file
-6. Save the downloaded file to `src/web/public/missions/mission-X.json` (overwrite the existing file)
-7. The dev server will hot-reload, or run `bun run build` to rebuild
-
-### For Players: Creating Custom Missions
-
-1. Open the map editor
-2. Select a map from the **Map** dropdown
-3. Design your mission using the Spawns, Objectives, and Events tabs
-4. Click **Save Local** to save to your browser's localStorage
-5. In the game, access your custom mission from the **Custom Map** menu
-
-### Map Editor Features
-
-| Tab | Features |
-|-----|----------|
-| **Spawns** | Player Start, Airports, Bases, Helipads, Enemy Spawn Zones, Individual Units |
-| **Objectives** | destroy_all, destroy_type, destroy_count, reach_location, survive_time, protect_target |
-| **Events** | Triggers: kill_count, time_elapsed, enter_zone, objective_complete |
-| | Actions: show_message, spawn_enemies, add_objective, complete_mission, fail_mission |
-
-**Spawnable Entity Types:**
-- **Zones:** Enemy Spawn Zone (random placement of multiple units within radius)
-- **Structures:** Base (auto-generates buildings + units), Airport, Helipad
-- **Individual Units:** Tank, Soldier, SAM Site
-- **Individual Structures:** Building, Hangar, Barracks, Fuel Depot, Control Tower
-
-### Preview Controls
-
-| Control | Description |
-|---------|-------------|
-| **Heightmap** | Toggle terrain height visualization (darker = lower, lighter = higher) |
-| **Grid** | Toggle coordinate grid overlay |
-| **Preview** | Toggle terrain analysis showing steep (red) vs flat (green) areas |
-| **Height Alpha** | Adjust heightmap transparency (0-100%) |
-| **Slope Threshold** | Terrain angle cutoff for steep/flat classification (5-50). Higher = more terrain considered flat |
-| **Footprint Scale** | Preview size of structure footprints (50-200%). 100% = actual in-game size |
-
-### Validation
-
-Click **⚠ Validate** to check your mission for:
-- Missing player start position
-- Missing win conditions
-- Invalid objective configurations
-- Empty spawn zones
-
-### Playtest
-
-Click **▶ Playtest** to immediately test your mission in the game. This saves the mission to localStorage and opens the game in playtest mode.
-
-## Learn More
-
-- [Agentuity Documentation](https://agentuity.dev)
-- [Bun Documentation](https://bun.sh/docs)
-- [Hono Documentation](https://hono.dev/)
-- [Zod Documentation](https://zod.dev/)
-
-## Requirements
-
-- [Bun](https://bun.sh/) v1.0 or higher
-- TypeScript 5+
