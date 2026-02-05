@@ -4865,7 +4865,7 @@
             // carefully placed JSON units.
         }
 
-        function startMission(missionIndex, options = {}) {
+        async function startMission(missionIndex, options = {}) {
             // Validate mission index
             if (typeof missionIndex !== 'number' || missionIndex < 0 || missionIndex >= MISSIONS.length) {
                 console.error(`Invalid mission index: ${missionIndex}. Available missions: 0-${MISSIONS.length - 1}`);
