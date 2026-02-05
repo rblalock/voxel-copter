@@ -80,6 +80,6 @@ bun run deploy
 
 To deploy on [Agentuity](https://agentuity.com/), install the CLI, login, and you're good to go. You'll get automated deployments, web analytics, apis, agent / LLM features, AI gateway, databases, sandboxes, and a lot more.
 
-[The human way to install](https://agentuity.dev/Get-Started/installation)
+[The human way to install](https://agentuity.dev/Get-Started/installation) (i.e. copy this url and paste it in your coding agent like Claude Code, Cursor, OpenCode, Codex, etc).
 
 [The agent way to install](https://agentuity.com/blog/welcome-agent-lets-get-you-deployed.md)
