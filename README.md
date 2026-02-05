@@ -2,6 +2,9 @@
 
 VoxelCopter is a Comanche-style voxel terrain game and mission sandbox built on Agentuity. It renders classic heightmap terrain in the browser and layers missions, AI-generated objectives, and a map editor on top.
 
+<img width="3791" height="1916" alt="image" src="https://github.com/user-attachments/assets/8d26a3ea-f627-4486-9f1d-06aae32356a2" />
+
+
 ## What this is
 
 - A browser-playable voxel terrain demo with helicopter (Comanche) and on-foot (Delta) modes.
