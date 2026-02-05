@@ -41,6 +41,16 @@ src/
 
 - Terrain rendering approach and the base map assets come from the VoxelSpace project: https://github.com/s-macke/VoxelSpace?tab=readme-ov-file
 
+
+## Agentuity
+
+To deploy on [Agentuity](https://agentuity.com/), install the CLI, login, and you're good to go. You'll get automated deployments, web analytics, apis, agent / LLM features, AI gateway, databases, sandboxes, and a lot more.
+
+[The human way to install](https://agentuity.dev/Get-Started/installation) 
+
+[The agent way to install](https://agentuity.com/blog/welcome-agent-lets-get-you-deployed.md) (i.e. copy this url and paste it in your coding agent like Claude Code, Cursor, OpenCode, Codex, etc).
+
+
 ## Running and deploying
 
 ### Requirements
@@ -75,11 +85,3 @@ bun run typecheck
 ```bash
 bun run deploy
 ```
-
-## Agentuity
-
-To deploy on [Agentuity](https://agentuity.com/), install the CLI, login, and you're good to go. You'll get automated deployments, web analytics, apis, agent / LLM features, AI gateway, databases, sandboxes, and a lot more.
-
-[The human way to install](https://agentuity.dev/Get-Started/installation) (i.e. copy this url and paste it in your coding agent like Claude Code, Cursor, OpenCode, Codex, etc).
-
-[The agent way to install](https://agentuity.com/blog/welcome-agent-lets-get-you-deployed.md)
