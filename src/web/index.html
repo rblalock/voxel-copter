@@ -932,8 +932,19 @@
                             const dist = Math.sqrt(dx * dx + dy * dy);
                             const radius = obj.radius || 50;
                             if (dist < radius) {
-                                obj.complete = true;
-                                objectiveState.completed.push(obj.id);
+                                // Check if all OTHER objectives are complete first
+                                const otherObjectives = objectiveState.objectives.filter(o => o.id !== obj.id);
+                                const othersComplete = otherObjectives.every(o => o.complete);
+                                if (othersComplete) {
+                                    obj.complete = true;
+                                    objectiveState.completed.push(obj.id);
+                                } else {
+                                    // Show feedback with 5-second cooldown to avoid spam
+                                    if (!obj._inZoneMessageShown || performance.now() - obj._inZoneMessageShown > 5000) {
+                                        obj._inZoneMessageShown = performance.now();
+                                        showMissionMessage('COMPLETE ALL OBJECTIVES BEFORE EXTRACTION', 3000);
+                                    }
+                                }
                             }
                         }
                         break;
@@ -10395,6 +10406,7 @@
                 renderTargets(renderCam);
                 renderAirstrikePlanes(renderCam);
                 renderParkedHelicopter(renderCam);
+                renderExtractionBeacon(renderCam);
                 
                 // Render placed C4 charges
                 renderC4Charges(renderCam);
@@ -14584,6 +14596,102 @@
             // Reset alpha
             ctx.globalAlpha = 1.0;
         }
+
+        function renderExtractionBeacon(cam) {
+            if (!objectiveState.objectives.length) return;
+
+            const sinAngle = Math.sin(cam.angle);
+            const cosAngle = Math.cos(cam.angle);
+            const weather = WEATHER_SETTINGS[weatherCondition];
+            const fogStart = weather.fogStart;
+            const fogEnd = Math.min(cam.distance, fogStart + (cam.distance - fogStart) / (weather.fogDensity || 2));
+            const time = performance.now() / 1000;
+
+            for (const obj of objectiveState.objectives) {
+                if (obj.type !== 'reach_location' || obj.complete) continue;
+
+                // Calculate relative position to camera
+                let dx = obj.x - cam.x;
+                let dy = obj.y - cam.y;
+
+                // Handle map wrapping
+                if (dx > CONFIG.MAP_SIZE / 2) dx -= CONFIG.MAP_SIZE;
+                if (dx < -CONFIG.MAP_SIZE / 2) dx += CONFIG.MAP_SIZE;
+                if (dy > CONFIG.MAP_SIZE / 2) dy -= CONFIG.MAP_SIZE;
+                if (dy < -CONFIG.MAP_SIZE / 2) dy += CONFIG.MAP_SIZE;
+
+                // Rotate to camera space (same math as renderTargets)
+                const rx = dx * cosAngle - dy * sinAngle;
+                const ry = -dx * sinAngle - dy * cosAngle;
+
+                // Check if in front of camera
+                if (ry > 10 && ry < cam.distance) {
+                    const terrainZ = getTerrainHeight(obj.x, obj.y);
+
+                    // Check terrain occlusion (same as renderTargets)
+                    const beaconTarget = { x: obj.x, y: obj.y, z: terrainZ, size: 5, hitHeight: 3 };
+                    if (isTargetOccluded(beaconTarget, cam, dx, dy, ry)) {
+                        continue;
+                    }
+
+                    const fogFactor = fogEnabled ? Math.min(1, Math.max(0, (ry - fogStart) / (fogEnd - fogStart))) : 0;
+
+                    const scaleX = (screenWidth / 2) / ry;
+                    const scaleY = 240.0 / ry;
+                    const screenX = screenWidth / 2 + rx * scaleX;
+                    const bankTiltFactor = Math.sin(cam.bank || 0) * 0.3;
+                    const columnOffset = screenX - screenWidth / 2;
+                    const bankOffset = columnOffset * bankTiltFactor;
+                    const screenY = (cam.height - terrainZ) * scaleY + cam.horizon + bankOffset;
+
+                    // Beacon dimensions (scaled with distance)
+                    const baseRadius = 8 * scaleX;
+                    const baseHeight = 3 * scaleY;
+
+                    // Check if roughly on screen
+                    if (screenX > -baseRadius * 2 && screenX < screenWidth + baseRadius * 2 &&
+                        screenY > -baseHeight * 2 && screenY < screenHeight + baseHeight * 2) {
+
+                        // Pulsing alpha (oscillate between 0.15 and 0.45)
+                        const pulse = 0.3 + Math.sin(time * 2) * 0.15;
+                        const alpha = Math.max(0.05, pulse * (1 - fogFactor * 0.8));
+
+                        // --- Ground glow ellipse ---
+                        ctx.globalAlpha = alpha * 0.5;
+                        ctx.fillStyle = '#005555';
+                        ctx.beginPath();
+                        ctx.ellipse(screenX, screenY, baseRadius * 1.6, baseHeight * 1.6, 0, 0, Math.PI * 2);
+                        ctx.fill();
+
+                        ctx.globalAlpha = alpha * 0.7;
+                        ctx.fillStyle = '#008888';
+                        ctx.beginPath();
+                        ctx.ellipse(screenX, screenY, baseRadius * 1.1, baseHeight * 1.1, 0, 0, Math.PI * 2);
+                        ctx.fill();
+
+                        ctx.globalAlpha = alpha * 0.9;
+                        ctx.fillStyle = '#00cccc';
+                        ctx.beginPath();
+                        ctx.ellipse(screenX, screenY, baseRadius * 0.7, baseHeight * 0.7, 0, 0, Math.PI * 2);
+                        ctx.fill();
+
+                        // --- Diamond marker at base ---
+                        const diamondSize = Math.max(3, 6 * scaleY);
+                        ctx.globalAlpha = Math.max(0.1, (0.7 + Math.sin(time * 3) * 0.3) * (1 - fogFactor * 0.8));
+                        ctx.fillStyle = '#00ffff';
+                        ctx.beginPath();
+                        ctx.moveTo(screenX, screenY - diamondSize);
+                        ctx.lineTo(screenX + diamondSize * 0.6, screenY);
+                        ctx.lineTo(screenX, screenY + diamondSize);
+                        ctx.lineTo(screenX - diamondSize * 0.6, screenY);
+                        ctx.closePath();
+                        ctx.fill();
+
+                        ctx.globalAlpha = 1.0;
+                    }
+                }
+            }
+        }
         
         function drawSAMSite(x, y, size, color, fogFactor = 0, ambient = 1, skyColor = CONFIG.SKY_COLOR) {
             ctx.imageSmoothingEnabled = false;
@@ -16549,10 +16657,9 @@
             }
             
             // Draw extraction/reach objectives on radar
-            const mission = getActiveMission();
-            if (mission && mission.objectives) {
-                for (const obj of mission.objectives) {
-                    if (obj.type === 'reach_location' && !obj.completed) {
+            if (objectiveState.objectives.length > 0) {
+                for (const obj of objectiveState.objectives) {
+                    if (obj.type === 'reach_location' && !obj.complete) {
                         let dx = obj.x - camera.x;
                         let dy = obj.y - camera.y;
                         
@@ -16569,18 +16676,25 @@
                         const rx = dx * cosAngle - dy * sinAngle;
                         const ry = dx * sinAngle + dy * cosAngle;
                         
-                        // Clamp to radar edge if outside range
-                        let radarDist = dist * scale;
+                        // Calculate radar position and clamp to edge if outside range
+                        const radarRx = rx * scale;
+                        const radarRy = ry * scale;
+                        const radarDist = Math.sqrt(radarRx * radarRx + radarRy * radarRy);
                         const maxRadarDist = radarSize / 2 - 8;
-                        if (radarDist > maxRadarDist) {
-                            radarDist = maxRadarDist;
+
+                        let finalRx, finalRy;
+                        if (radarDist > maxRadarDist && radarDist > 0) {
+                            // Clamp to radar edge, preserving direction via normalization
+                            const clampScale = maxRadarDist / radarDist;
+                            finalRx = radarRx * clampScale;
+                            finalRy = radarRy * clampScale;
+                        } else {
+                            finalRx = radarRx;
+                            finalRy = radarRy;
                         }
-                        const angle = Math.atan2(rx, -ry);
-                        const clampedRx = Math.sin(angle) * radarDist;
-                        const clampedRy = -Math.cos(angle) * radarDist;
-                        
-                        const objX = radarCenterX + (dist <= CONFIG.RADAR_RANGE ? rx * scale : clampedRx);
-                        const objY = radarCenterY - (dist <= CONFIG.RADAR_RANGE ? ry * scale : clampedRy);
+
+                        const objX = radarCenterX + finalRx;
+                        const objY = radarCenterY - finalRy;
                         
                         // Draw extraction point as blinking cyan diamond
                         const blinkOn = Math.floor(performance.now() / 400) % 2 === 0;

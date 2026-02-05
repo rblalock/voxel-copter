@@ -4,8 +4,8 @@
   "difficulty": "hard",
   "weather": "dusk",
   "playerStart": {
-    "x": 717,
-    "y": 752,
+    "x": 716,
+    "y": 744,
     "heading": 0.8
   },
   "airports": [],
@@ -192,18 +192,16 @@
     {
       "type": "reach_location",
       "description": "Extract to the insertion point",
-      "x": 110,
-      "y": 110,
+      "x": 490,
+      "y": 149,
       "radius": 50
     }
   ],
   "events": [
     {
       "trigger": "objective_complete",
-      "action": "show_message",
-      "objectiveId": "obj_0",
-      "message": "TARGET DOWN - EXTRACT TO LZ",
-      "duration": 4000
+      "action": "complete_mission",
+      "objectiveId": "obj-1-1770321761478"
     }
   ],
   "missionId": 6
