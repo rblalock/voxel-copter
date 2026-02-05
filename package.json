@@ -6,7 +6,8 @@
 	"module": ".agentuity/app.js",
 	"type": "module",
 	"scripts": {
-		"build": "agentuity build",
+		"build": "bun run build:voxelvibe && agentuity build",
+		"build:voxelvibe": "bun build src/voxelvibe/index.ts --outfile src/web/public/game.js --format=iife --global-name=VoxelVibe",
 		"dev": "agentuity dev",
 		"start": "bun .agentuity/app.js",
 		"deploy": "agentuity deploy",
