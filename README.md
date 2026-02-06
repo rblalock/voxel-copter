@@ -20,6 +20,8 @@ VoxelCopter is a Comanche-style voxel terrain game and mission sandbox built on 
 - Agentuity routes power AI mission generation and debriefs (`src/api/mission/route.ts`) plus global stats/leaderboards (`src/api/stats/route.ts`).
 - Shared constants are bundled from `src/voxelvibe/index.ts` into `src/web/public/game.js` via `bun run build`.
 
+Here's a video of it working: https://www.youtube.com/watch?v=SSuNQPGqLec 
+
 ## Project layout
 
 ```
