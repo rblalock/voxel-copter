@@ -451,6 +451,8 @@
         // Leaderboard cache
         let cachedGlobalStats = null;
         let lastGlobalStatsFetch = 0;
+        let missionLayoutCache = {};
+        let lastLeaderboardName = localStorage.getItem('voxelcopter_playerName') || '';
 
         // -----------------------------------------------------------------
         // HELPER: getTerrainHeight using VoxelVibe engine
@@ -9053,7 +9055,13 @@
         function restartCurrentMode() {
             startFreePlay();
         }
-        function preloadMissionLayout() { return Promise.resolve(); }
+        async function preloadMissionLayout(missionIndex) {
+            if (typeof missionIndex !== 'number') return;
+            const mission = MISSIONS[missionIndex];
+            if (mission && mission.layoutFile && !missionLayoutCache[mission.layoutFile]) {
+                await loadMissionLayout(mission.layoutFile);
+            }
+        }
         function fetchGlobalStats() { return Promise.resolve(null); }
         function postStatsEvent() {}
         function submitToGlobalLeaderboard() {}
@@ -9070,6 +9078,352 @@
                 gameState = GAME_STATES.DEFEAT;
                 defeatReason = reason || 'Mission failed';
                 isPlayerDead = true;
+            }
+        }
+
+
+        // -----------------------------------------------------------------
+        // UTILITY / MISSING FUNCTIONS
+        // -----------------------------------------------------------------
+        function hitTest(rect, x, y) {
+            return x >= rect.x && x <= rect.x + rect.width && y >= rect.y && y <= rect.y + rect.height;
+        }
+
+        function calculateAccuracy() {
+            const hasTelemetry = telemetry.shotsFired > 0 || telemetry.shotsHit > 0;
+            const shots = hasTelemetry ? telemetry.shotsFired : sessionStats.shotsFired;
+            const hits = hasTelemetry ? telemetry.shotsHit : sessionStats.hits;
+            if (!shots) return 0;
+            return Math.max(0, Math.min(100, Math.round((hits / shots) * 100)));
+        }
+
+        function getActiveMission() {
+            if (currentMissionIndex < 0) return null;
+            return activeMission || MISSIONS[currentMissionIndex];
+        }
+
+        function refreshGlobalStatsIfNeeded() {
+            const now = performance.now();
+            if (now - lastGlobalStatsFetch > 30000 || !cachedGlobalStats) {
+                fetchGlobalStats().then((stats) => {
+                    if (stats) cachedGlobalStats = stats;
+                });
+                lastGlobalStatsFetch = now;
+            }
+        }
+
+        function buildMissionFromAI(aiConfig, baseMission) {
+            const { deriveTargetCounts, normalizeDifficulty: normDiff } = (() => {
+                function deriveTargetCounts(aiConfig) {
+                    const counts = { tanks: 0, soldiers: 0, buildings: 0, sams: 0 };
+                    if (!aiConfig || !Array.isArray(aiConfig.entities)) return counts;
+                    for (const spec of aiConfig.entities) {
+                        const typeKey = String(spec.type || '').toUpperCase();
+                        const rawCount = Number(spec.count || 0);
+                        const count = Number.isFinite(rawCount) ? rawCount : 0;
+                        if (typeKey === 'TANK') counts.tanks += count;
+                        if (typeKey === 'SOLDIER') counts.soldiers += count;
+                        if (typeKey === 'SNIPER') counts.soldiers += count;
+                        if (typeKey === 'BUILDING') counts.buildings += count;
+                        if (typeKey === 'SAM_SITE') counts.sams += count;
+                    }
+                    return counts;
+                }
+                function normalizeDifficulty(d) {
+                    if (d === 'normal') return 'medium';
+                    if (['easy','medium','hard','extreme'].includes(d)) return d;
+                    return 'medium';
+                }
+                return { deriveTargetCounts, normalizeDifficulty };
+            })();
+            const counts = deriveTargetCounts(aiConfig);
+            const base = baseMission || MISSIONS[0];
+            return {
+                ...base,
+                name: 'AI OPERATION',
+                briefing: aiConfig.briefing || base.briefing,
+                briefingDelta: aiConfig.briefingDelta || base.briefingDelta,
+                objectives: Array.isArray(aiConfig.objectives) && aiConfig.objectives.length > 0 ? aiConfig.objectives : base.objectives,
+                difficulty: normDiff(aiConfig.difficulty || base.difficulty),
+                timeLimit: typeof aiConfig.timeLimit === 'number' ? aiConfig.timeLimit : base.timeLimit,
+                targets: { tanks: counts.tanks, buildings: counts.buildings, sams: counts.sams },
+                targetsDelta: { soldiers: counts.soldiers, buildings: counts.buildings, sams: counts.sams },
+                rewards: base.rewards
+            };
+        }
+
+        function getBriefingMission() {
+            const baseMission = MISSIONS[currentMissionIndex] || MISSIONS[0];
+            if (pendingAIMission) {
+                return buildMissionFromAI(pendingAIMission, baseMission);
+            }
+            if (baseMission.layoutFile && missionLayoutCache[baseMission.layoutFile]) {
+                const layout = missionLayoutCache[baseMission.layoutFile];
+                const merged = { ...baseMission };
+                if (layout.objectives && layout.objectives.length > 0) merged.objectives = layout.objectives;
+                if (layout.briefing) merged.briefing = layout.briefing;
+                if (layout.name) merged.name = layout.name;
+                return merged;
+            }
+            return baseMission;
+        }
+
+        function drawModeToggleButton(rect, isSelected, isHovered) {
+            const active = isSelected || isHovered;
+            const isDelta = gameMode === GAME_MODES.DELTA;
+            const modeLabel = isDelta ? 'MODE: DELTA FORCE' : 'MODE: COMANCHE';
+            const baseColor = isDelta ? '#b8935e' : '#0f0';
+            const activeColor = isDelta ? '#e0c190' : '#7dff7d';
+            ctx.strokeStyle = active ? '#0f0' : '#0a0';
+            ctx.lineWidth = 2;
+            ctx.fillStyle = active ? 'rgba(0, 80, 0, 0.7)' : 'rgba(0, 30, 0, 0.6)';
+            ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+            ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
+            ctx.fillStyle = active ? activeColor : baseColor;
+            ctx.font = 'bold 16px Courier New';
+            ctx.textAlign = 'center';
+            ctx.fillText(modeLabel, rect.x + rect.width / 2, rect.y + rect.height / 2 + 6);
+        }
+
+        async function loadMissionLayout(layoutFile) {
+            if (missionLayoutCache[layoutFile]) return missionLayoutCache[layoutFile];
+            try {
+                const response = await fetch(layoutFile);
+                if (!response.ok) { console.warn(`Failed to load mission layout: ${layoutFile}`); return null; }
+                const layout = await response.json();
+                missionLayoutCache[layoutFile] = layout;
+                return layout;
+            } catch (err) {
+                console.warn(`Error loading mission layout: ${layoutFile}`, err);
+                return null;
+            }
+        }
+
+        function applyCustomMissionConfig(config) {
+            world.stamps = []; world.airports = []; world.bases = []; world.helipads = [];
+            airportSpawnTimers = {}; helipadSpawnTimers = {};
+            if (config.airports && config.airports.length > 0) {
+                for (const airport of config.airports) {
+                    const heading = airport.heading || Math.random() * Math.PI * 2;
+                    const faction = airport.faction === 'friendly' ? FACTIONS.FRIENDLY : FACTIONS.ENEMY;
+                    const result = generateAirport(airport.x, airport.y, heading, faction);
+                    if (result.airport) world.stamps.push(...result.stamps);
+                }
+            }
+            if (config.bases && config.bases.length > 0) {
+                for (const base of config.bases) {
+                    const faction = base.faction === 'friendly' ? FACTIONS.FRIENDLY : FACTIONS.ENEMY;
+                    const result = generateBase(base.x, base.y, faction, base.size || 'medium');
+                    world.stamps.push(...result.stamps);
+                }
+            }
+            if (config.helipads && config.helipads.length > 0) {
+                for (const helipad of config.helipads) {
+                    const faction = helipad.faction === 'friendly' ? FACTIONS.FRIENDLY : FACTIONS.ENEMY;
+                    const result = generateHelipad(helipad.x, helipad.y, faction);
+                    if (result) world.stamps.push(...result.stamps);
+                }
+            }
+            const playerX = config.playerStart?.x || 512;
+            const playerY = config.playerStart?.y || 512;
+            const homeBaseResult = generateHelipad(playerX, playerY, FACTIONS.FRIENDLY);
+            if (homeBaseResult) world.stamps.push(...homeBaseResult.stamps);
+            if (world.stamps.length > 0) applyMissionStamps(world.stamps);
+            if (config.spawnZones && config.spawnZones.length > 0) {
+                for (const zone of config.spawnZones) {
+                    const count = zone.count || 10;
+                    const radius = zone.radius || 80;
+                    const types = zone.types || ['TANK', 'SOLDIER'];
+                    for (let i = 0; i < count; i++) {
+                        const angle = Math.random() * Math.PI * 2;
+                        const dist = Math.random() * radius;
+                        const x = zone.x + Math.cos(angle) * dist;
+                        const y = zone.y + Math.sin(angle) * dist;
+                        const typeKey = types[Math.floor(Math.random() * types.length)].toUpperCase();
+                        if (TARGET_TYPES[typeKey]) spawnTargetAt(typeKey, x, y, FACTIONS.ENEMY);
+                    }
+                }
+            }
+            if (config.units && config.units.length > 0) {
+                for (const unit of config.units) {
+                    const typeKey = (unit.type || '').toUpperCase();
+                    if (TARGET_TYPES[typeKey]) {
+                        const faction = unit.faction === 'friendly' ? FACTIONS.FRIENDLY : FACTIONS.ENEMY;
+                        spawnTargetAt(typeKey, unit.x, unit.y, faction);
+                    }
+                }
+            }
+        }
+
+        function loadMapForMission(mapIndex, callback) {
+            const loadingEl = document.getElementById('loading');
+            if (loadingEl) loadingEl.style.display = 'block';
+            const mapSel = document.getElementById('mapSelector');
+            if (mapSel) mapSel.value = (mapIndex + 1).toString();
+            const mapData = maps[mapIndex];
+            if (!mapData) { if (callback) callback(); return; }
+            let loadedCount = 0;
+            const colorImg = new Image();
+            const heightImg = new Image();
+            colorImg.crossOrigin = 'anonymous';
+            heightImg.crossOrigin = 'anonymous';
+            function onLoaded() {
+                loadedCount++;
+                if (loadedCount === 2) {
+                    processMapImages(colorImg, heightImg);
+                    if (loadingEl) loadingEl.style.display = 'none';
+                    if (callback) callback();
+                }
+            }
+            colorImg.onload = onLoaded;
+            heightImg.onload = onLoaded;
+            colorImg.onerror = () => { if (loadingEl) loadingEl.textContent = 'ERROR LOADING COLOR MAP'; };
+            heightImg.onerror = () => { if (loadingEl) loadingEl.textContent = 'ERROR LOADING HEIGHT MAP'; };
+            colorImg.src = mapData.color;
+            heightImg.src = mapData.height;
+        }
+
+        function startCustomMission(options = {}) {
+            if (!customMissionConfig) return;
+            const config = customMissionConfig;
+            const loadingEl = document.getElementById('loading');
+            if (loadingEl) { loadingEl.style.display = 'block'; loadingEl.textContent = `LOADING ${config.name || 'CUSTOM MISSION'}...`; }
+            const mapIndex = (config.mapIndex || 1) - 1;
+            loadMapForMission(mapIndex, () => {
+                activeMission = { name: config.name || 'Custom Mission', difficulty: config.difficulty || 'medium', timeLimit: 0, targets: {} };
+                activeAIMission = null;
+                playerHealth = maxPlayerHealth;
+                score = 0; isPlayerDead = false; missionComplete = false;
+                defeatReason = ''; missionNoDamage = true; lastMissionElapsed = 0;
+                resetSessionStats();
+                weaponState.cannon.ammo = Infinity;
+                weaponState.rockets.ammo = WEAPONS.rockets.maxAmmo;
+                weaponState.hellfire.ammo = WEAPONS.hellfire.maxAmmo;
+                weaponState.stinger.ammo = WEAPONS.stinger.maxAmmo;
+                currentWeaponIndex = 0; currentWeapon = weaponOrder[0];
+                countermeasures.chaff.count = 10; countermeasures.flare.count = 10;
+                if (config.playerStart) {
+                    camera.x = config.playerStart.x; camera.y = config.playerStart.y;
+                    camera.angle = typeof config.playerStart.heading === 'number' ? config.playerStart.heading : 0;
+                } else { camera.x = 512; camera.y = 512; camera.angle = 0; }
+                resetPlayerForMode(gameMode); resetTelemetry();
+                targets = []; projectiles = []; enemyProjectiles = []; explosions = []; particles = []; particlePool = [];
+                missileWarning = false; missileWarningTime = 0; screenFlashColor = null; screenFlashTime = 0;
+                screenShake = { x: 0, y: 0, intensity: 0, decay: 0.9, duration: 0 };
+                muzzleFlashTime = 0; muzzleFlashIntensity = 0; hitMarkerTime = 0; hitMarkerIntensity = 0;
+                damageVignetteTime = 0; damageVignetteIntensity = 0;
+                applyCustomMissionConfig(config);
+                if (config.weather) weatherCondition = config.weather;
+                missionStartTime = 0; missionTime = 0;
+                currentMissionIndex = -2;
+                trackEvent('game_start', { mode: gameMode, missionId: 'custom', difficulty: config.difficulty || 'medium' });
+                if (loadingEl) loadingEl.style.display = 'none';
+                gameState = GAME_STATES.PLAYING;
+                startRotorSound(); startWindSound();
+                if (options.onReady) options.onReady();
+            });
+        }
+
+        // -----------------------------------------------------------------
+        // TARGET RENDERING
+        // -----------------------------------------------------------------
+        function renderTargets(cam) {
+            const sinAngle = Math.sin(cam.angle);
+            const cosAngle = Math.cos(cam.angle);
+            const weather = WEATHER_SETTINGS[weatherCondition];
+            const fogStart = weather.fogStart;
+            const fogEnd = Math.min(cam.distance, fogStart + (cam.distance - fogStart) / (weather.fogDensity || 2));
+
+            for (const target of targets) {
+                if (target.destroyed) continue;
+                let dx = target.x - cam.x;
+                let dy = target.y - cam.y;
+                if (dx > CONFIG.MAP_SIZE / 2) dx -= CONFIG.MAP_SIZE;
+                if (dx < -CONFIG.MAP_SIZE / 2) dx += CONFIG.MAP_SIZE;
+                if (dy > CONFIG.MAP_SIZE / 2) dy -= CONFIG.MAP_SIZE;
+                if (dy < -CONFIG.MAP_SIZE / 2) dy += CONFIG.MAP_SIZE;
+                const rx = dx * cosAngle - dy * sinAngle;
+                const ry = -dx * sinAngle - dy * cosAngle;
+                if (ry > 10 && ry < cam.distance) {
+                    const fogFactor = fogEnabled ? Math.min(1, Math.max(0, (ry - fogStart) / (fogEnd - fogStart))) : 0;
+                    if (isTargetOccluded(target, cam, dx, dy, ry)) continue;
+                    const scaleX = (screenWidth / 2) / ry;
+                    const scaleY = 240.0 / ry;
+                    const screenX = screenWidth / 2 + rx * scaleX;
+                    const bankTiltFactor = Math.sin(cam.bank || 0) * 0.3;
+                    const columnOffset = screenX - screenWidth / 2;
+                    const bankOffset = columnOffset * bankTiltFactor;
+                    let screenY = (cam.height - target.z) * scaleY + cam.horizon + bankOffset;
+                    if (target.type === 'building') screenY += target.size * 0.9 * scaleY;
+                    else if (target.type === 'tank') screenY += target.size * 0.3 * scaleY;
+                    else if (target.type === 'sam') screenY += target.size * 0.35 * scaleY;
+                    else if (target.type === 'hangar') screenY += target.size * 0.6 * scaleY;
+                    else if (target.type === 'control_tower') screenY += target.size * 1.0 * scaleY;
+                    else if (target.type === 'barracks') screenY += target.size * 0.5 * scaleY;
+                    else if (target.type === 'fuel_depot') screenY += target.size * 0.4 * scaleY;
+                    else if (target.type === 'helipad') screenY += target.size * 0.1 * scaleY;
+                    else if (target.type === 'soldier') screenY += target.size * 0.25 * scaleY;
+                    const size = target.size * scaleY;
+                    const isAircraft = target.domain === DOMAINS.AIR;
+                    let groundScreenY = 0, altitude = 0;
+                    if (isAircraft) {
+                        const terrainHeight = getTerrainHeight(target.x, target.y);
+                        altitude = target.z - terrainHeight;
+                        groundScreenY = (cam.height - terrainHeight) * scaleY + cam.horizon + bankOffset;
+                    }
+                    if (screenX > -size && screenX < screenWidth + size && screenY > -size && screenY < screenHeight + size) {
+                        const healthPercent = target.health / target.maxHealth;
+                        if (target.type === 'tank') {
+                            drawTank(screenX, screenY, size, target.color, target.ai?.heading || 0, fogFactor, weather.ambient, weather.skyColor);
+                        } else if (target.type === 'building') {
+                            drawBuilding(screenX, screenY, size, getDamagedBuildingColor(target.color, healthPercent), fogFactor, weather.ambient, weather.skyColor);
+                        } else if (target.type === 'sam') {
+                            drawSAMSite(screenX, screenY, size, target.color, fogFactor, weather.ambient, weather.skyColor);
+                        } else if (target.type === 'hangar') {
+                            drawHangar(screenX, screenY, size, getDamagedBuildingColor(target.color, healthPercent), fogFactor, weather.ambient, weather.skyColor);
+                        } else if (target.type === 'control_tower') {
+                            drawControlTower(screenX, screenY, size, getDamagedBuildingColor(target.color, healthPercent), fogFactor, weather.ambient, weather.skyColor);
+                        } else if (target.type === 'barracks') {
+                            drawBarracks(screenX, screenY, size, getDamagedBuildingColor(target.color, healthPercent), fogFactor, weather.ambient, weather.skyColor);
+                        } else if (target.type === 'fuel_depot') {
+                            drawFuelDepot(screenX, screenY, size, getDamagedBuildingColor(target.color, healthPercent), fogFactor, weather.ambient, weather.skyColor);
+                        } else if (target.type === 'helipad') {
+                            if (target.faction === FACTIONS.FRIENDLY || target.faction === 'friendly') {
+                                drawResupplyGlow(screenX, screenY, size, fogFactor);
+                            }
+                            drawHelipad(screenX, screenY, size, getDamagedBuildingColor(target.color, healthPercent), fogFactor, weather.ambient, weather.skyColor);
+                        } else if (target.type === 'soldier') {
+                            drawSoldier(screenX, screenY, size, target.color, target.ai?.pose, fogFactor, weather.ambient, weather.skyColor);
+                        } else if (target.type === 'sniper') {
+                            const sniperPose = target.ai?.pose === 'shoot' ? 'shoot' : 'crouch';
+                            drawSoldier(screenX, screenY, size, target.color, sniperPose, fogFactor, weather.ambient, weather.skyColor);
+                        } else if (target.type === 'air_fighter') {
+                            drawFighterJet(screenX, screenY, size, target.color, target.ai?.heading || 0, fogFactor, weather.ambient, weather.skyColor);
+                        } else if (target.type === 'air_transport') {
+                            drawTransportPlane(screenX, screenY, size, target.color, target.ai?.heading || 0, fogFactor, weather.ambient, weather.skyColor);
+                        } else if (target.type === 'air_attack_heli') {
+                            drawAttackHelicopter(screenX, screenY, size, target.color, target.ai?.heading || 0, fogFactor, weather.ambient, weather.skyColor);
+                        }
+                        if (isAircraft) {
+                            const altitudeFactor = Math.min(1, Math.max(0, altitude / 250));
+                            const shadowAlpha = Math.max(0, 0.22 * (1 - fogFactor) * (1 - altitudeFactor * 0.7));
+                            const shadowSize = Math.max(2, size * (0.85 - altitudeFactor * 0.3));
+                            const terrainHeight = getTerrainHeight(target.x, target.y);
+                            const shadowOccluded = isShadowOccluded(target.x, target.y, terrainHeight, cam, dx, dy, ry);
+                            if (!shadowOccluded && groundScreenY > -size && groundScreenY < screenHeight + size) {
+                                drawAircraftShadow(screenX, groundScreenY, shadowSize, shadowAlpha, cam.angle);
+                            }
+                        }
+                        if (target.health < target.maxHealth) {
+                            const healthPct = target.health / target.maxHealth;
+                            ctx.fillStyle = getSpriteColor('#333333', ry, cam);
+                            ctx.fillRect(screenX - size/2, screenY - size - 10, size, 5);
+                            const healthColor = healthPct > 0.5 ? '#4aa04a' : healthPct > 0.25 ? '#c9a83a' : '#a04a4a';
+                            ctx.fillStyle = getSpriteColor(healthColor, ry, cam);
+                            ctx.fillRect(screenX - size/2, screenY - size - 10, size * healthPct, 5);
+                        }
+                    }
+                }
             }
         }
 
