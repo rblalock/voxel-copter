@@ -6,12 +6,14 @@
 
 /** Canvas 2D context - set via init() */
 let _ctx: CanvasRenderingContext2D;
+let _canvas: HTMLCanvasElement | null = null;
 let _screenWidth: number = 800;
 let _screenHeight: number = 600;
 
 /** Initialize the HUD renderer. */
-export function init(ctx: CanvasRenderingContext2D): void {
+export function init(ctx: CanvasRenderingContext2D, canvas?: HTMLCanvasElement): void {
 	_ctx = ctx;
+	if (canvas) _canvas = canvas;
 }
 
 /** Update screen dimensions (call from resizeCanvas). */
@@ -393,3 +395,71 @@ export function renderAttitudeIndicator(cx: number, cy: number, bank: number, pi
     _ctx.restore();
 }
 
+/**
+ * Applies a night vision post-processing effect to the canvas.
+ * @param ambient Weather ambient light level (0=dark, 1=full daylight).
+ */
+export function applyNightVisionEffect(ambient: number): void {
+    const boostFactor = Math.min(4.0, Math.max(1.5, 1.5 / ambient));
+
+    _ctx.save();
+
+    // Step 1: Brighten the image (simulate light amplification)
+    _ctx.globalCompositeOperation = 'lighter';
+    _ctx.globalAlpha = (boostFactor - 1) * 0.5;
+    if (_canvas) _ctx.drawImage(_canvas, 0, 0);
+
+    if (ambient < 0.4) {
+        _ctx.globalAlpha = 0.3;
+        if (_canvas) _ctx.drawImage(_canvas, 0, 0);
+    }
+
+    // Step 2: Green tint
+    _ctx.globalCompositeOperation = 'multiply';
+    _ctx.globalAlpha = 1.0;
+    _ctx.fillStyle = '#60ff60';
+    _ctx.fillRect(0, 0, _screenWidth, _screenHeight);
+
+    // Step 3: Contrast boost
+    _ctx.globalCompositeOperation = 'overlay';
+    _ctx.globalAlpha = 0.2;
+    _ctx.fillStyle = '#00ff00';
+    _ctx.fillRect(0, 0, _screenWidth, _screenHeight);
+
+    // Step 4: Screen blend
+    _ctx.globalCompositeOperation = 'screen';
+    _ctx.globalAlpha = 0.15;
+    _ctx.fillStyle = '#003300';
+    _ctx.fillRect(0, 0, _screenWidth, _screenHeight);
+
+    _ctx.restore();
+
+    // Step 5: Scanlines
+    _ctx.fillStyle = 'rgba(0, 0, 0, 0.08)';
+    for (let y = 0; y < _screenHeight; y += 4) {
+        _ctx.fillRect(0, y, _screenWidth, 1);
+    }
+
+    // Step 6: Noise/grain
+    _ctx.fillStyle = 'rgba(0, 255, 0, 0.02)';
+    for (let i = 0; i < 20; i++) {
+        const x = Math.random() * _screenWidth;
+        const y = Math.random() * _screenHeight;
+        _ctx.fillRect(x, y, 2, 2);
+    }
+
+    // Step 7: Vignette
+    const gradient = _ctx.createRadialGradient(
+        _screenWidth / 2, _screenHeight / 2, _screenHeight * 0.4,
+        _screenWidth / 2, _screenHeight / 2, _screenHeight * 0.9
+    );
+    gradient.addColorStop(0, 'rgba(0, 0, 0, 0)');
+    gradient.addColorStop(1, 'rgba(0, 0, 0, 0.35)');
+    _ctx.fillStyle = gradient;
+    _ctx.fillRect(0, 0, _screenWidth, _screenHeight);
+
+    // Step 8: Edge glow
+    _ctx.strokeStyle = 'rgba(0, 255, 0, 0.12)';
+    _ctx.lineWidth = 3;
+    _ctx.strokeRect(2, 2, _screenWidth - 4, _screenHeight - 4);
+}

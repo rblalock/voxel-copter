@@ -5712,13 +5712,17 @@
     renderAttitudeIndicator: () => renderAttitudeIndicator,
     renderAltitudeLadder: () => renderAltitudeLadder,
     init: () => init3,
-    drawHUDPanel: () => drawHUDPanel
+    drawHUDPanel: () => drawHUDPanel,
+    applyNightVisionEffect: () => applyNightVisionEffect
   });
   var _ctx3;
+  var _canvas = null;
   var _screenWidth3 = 800;
   var _screenHeight3 = 600;
-  function init3(ctx) {
+  function init3(ctx, canvas) {
     _ctx3 = ctx;
+    if (canvas)
+      _canvas = canvas;
   }
   function setScreenSize3(width, height) {
     _screenWidth3 = width;
@@ -5978,6 +5982,50 @@
     _ctx3.closePath();
     _ctx3.fill();
     _ctx3.restore();
+  }
+  function applyNightVisionEffect(ambient) {
+    const boostFactor = Math.min(4, Math.max(1.5, 1.5 / ambient));
+    _ctx3.save();
+    _ctx3.globalCompositeOperation = "lighter";
+    _ctx3.globalAlpha = (boostFactor - 1) * 0.5;
+    if (_canvas)
+      _ctx3.drawImage(_canvas, 0, 0);
+    if (ambient < 0.4) {
+      _ctx3.globalAlpha = 0.3;
+      if (_canvas)
+        _ctx3.drawImage(_canvas, 0, 0);
+    }
+    _ctx3.globalCompositeOperation = "multiply";
+    _ctx3.globalAlpha = 1;
+    _ctx3.fillStyle = "#60ff60";
+    _ctx3.fillRect(0, 0, _screenWidth3, _screenHeight3);
+    _ctx3.globalCompositeOperation = "overlay";
+    _ctx3.globalAlpha = 0.2;
+    _ctx3.fillStyle = "#00ff00";
+    _ctx3.fillRect(0, 0, _screenWidth3, _screenHeight3);
+    _ctx3.globalCompositeOperation = "screen";
+    _ctx3.globalAlpha = 0.15;
+    _ctx3.fillStyle = "#003300";
+    _ctx3.fillRect(0, 0, _screenWidth3, _screenHeight3);
+    _ctx3.restore();
+    _ctx3.fillStyle = "rgba(0, 0, 0, 0.08)";
+    for (let y = 0;y < _screenHeight3; y += 4) {
+      _ctx3.fillRect(0, y, _screenWidth3, 1);
+    }
+    _ctx3.fillStyle = "rgba(0, 255, 0, 0.02)";
+    for (let i = 0;i < 20; i++) {
+      const x = Math.random() * _screenWidth3;
+      const y = Math.random() * _screenHeight3;
+      _ctx3.fillRect(x, y, 2, 2);
+    }
+    const gradient = _ctx3.createRadialGradient(_screenWidth3 / 2, _screenHeight3 / 2, _screenHeight3 * 0.4, _screenWidth3 / 2, _screenHeight3 / 2, _screenHeight3 * 0.9);
+    gradient.addColorStop(0, "rgba(0, 0, 0, 0)");
+    gradient.addColorStop(1, "rgba(0, 0, 0, 0.35)");
+    _ctx3.fillStyle = gradient;
+    _ctx3.fillRect(0, 0, _screenWidth3, _screenHeight3);
+    _ctx3.strokeStyle = "rgba(0, 255, 0, 0.12)";
+    _ctx3.lineWidth = 3;
+    _ctx3.strokeRect(2, 2, _screenWidth3 - 4, _screenHeight3 - 4);
   }
 
   // src/voxelvibe/input/keyboard.ts

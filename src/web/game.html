@@ -106,7 +106,7 @@
                 isTargetOccluded, isProjectileOccluded, isShadowOccluded,
                 renderProjectiles, renderEnemyProjectiles, renderExplosions, renderParticles } = VV.Render.Sprites;
         const { renderRadar, renderMinimap, renderTerrainRadar } = VV.Render.Radar;
-        const { drawHUDPanel, renderCompass, renderAltitudeLadder, renderFlightPathPredictor, renderAttitudeIndicator } = VV.Render.HUD;
+        const { drawHUDPanel, renderCompass, renderAltitudeLadder, renderFlightPathPredictor, renderAttitudeIndicator, applyNightVisionEffect } = VV.Render.HUD;
 
         // -----------------------------------------------------------------
         // CONFIGURATION
@@ -3172,7 +3172,7 @@
                 // Apply night vision effect AFTER all game elements but BEFORE HUD
                 // This ensures targets, projectiles, and explosions all get the NV treatment
                 if (nightVisionMode) {
-                    applyNightVisionEffect();
+                    applyNightVisionEffect(weather.ambient);
                 }
                 
                 // Render screen flash effect
@@ -3316,83 +3316,6 @@
             gradient.addColorStop(1, `rgba(120, 0, 0, ${0.55 * intensity})`);
             ctx.fillStyle = gradient;
             ctx.fillRect(0, 0, screenWidth, screenHeight);
-        }
-        
-        // ============================================
-        // NIGHT VISION EFFECT (GPU-accelerated)
-        // Uses canvas compositing instead of per-pixel manipulation
-        // ============================================
-        function applyNightVisionEffect() {
-            const weather = WEATHER_PRESETS[weatherCondition];
-            const ambient = weather.ambient;
-            
-            // Brightness boost based on darkness (darker = MUCH more boost)
-            // Night vision should make dark scenes very visible
-            const boostFactor = Math.min(4.0, Math.max(1.5, 1.5 / ambient));
-            
-            ctx.save();
-            
-            // Step 1: Brighten the image significantly (simulate light amplification)
-            // Apply multiple passes for stronger effect
-            ctx.globalCompositeOperation = 'lighter';
-            ctx.globalAlpha = (boostFactor - 1) * 0.5;  // Strong brightness boost
-            ctx.drawImage(canvas, 0, 0);
-            
-            // Second brightness pass for very dark scenes
-            if (ambient < 0.4) {
-                ctx.globalAlpha = 0.3;
-                ctx.drawImage(canvas, 0, 0);
-            }
-            
-            // Step 2: Apply green tint overlay
-            // Use 'multiply' to tint colors toward green (lighter green for better visibility)
-            ctx.globalCompositeOperation = 'multiply';
-            ctx.globalAlpha = 1.0;
-            ctx.fillStyle = '#60ff60';  // Lighter green tint for better visibility
-            ctx.fillRect(0, 0, screenWidth, screenHeight);
-            
-            // Step 3: Boost contrast with overlay
-            ctx.globalCompositeOperation = 'overlay';
-            ctx.globalAlpha = 0.2;
-            ctx.fillStyle = '#00ff00';
-            ctx.fillRect(0, 0, screenWidth, screenHeight);
-            
-            // Step 4: Add screen blend for extra brightness on dark areas
-            ctx.globalCompositeOperation = 'screen';
-            ctx.globalAlpha = 0.15;
-            ctx.fillStyle = '#003300';
-            ctx.fillRect(0, 0, screenWidth, screenHeight);
-            
-            ctx.restore();
-            
-            // Step 5: Add scanlines (every 4th line - less dense for cleaner look)
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.08)';
-            for (let y = 0; y < screenHeight; y += 4) {
-                ctx.fillRect(0, y, screenWidth, 1);
-            }
-            
-            // Step 6: Add subtle noise/grain (fewer particles)
-            ctx.fillStyle = 'rgba(0, 255, 0, 0.02)';
-            for (let i = 0; i < 20; i++) {
-                const x = Math.random() * screenWidth;
-                const y = Math.random() * screenHeight;
-                ctx.fillRect(x, y, 2, 2);
-            }
-            
-            // Step 7: Lighter vignette effect (less dark at edges)
-            const gradient = ctx.createRadialGradient(
-                screenWidth / 2, screenHeight / 2, screenHeight * 0.4,
-                screenWidth / 2, screenHeight / 2, screenHeight * 0.9
-            );
-            gradient.addColorStop(0, 'rgba(0, 0, 0, 0)');
-            gradient.addColorStop(1, 'rgba(0, 0, 0, 0.35)');
-            ctx.fillStyle = gradient;
-            ctx.fillRect(0, 0, screenWidth, screenHeight);
-            
-            // Step 8: Green phosphor glow around edges
-            ctx.strokeStyle = 'rgba(0, 255, 0, 0.12)';
-            ctx.lineWidth = 3;
-            ctx.strokeRect(2, 2, screenWidth - 4, screenHeight - 4);
         }
         
         // ============================================
@@ -6868,7 +6791,7 @@
             ctx = canvas.getContext('2d');
             VV.Render.Sprites.init(ctx, getTerrainHeight);
             VV.Render.Radar.init(ctx);
-            VV.Render.HUD.init(ctx);
+            VV.Render.HUD.init(ctx, canvas);
             resizeCanvas();
             window.addEventListener('resize', resizeCanvas);
 
