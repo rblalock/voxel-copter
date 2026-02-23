@@ -9085,6 +9085,57 @@
         // -----------------------------------------------------------------
         // UTILITY / MISSING FUNCTIONS
         // -----------------------------------------------------------------
+        function blendWithWeatherFog(color, factor, skyColor) {
+            const a = (color >> 24) & 0xFF;
+            const b = (color >> 16) & 0xFF;
+            const g = (color >> 8) & 0xFF;
+            const r = color & 0xFF;
+            const skyR = skyColor & 0xFF;
+            const skyG = (skyColor >> 8) & 0xFF;
+            const skyB = (skyColor >> 16) & 0xFF;
+            const newR = Math.floor(r + (skyR - r) * factor);
+            const newG = Math.floor(g + (skyG - g) * factor);
+            const newB = Math.floor(b + (skyB - b) * factor);
+            return (a << 24) | (newB << 16) | (newG << 8) | newR;
+        }
+
+        async function generateAIMission(prompt, difficulty = 'normal') {
+            if (isGeneratingMission) return null;
+            isGeneratingMission = true;
+            const mapIndex = MISSIONS[currentMissionIndex]?.map ?? 0;
+            aiMissionMapIndex = mapIndex;
+            try {
+                const response = await fetch('/api/mission/generate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ prompt, mode: gameMode, difficulty, mapIndex })
+                });
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.success) {
+                        aiMission = data.mission;
+                        const aiMissionBaseIndex = (currentMissionIndex >= 0 && currentMissionIndex < MISSIONS.length) ? currentMissionIndex : 0;
+                        if (gameState === GAME_STATES.MISSION_GENERATOR) {
+                            pendingAIMission = aiMission;
+                            aiMission = null;
+                            currentMissionIndex = aiMissionBaseIndex;
+                            playMenuConfirmSound();
+                            startTransition(GAME_STATES.PLAYING, 900, {
+                                hold: true,
+                                onSwitch: () => startMission(currentMissionIndex, { onReady: releaseTransition })
+                            });
+                        }
+                        return data.mission;
+                    }
+                }
+            } catch (e) {
+                console.warn('Failed to generate AI mission.');
+            } finally {
+                isGeneratingMission = false;
+            }
+            return null;
+        }
+
         function hitTest(rect, x, y) {
             return x >= rect.x && x <= rect.x + rect.width && y >= rect.y && y <= rect.y + rect.height;
         }
