@@ -76,6 +76,7 @@
     <div id="loading">LOADING TERRAIN...</div>
 
     <script src="/src/web/public/game.js"></script>
+    <script src="/src/web/game/ui-menus.js"></script>
     <script>
     // =====================================================================
     // VOXELCOPTER — Ported to VoxelVibe Engine
@@ -487,6 +488,106 @@
         let lastGlobalStatsFetch = 0;
         let missionLayoutCache = {};
         let lastLeaderboardName = localStorage.getItem('voxelcopter_playerName') || '';
+
+        // -----------------------------------------------------------------
+        // GAME UI MODULE — Context bridge for extracted overlay renderers
+        // -----------------------------------------------------------------
+        const gameUICtx = {
+            // Canvas
+            get ctx() { return ctx; },
+            get screenWidth() { return screenWidth; },
+            get screenHeight() { return screenHeight; },
+            get buf32() { return buf32; },
+            // Menu UI state (read/write)
+            get menuButtons() { return menuButtons; },
+            set menuButtons(v) { menuButtons = v; },
+            get pauseButtons() { return pauseButtons; },
+            set pauseButtons(v) { pauseButtons = v; },
+            get settingsControls() { return settingsControls; },
+            set settingsControls(v) { settingsControls = v; },
+            // Mouse
+            get mouseX() { return mouseX; },
+            get mouseY() { return mouseY; },
+            // Menu indices (read/write)
+            get menuSelectionIndex() { return menuSelectionIndex; },
+            set menuSelectionIndex(v) { menuSelectionIndex = v; },
+            get campaignSelectionIndex() { return campaignSelectionIndex; },
+            set campaignSelectionIndex(v) { campaignSelectionIndex = v; },
+            get freePlaySelectionIndex() { return freePlaySelectionIndex; },
+            set freePlaySelectionIndex(v) { freePlaySelectionIndex = v; },
+            get settingsSelectionIndex() { return settingsSelectionIndex; },
+            set settingsSelectionIndex(v) { settingsSelectionIndex = v; },
+            get pauseSelectionIndex() { return pauseSelectionIndex; },
+            set pauseSelectionIndex(v) { pauseSelectionIndex = v; },
+            get leaderboardScrollOffset() { return leaderboardScrollOffset; },
+            set leaderboardScrollOffset(v) { leaderboardScrollOffset = v; },
+            // Game state
+            get gameMode() { return gameMode; },
+            get currentMissionIndex() { return currentMissionIndex; },
+            set currentMissionIndex(v) { currentMissionIndex = v; },
+            get activeMission() { return activeMission; },
+            get activeAIMission() { return activeAIMission; },
+            get defeatReason() { return defeatReason; },
+            get score() { return score; },
+            get targets() { return targets; },
+            // Mission generator (read/write)
+            get isGeneratingMission() { return isGeneratingMission; },
+            get aiMission() { return aiMission; },
+            get missionGeneratorInput() { return missionGeneratorInput; },
+            set missionGeneratorInput(v) { missionGeneratorInput = v; },
+            get missionGeneratorCursor() { return missionGeneratorCursor; },
+            set missionGeneratorCursor(v) { missionGeneratorCursor = v; },
+            get missionGeneratorCursorTime() { return missionGeneratorCursorTime; },
+            set missionGeneratorCursorTime(v) { missionGeneratorCursorTime = v; },
+            get pendingAIMission() { return pendingAIMission; },
+            get customMissionConfig() { return customMissionConfig; },
+            set customMissionConfig(v) { customMissionConfig = v; },
+            get missionLayoutCache() { return missionLayoutCache; },
+            // Profile & settings
+            get profile() { return profile; },
+            get settings() { return settings; },
+            // Stats
+            get sessionStats() { return sessionStats; },
+            get telemetry() { return telemetry; },
+            get cachedGlobalStats() { return cachedGlobalStats; },
+            // Constants
+            get MAIN_MENU_OPTIONS() { return MAIN_MENU_OPTIONS; },
+            get FREEPLAY_OPTIONS() { return FREEPLAY_OPTIONS; },
+            get SETTINGS_ITEMS() { return SETTINGS_ITEMS; },
+            get MISSIONS() { return MISSIONS; },
+            get ACHIEVEMENTS() { return ACHIEVEMENTS; },
+            get PAUSE_OPTIONS() { return PAUSE_OPTIONS; },
+            get GAME_STATES() { return GAME_STATES; },
+            get GAME_MODES() { return GAME_MODES; },
+            // Action callbacks (function decls are hoisted)
+            get startTransition() { return startTransition; },
+            get handleMainMenuSelection() { return handleMainMenuSelection; },
+            get startFreePlay() { return startFreePlay; },
+            get startCustomMission() { return startCustomMission; },
+            get playMenuConfirmSound() { return playMenuConfirmSound; },
+            get playMenuNavigateSound() { return playMenuNavigateSound; },
+            get generateAIMission() { return generateAIMission; },
+            get getCampaignMissionIndices() { return getCampaignMissionIndices; },
+            get preloadMissionLayout() { return preloadMissionLayout; },
+            get getActiveMission() { return getActiveMission; },
+            get getBriefingMission() { return getBriefingMission; },
+            get calculateMissionScore() { return calculateMissionScore; },
+            get resumeFromPause() { return resumeFromPause; },
+            get restartCurrentMode() { return restartCurrentMode; },
+            get returnToMenu() { return returnToMenu; },
+            get hasAchievement() { return hasAchievement; },
+            get calculateAccuracy() { return calculateAccuracy; },
+            get formatDuration() { return formatDuration; },
+        };
+        window.GameUI.init(gameUICtx);
+        const {
+            renderTitleOverlay, renderMainMenuOverlay, renderAIMissionUI,
+            renderMissionGeneratorOverlay, renderCustomMissionOverlay,
+            renderCampaignOverlay, renderFreePlayOverlay, renderSettingsOverlay,
+            renderAchievementsOverlay, renderLeaderboardOverlay, renderHowToOverlay,
+            renderBriefingOverlay, renderPauseOverlay, renderVictoryOverlay,
+            renderDefeatOverlay, drawMenuPanel, drawMenuButton, hitTest,
+        } = window.GameUI;
 
         // -----------------------------------------------------------------
         // HELPER: getTerrainHeight using VoxelVibe engine
@@ -1821,1230 +1922,6 @@
                 ctx.fillText('No scores yet - be the first!', panelX + panelW / 2, panelY + 100);
             }
         }
-
-        function renderTitleOverlay() {
-            ctx.save();
-            menuButtons = [];
-            const centerX = screenWidth / 2;
-            const centerY = screenHeight / 2;
-            const scanY = (performance.now() * 0.05) % screenHeight;
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-            ctx.fillRect(0, 0, screenWidth, screenHeight);
-            ctx.fillStyle = 'rgba(0, 255, 0, 0.08)';
-            ctx.fillRect(0, scanY, screenWidth, 2);
-
-            ctx.font = 'bold 56px Courier New';
-            ctx.fillStyle = '#0f0';
-            ctx.textAlign = 'center';
-            ctx.shadowColor = '#0f0';
-            ctx.shadowBlur = 25;
-            ctx.fillText('VOXELCOPTER', centerX, centerY - 80);
-            ctx.shadowBlur = 0;
-
-            ctx.font = '18px Courier New';
-            ctx.fillStyle = '#0a0';
-            ctx.fillText('COMANCHE-STYLE COMBAT SIMULATION', centerX, centerY - 45);
-
-            const blinkOn = Math.floor(performance.now() / 500) % 2 === 0;
-            if (blinkOn) {
-                ctx.font = 'bold 16px Courier New';
-                ctx.fillStyle = '#0f0';
-                ctx.fillText('PRESS ANY KEY TO START', centerX, centerY + 40);
-            }
-
-            ctx.font = '12px Courier New';
-            ctx.fillStyle = '#0a0';
-            ctx.fillText('© VoxelCopter Command — Tactical Interface Online', centerX, centerY + 70);
-            ctx.restore();
-        }
-
-        function renderMainMenuOverlay() {
-            ctx.save();
-            menuButtons = [];
-            const centerX = screenWidth / 2;
-            const centerY = screenHeight / 2;
-            const boxWidth = 420;
-            
-            // Calculate box height based on number of menu options + space for high score/controls
-            const menuSpacing = 42;
-            const menuItemsHeight = MAIN_MENU_OPTIONS.length * menuSpacing;
-            const boxHeight = menuItemsHeight + 140;  // 80 top padding + 60 bottom for high score/controls
-            
-            const boxX = centerX - boxWidth / 2;
-            const boxY = centerY - boxHeight / 2;
-            drawMenuPanel(boxX, boxY, boxWidth, boxHeight, 'MAIN MENU');
-
-            ctx.font = 'bold 28px Courier New';
-            ctx.fillStyle = '#0f0';
-            ctx.textAlign = 'center';
-            ctx.fillText('VOXELCOPTER', centerX, boxY - 20);
-
-            let y = boxY + 70;
-            for (let i = 0; i < MAIN_MENU_OPTIONS.length; i++) {
-                const rect = { x: boxX + 60, y: y - 16, width: boxWidth - 120, height: 34 };
-                const hovered = hitTest(rect, mouseX, mouseY);
-                if (i === 0) {
-                    drawModeToggleButton(rect, i === menuSelectionIndex, hovered);
-                } else {
-                    drawMenuButton(MAIN_MENU_OPTIONS[i], rect, i === menuSelectionIndex, hovered);
-                }
-                menuButtons.push({ ...rect, onClick: () => handleMainMenuSelection(i) });
-                y += menuSpacing;
-            }
-
-            // High score and controls at bottom of box (inside the panel)
-            const highScoreY = boxY + boxHeight - 45;
-            const controlsY = boxY + boxHeight - 22;
-
-            ctx.font = '14px Courier New';
-            ctx.fillStyle = '#ff0';
-            ctx.textAlign = 'center';
-            ctx.fillText(`HIGH SCORE: ${profile.highScore.toString().padStart(6, '0')}`, centerX, highScoreY);
-
-            ctx.font = '12px Courier New';
-            ctx.fillStyle = '#0a0';
-            ctx.textAlign = 'center';
-            ctx.fillText('ARROW KEYS + ENTER', centerX, controlsY);
-
-            ctx.restore();
-        }
-
-        function renderAIMissionUI() {
-            const panelX = 50;
-            const panelY = screenHeight - 200;
-            const panelW = 300;
-            const panelH = 150;
-
-            ctx.fillStyle = 'rgba(0, 20, 0, 0.9)';
-            ctx.fillRect(panelX, panelY, panelW, panelH);
-            ctx.strokeStyle = '#0f0';
-            ctx.lineWidth = 2;
-            ctx.strokeRect(panelX, panelY, panelW, panelH);
-
-            ctx.font = 'bold 14px Courier New';
-            ctx.fillStyle = '#0f0';
-            ctx.textAlign = 'left';
-            ctx.fillText('AI MISSION GENERATOR', panelX + 15, panelY + 25);
-
-            ctx.font = '11px Courier New';
-            ctx.fillStyle = '#0a0';
-            ctx.fillText('Press G to generate custom mission', panelX + 15, panelY + 50);
-            ctx.fillText('Examples:', panelX + 15, panelY + 70);
-            ctx.fillText('- "night raid on enemy base"', panelX + 15, panelY + 85);
-            ctx.fillText('- "defend against air attack"', panelX + 15, panelY + 100);
-            ctx.fillText('- "stealth mission, few enemies"', panelX + 15, panelY + 115);
-
-            if (isGeneratingMission) {
-                ctx.fillStyle = '#ff0';
-                ctx.fillText('Generating mission...', panelX + 15, panelY + 135);
-            } else if (aiMission) {
-                ctx.fillStyle = '#0f0';
-                ctx.fillText('Mission ready! Press ENTER to start', panelX + 15, panelY + 135);
-            }
-        }
-
-        function renderMissionGeneratorOverlay() {
-            ctx.save();
-            // Clear menuButtons for this overlay - we'll add our own
-            menuButtons = [];
-            
-            const centerX = screenWidth / 2;
-            const centerY = screenHeight / 2;
-            const boxWidth = 500;
-            const boxHeight = 320;
-            const boxX = centerX - boxWidth / 2;
-            const boxY = centerY - boxHeight / 2;
-            
-            drawMenuPanel(boxX, boxY, boxWidth, boxHeight, 'AI MISSION GENERATOR');
-            
-            // Instructions
-            ctx.font = '14px Courier New';
-            ctx.fillStyle = '#0f0';
-            ctx.textAlign = 'center';
-            ctx.fillText('Describe your custom mission scenario', centerX, boxY + 60);
-            
-            ctx.font = '12px Courier New';
-            ctx.fillStyle = '#0a0';
-            ctx.fillText('The AI will generate enemies, objectives, and conditions', centerX, boxY + 85);
-            
-            // Examples
-            ctx.textAlign = 'left';
-            ctx.fillStyle = '#0a0';
-            ctx.fillText('Examples:', boxX + 30, boxY + 115);
-            ctx.font = '11px Courier New';
-            ctx.fillText('• "Night raid on enemy base with heavy defenses"', boxX + 30, boxY + 135);
-            ctx.fillText('• "Defend against incoming air attack"', boxX + 30, boxY + 150);
-            ctx.fillText('• "Stealth mission, minimal enemies, fog"', boxX + 30, boxY + 165);
-            
-            // Input field
-            const inputX = boxX + 30;
-            const inputY = boxY + 195;
-            const inputW = boxWidth - 60;
-            const inputH = 30;
-            
-            ctx.fillStyle = 'rgba(0, 40, 0, 0.8)';
-            ctx.fillRect(inputX, inputY, inputW, inputH);
-            ctx.strokeStyle = '#0f0';
-            ctx.lineWidth = 2;
-            ctx.strokeRect(inputX, inputY, inputW, inputH);
-            
-            // Blinking cursor
-            missionGeneratorCursorTime += 16;
-            if (missionGeneratorCursorTime > 500) {
-                missionGeneratorCursor = !missionGeneratorCursor;
-                missionGeneratorCursorTime = 0;
-            }
-            
-            ctx.font = '14px Courier New';
-            ctx.fillStyle = '#0f0';
-            ctx.textAlign = 'left';
-            const displayText = missionGeneratorInput + (missionGeneratorCursor ? '_' : '');
-            ctx.fillText(displayText, inputX + 8, inputY + 20);
-            
-            // Buttons
-            ctx.textAlign = 'center';
-            
-            // Generate button
-            const genBtnX = centerX - 120;
-            const genBtnY = boxY + 245;
-            const genBtnW = 100;
-            const genBtnH = 32;
-            
-            const canGenerate = missionGeneratorInput.trim().length > 0 && !isGeneratingMission;
-            const genBtnHovered = hitTest({ x: genBtnX, y: genBtnY, width: genBtnW, height: genBtnH }, mouseX, mouseY);
-            ctx.fillStyle = canGenerate ? (genBtnHovered ? 'rgba(0, 100, 0, 0.8)' : 'rgba(0, 80, 0, 0.7)') : 'rgba(0, 30, 0, 0.5)';
-            ctx.fillRect(genBtnX, genBtnY, genBtnW, genBtnH);
-            ctx.strokeStyle = canGenerate ? '#0f0' : '#050';
-            ctx.strokeRect(genBtnX, genBtnY, genBtnW, genBtnH);
-            ctx.fillStyle = canGenerate ? '#0f0' : '#050';
-            ctx.font = 'bold 14px Courier New';
-            ctx.fillText('GENERATE', genBtnX + genBtnW / 2, genBtnY + 21);
-            
-            // Add generate button to menuButtons for click handling
-            menuButtons.push({
-                x: genBtnX, y: genBtnY, width: genBtnW, height: genBtnH,
-                onClick: () => {
-                    if (canGenerate) {
-                        generateAIMission(missionGeneratorInput.trim(), 'normal');
-                    }
-                }
-            });
-            
-            // Cancel button
-            const cancelBtnX = centerX + 20;
-            const cancelBtnHovered = hitTest({ x: cancelBtnX, y: genBtnY, width: genBtnW, height: genBtnH }, mouseX, mouseY);
-            ctx.fillStyle = cancelBtnHovered ? 'rgba(0, 50, 0, 0.7)' : 'rgba(0, 30, 0, 0.6)';
-            ctx.fillRect(cancelBtnX, genBtnY, genBtnW, genBtnH);
-            ctx.strokeStyle = '#0a0';
-            ctx.strokeRect(cancelBtnX, genBtnY, genBtnW, genBtnH);
-            ctx.fillStyle = '#0a0';
-            ctx.fillText('CANCEL', cancelBtnX + genBtnW / 2, genBtnY + 21);
-            
-            // Add cancel button to menuButtons for click handling
-            menuButtons.push({
-                x: cancelBtnX, y: genBtnY, width: genBtnW, height: genBtnH,
-                onClick: () => {
-                    missionGeneratorInput = '';
-                    startTransition(GAME_STATES.MENU, 400);
-                }
-            });
-            
-            // Status message
-            ctx.font = '12px Courier New';
-            ctx.textAlign = 'center';
-            if (isGeneratingMission) {
-                ctx.fillStyle = '#ff0';
-                ctx.fillText('Generating mission... please wait', centerX, boxY + boxHeight - 25);
-            } else if (aiMission) {
-                ctx.fillStyle = '#0f0';
-                ctx.fillText('Mission ready! Return to menu and press ENTER to start', centerX, boxY + boxHeight - 25);
-            } else {
-                ctx.fillStyle = '#0a0';
-                ctx.fillText('Press ENTER to generate, ESC to cancel', centerX, boxY + boxHeight - 25);
-            }
-            ctx.restore();
-        }
-
-        function renderCustomMissionOverlay() {
-            menuButtons = [];
-
-            const centerX = screenWidth / 2;
-            const centerY = screenHeight / 2;
-            const boxWidth = 500;
-            const boxHeight = 350;
-            const boxX = centerX - boxWidth / 2;
-            const boxY = centerY - boxHeight / 2;
-
-            drawMenuPanel(boxX, boxY, boxWidth, boxHeight, 'MAP EDITOR MISSION');
-
-            ctx.font = '14px Courier New';
-            ctx.textAlign = 'center';
-
-            if (customMissionConfig) {
-                // Show mission details
-                ctx.fillStyle = '#0f0';
-                ctx.fillText('Custom mission loaded!', centerX, boxY + 60);
-
-                ctx.font = '16px Courier New';
-                ctx.fillStyle = '#0f0';
-                ctx.fillText(customMissionConfig.name || 'Unnamed Mission', centerX, boxY + 95);
-
-                ctx.font = '12px Courier New';
-                ctx.textAlign = 'left';
-                const detailsX = boxX + 40;
-                let detailsY = boxY + 130;
-
-                ctx.fillStyle = '#0a0';
-                ctx.fillText(`Map: Map ${customMissionConfig.mapIndex || 1}`, detailsX, detailsY);
-                detailsY += 25;
-                ctx.fillText(`Difficulty: ${(customMissionConfig.difficulty || 'medium').toUpperCase()}`, detailsX, detailsY);
-                detailsY += 25;
-                ctx.fillText(`Weather: ${(customMissionConfig.weather || 'clear').toUpperCase()}`, detailsX, detailsY);
-                detailsY += 25;
-
-                // Count objects
-                const airportCount = (customMissionConfig.airports || []).length;
-                const baseCount = (customMissionConfig.bases || []).length;
-                const helipadCount = (customMissionConfig.helipads || []).length;
-                const zoneCount = (customMissionConfig.spawnZones || []).length;
-
-                ctx.fillText(`Airports: ${airportCount}`, detailsX, detailsY);
-                ctx.fillText(`Bases: ${baseCount}`, detailsX + 150, detailsY);
-                detailsY += 25;
-                ctx.fillText(`Helipads: ${helipadCount}`, detailsX, detailsY);
-                ctx.fillText(`Spawn Zones: ${zoneCount}`, detailsX + 150, detailsY);
-
-                // Launch button
-                const launchBtnX = centerX - 60;
-                const launchBtnY = boxY + boxHeight - 90;
-                const launchBtnW = 120;
-                const launchBtnH = 36;
-
-                const launchHovered = hitTest({ x: launchBtnX, y: launchBtnY, width: launchBtnW, height: launchBtnH }, mouseX, mouseY);
-                ctx.fillStyle = launchHovered ? 'rgba(0, 100, 0, 0.8)' : 'rgba(0, 80, 0, 0.7)';
-                ctx.fillRect(launchBtnX, launchBtnY, launchBtnW, launchBtnH);
-                ctx.strokeStyle = '#0f0';
-                ctx.lineWidth = 2;
-                ctx.strokeRect(launchBtnX, launchBtnY, launchBtnW, launchBtnH);
-
-                ctx.textAlign = 'center';
-                ctx.font = 'bold 16px Courier New';
-                ctx.fillStyle = '#0f0';
-                ctx.fillText('LAUNCH', launchBtnX + launchBtnW / 2, launchBtnY + 24);
-
-                menuButtons.push({
-                    x: launchBtnX, y: launchBtnY, width: launchBtnW, height: launchBtnH,
-                    onClick: () => {
-                        playMenuConfirmSound();
-                        startTransition(GAME_STATES.PLAYING, 700, {
-                            onSwitch: () => startCustomMission()
-                        });
-                    }
-                });
-
-                ctx.font = '12px Courier New';
-                ctx.fillStyle = '#0a0';
-                ctx.fillText('Press ENTER to launch, ESC to cancel', centerX, boxY + boxHeight - 30);
-            } else {
-                // No mission found
-                ctx.fillStyle = '#f00';
-                ctx.fillText('No custom mission found!', centerX, boxY + 80);
-
-                ctx.font = '12px Courier New';
-                ctx.fillStyle = '#0a0';
-                ctx.fillText('Use the Map Editor to create and save a mission.', centerX, boxY + 120);
-                ctx.fillText('Open: /src/web/mapeditor.html', centerX, boxY + 145);
-                ctx.fillText('Click "Save to Browser" to store your mission.', centerX, boxY + 170);
-
-                ctx.fillStyle = '#ff0';
-                ctx.fillText('Press ESC to return to menu', centerX, boxY + boxHeight - 30);
-            }
-
-            // Back button
-            const backBtnX = boxX + 20;
-            const backBtnY = boxY + boxHeight - 50;
-            const backBtnW = 80;
-            const backBtnH = 30;
-
-            const backHovered = hitTest({ x: backBtnX, y: backBtnY, width: backBtnW, height: backBtnH }, mouseX, mouseY);
-            ctx.fillStyle = backHovered ? 'rgba(0, 50, 0, 0.7)' : 'rgba(0, 30, 0, 0.6)';
-            ctx.fillRect(backBtnX, backBtnY, backBtnW, backBtnH);
-            ctx.strokeStyle = '#0a0';
-            ctx.lineWidth = 1;
-            ctx.strokeRect(backBtnX, backBtnY, backBtnW, backBtnH);
-
-            ctx.textAlign = 'center';
-            ctx.font = '14px Courier New';
-            ctx.fillStyle = '#0a0';
-            ctx.fillText('BACK', backBtnX + backBtnW / 2, backBtnY + 20);
-
-            menuButtons.push({
-                x: backBtnX, y: backBtnY, width: backBtnW, height: backBtnH,
-                onClick: () => {
-                    playMenuConfirmSound();
-                    customMissionConfig = null;
-                    startTransition(GAME_STATES.MENU, 400);
-                }
-            });
-        }
-
-        function renderCampaignOverlay() {
-            menuButtons = [];
-            const centerX = screenWidth / 2;
-            const centerY = screenHeight / 2;
-            const boxWidth = 480;
-            const boxHeight = 400;
-            const boxX = centerX - boxWidth / 2;
-            const boxY = centerY - 170;
-            drawMenuPanel(boxX, boxY, boxWidth, boxHeight, 'CAMPAIGN OPERATIONS');
-
-            ctx.font = '16px Courier New';
-            let y = boxY + 70;
-            const availableMissions = getCampaignMissionIndices();
-            for (let i = 0; i < availableMissions.length; i++) {
-                const mission = MISSIONS[availableMissions[i]];
-                const rect = { x: boxX + 20, y: y - 18, width: boxWidth - 40, height: 30 };
-                const hovered = hitTest(rect, mouseX, mouseY);
-                if (i === campaignSelectionIndex || hovered) {
-                    ctx.fillStyle = 'rgba(0, 90, 0, 0.6)';
-                    ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
-                }
-                ctx.fillStyle = i === campaignSelectionIndex ? '#0f0' : '#0a0';
-                ctx.textAlign = 'left';
-                const difficultyStars = getDifficultyStars(mission.difficulty);
-                ctx.fillText(`[${i + 1}] MISSION ${i + 1}`, rect.x + 10, y + 4);
-                ctx.textAlign = 'right';
-                ctx.fillStyle = i === campaignSelectionIndex ? '#ff0' : '#880';
-                ctx.fillText(difficultyStars, rect.x + rect.width - 10, y + 4);
-                menuButtons.push({ ...rect, onClick: async () => {
-                    campaignSelectionIndex = i;
-                    currentMissionIndex = availableMissions[i];
-                    // Preload mission layout for accurate briefing display
-                    await preloadMissionLayout(currentMissionIndex);
-                    startTransition(GAME_STATES.BRIEFING, 600);
-                }});
-                y += 40;
-            }
-
-            const backRect = { x: boxX + 140, y: boxY + boxHeight - 55, width: boxWidth - 280, height: 32 };
-            const backHover = hitTest(backRect, mouseX, mouseY);
-            drawMenuButton('BACK TO MAIN MENU', backRect, false, backHover);
-            menuButtons.push({ ...backRect, onClick: () => startTransition(GAME_STATES.MENU, 500) });
-
-        }
-
-        function renderFreePlayOverlay() {
-            menuButtons = [];
-            const centerX = screenWidth / 2;
-            const centerY = screenHeight / 2;
-            const boxWidth = 440;
-            const boxHeight = 260;
-            const boxX = centerX - boxWidth / 2;
-            const boxY = centerY - 140;
-            drawMenuPanel(boxX, boxY, boxWidth, boxHeight, 'FREE PLAY');
-
-            ctx.font = '14px Courier New';
-            ctx.fillStyle = '#0c0';
-            ctx.textAlign = 'center';
-            ctx.fillText('SELECT MAP USING DROPDOWN (TOP RIGHT)', centerX, boxY + 80);
-            ctx.fillText('NO TIME LIMIT  •  RANDOM TARGETS', centerX, boxY + 110);
-
-            let y = boxY + 160;
-            for (let i = 0; i < FREEPLAY_OPTIONS.length; i++) {
-                const rect = { x: boxX + 80, y: y - 18, width: boxWidth - 160, height: 34 };
-                const hovered = hitTest(rect, mouseX, mouseY);
-                drawMenuButton(FREEPLAY_OPTIONS[i], rect, i === freePlaySelectionIndex, hovered);
-                menuButtons.push({ ...rect, onClick: () => {
-                    if (i === 0) {
-                        startTransition(GAME_STATES.PLAYING, 700, { onSwitch: () => startFreePlay() });
-                    } else {
-                        startTransition(GAME_STATES.MENU, 500);
-                    }
-                }});
-                y += 50;
-            }
-        }
-
-        function renderSettingsOverlay() {
-            menuButtons = [];
-            settingsControls = [];
-            const centerX = screenWidth / 2;
-            const centerY = screenHeight / 2;
-            const boxWidth = 520;
-            const boxHeight = 440;
-            const boxX = centerX - boxWidth / 2;
-            const boxY = centerY - 220;
-            drawMenuPanel(boxX, boxY, boxWidth, boxHeight, 'SETTINGS');
-
-            let y = boxY + 70;
-            for (let i = 0; i < SETTINGS_ITEMS.length; i++) {
-                const item = SETTINGS_ITEMS[i];
-                const isSelected = i === settingsSelectionIndex;
-                if (item.type === 'slider') {
-                    ctx.font = '14px Courier New';
-                    ctx.fillStyle = isSelected ? '#0f0' : '#0a0';
-                    ctx.textAlign = 'left';
-                    ctx.fillText(item.label, boxX + 30, y);
-
-                    const sliderX = boxX + 220;
-                    const sliderY = y - 12;
-                    const sliderWidth = 220;
-                    const sliderHeight = 12;
-                    ctx.fillStyle = 'rgba(0, 40, 0, 0.8)';
-                    ctx.fillRect(sliderX, sliderY, sliderWidth, sliderHeight);
-                    ctx.strokeStyle = '#0a0';
-                    ctx.strokeRect(sliderX, sliderY, sliderWidth, sliderHeight);
-
-                    const value = settings[item.key];
-                    const t = (value - item.min) / (item.max - item.min);
-                    const fillWidth = Math.max(0, Math.min(sliderWidth, t * sliderWidth));
-                    ctx.fillStyle = '#0f0';
-                    ctx.fillRect(sliderX, sliderY, fillWidth, sliderHeight);
-
-                    ctx.fillStyle = '#0f0';
-                    ctx.textAlign = 'right';
-                    let displayValue = '';
-                    if (item.key.includes('Volume')) {
-                        displayValue = `${Math.round(value * 100)}%`;
-                    } else if (item.key === 'drawDistance') {
-                        displayValue = `${Math.round(value)}`;
-                    } else {
-                        displayValue = value.toFixed(2);
-                    }
-                    ctx.fillText(displayValue, boxX + boxWidth - 30, y);
-
-                    const controlRect = { x: sliderX, y: sliderY, width: sliderWidth, height: sliderHeight, type: 'slider', key: item.key, min: item.min, max: item.max, step: item.step };
-                    settingsControls.push(controlRect);
-                    y += 40;
-                } else if (item.type === 'toggle') {
-                    const rect = { x: boxX + 30, y: y - 18, width: boxWidth - 60, height: 30, type: 'toggle', key: item.key };
-                    const hovered = hitTest(rect, mouseX, mouseY);
-                    if (isSelected || hovered) {
-                        ctx.fillStyle = 'rgba(0, 80, 0, 0.5)';
-                        ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
-                    }
-                    ctx.font = '14px Courier New';
-                    ctx.fillStyle = isSelected ? '#0f0' : '#0a0';
-                    ctx.textAlign = 'left';
-                    ctx.fillText(item.label, rect.x + 10, y + 4);
-                    ctx.textAlign = 'right';
-                    ctx.fillStyle = settings[item.key] ? '#0f0' : '#060';
-                    ctx.fillText(settings[item.key] ? 'ON' : 'OFF', rect.x + rect.width - 10, y + 4);
-                    settingsControls.push(rect);
-                    y += 40;
-                } else if (item.type === 'action') {
-                    const rect = { x: boxX + 140, y: y - 18, width: boxWidth - 280, height: 34, type: 'action', onClick: () => startTransition(GAME_STATES.MENU, 500) };
-                    const hovered = hitTest(rect, mouseX, mouseY);
-                    drawMenuButton(item.label, rect, isSelected, hovered);
-                    settingsControls.push(rect);
-                    y += 50;
-                }
-            }
-
-            ctx.font = '12px Courier New';
-            ctx.fillStyle = '#0a0';
-            ctx.textAlign = 'center';
-            ctx.fillText('LEFT/RIGHT TO ADJUST  •  ENTER TO TOGGLE', centerX, boxY + boxHeight - 20);
-        }
-
-        function renderAchievementsOverlay() {
-            menuButtons = [];
-            const centerX = screenWidth / 2;
-            const centerY = screenHeight / 2;
-            const boxWidth = 720;
-            const boxHeight = 580;
-            const boxX = centerX - boxWidth / 2;
-            const boxY = centerY - boxHeight / 2;
-            drawMenuPanel(boxX, boxY, boxWidth, boxHeight, 'ACHIEVEMENTS & STATS');
-
-            const achievementIds = Object.keys(ACHIEVEMENTS);
-            const columns = 2;
-            const rows = Math.ceil(achievementIds.length / columns);
-            const colWidth = (boxWidth - 120) / columns;
-            const rowHeight = 52;
-            const startY = boxY + 70;
-            const startX = boxX + 40;
-
-            ctx.font = 'bold 13px Courier New';
-            for (let i = 0; i < achievementIds.length; i++) {
-                const id = achievementIds[i];
-                const achievement = ACHIEVEMENTS[id];
-                const unlocked = hasAchievement(id);
-                const col = Math.floor(i / rows);
-                const row = i % rows;
-                const x = startX + col * colWidth;
-                const y = startY + row * rowHeight;
-
-                ctx.fillStyle = unlocked ? 'rgba(0, 70, 0, 0.6)' : 'rgba(0, 25, 0, 0.4)';
-                ctx.fillRect(x - 10, y - 18, colWidth - 20, 40);
-
-                ctx.fillStyle = unlocked ? '#ff0' : '#444';
-                ctx.textAlign = 'left';
-                ctx.fillText(achievement.icon, x, y);
-
-                ctx.fillStyle = unlocked ? '#0f0' : '#070';
-                ctx.fillText(achievement.name.toUpperCase(), x + 26, y);
-
-                ctx.font = '12px Courier New';
-                ctx.fillStyle = unlocked ? '#0c0' : '#050';
-                const maxDescLen = 35;
-                const descText = achievement.desc.length > maxDescLen ? achievement.desc.substring(0, maxDescLen - 2) + '..' : achievement.desc;
-                ctx.fillText(descText, x + 26, y + 16);
-                ctx.font = 'bold 13px Courier New';
-            }
-
-            const statsY = startY + rows * rowHeight + 10;
-            ctx.strokeStyle = '#0a0';
-            ctx.beginPath();
-            ctx.moveTo(boxX + 30, statsY);
-            ctx.lineTo(boxX + boxWidth - 30, statsY);
-            ctx.stroke();
-
-            ctx.font = 'bold 14px Courier New';
-            ctx.fillStyle = '#0f0';
-            ctx.textAlign = 'left';
-            ctx.fillText('LIFETIME STATS', boxX + 30, statsY + 30);
-
-            ctx.font = '12px Courier New';
-            ctx.fillStyle = '#0c0';
-            const statsLeftX = boxX + 30;
-            let statsLineY = statsY + 50;
-            ctx.fillText(`Total Kills: ${profile.stats.totalKills}`, statsLeftX, statsLineY);
-            statsLineY += 18;
-            ctx.fillText(`Total Deaths: ${profile.stats.totalDeaths}`, statsLeftX, statsLineY);
-            statsLineY += 18;
-            ctx.fillText(`Missions Completed: ${profile.stats.missionsCompleted}`, statsLeftX, statsLineY);
-            statsLineY += 18;
-            ctx.fillText(`Total Time Played: ${formatDuration(profile.stats.totalTimePlayed)}`, statsLeftX, statsLineY);
-            statsLineY += 18;
-            ctx.fillText(`High Score: ${profile.highScore}`, statsLeftX, statsLineY);
-
-            ctx.font = 'bold 14px Courier New';
-            ctx.fillStyle = '#0f0';
-            ctx.textAlign = 'left';
-            ctx.fillText('MISSION PROGRESS', boxX + boxWidth / 2 + 10, statsY + 30);
-
-            ctx.font = '12px Courier New';
-            ctx.fillStyle = '#0c0';
-            let missionY = statsY + 50;
-            for (const mission of MISSIONS) {
-                const missionId = String(mission.id);
-                const completed = profile.missionsCompleted.includes(missionId);
-                const stars = profile.missionStars[missionId] || 0;
-                const bestScore = profile.missionScores[missionId] || 0;
-                ctx.fillStyle = completed ? '#0f0' : '#060';
-                ctx.fillText(`M${mission.id}: ${mission.name}`, boxX + boxWidth / 2 + 10, missionY);
-                ctx.textAlign = 'right';
-                ctx.fillStyle = '#ff0';
-                ctx.fillText(getStarString(stars), boxX + boxWidth - 30, missionY);
-                ctx.textAlign = 'left';
-                ctx.fillStyle = '#0a0';
-                ctx.fillText(`Best: ${bestScore}`, boxX + boxWidth / 2 + 10, missionY + 16);
-                missionY += 32;
-            }
-
-            const backRect = { x: boxX + 240, y: boxY + boxHeight - 50, width: boxWidth - 480, height: 32 };
-            const backHover = hitTest(backRect, mouseX, mouseY);
-            drawMenuButton('BACK TO MENU', backRect, false, backHover);
-            menuButtons.push({ ...backRect, onClick: () => startTransition(GAME_STATES.MENU, 500) });
-        }
-
-        function renderLeaderboardOverlay() {
-            menuButtons = [];
-            const centerX = screenWidth / 2;
-            const centerY = screenHeight / 2;
-            const boxWidth = 520;
-            const boxHeight = 500;
-            const boxX = centerX - boxWidth / 2;
-            const boxY = centerY - boxHeight / 2;
-            drawMenuPanel(boxX, boxY, boxWidth, boxHeight, 'GLOBAL LEADERBOARD');
-
-            const stats = cachedGlobalStats;
-            ctx.textAlign = 'center';
-            if (!stats || !stats.leaderboard || !stats.totals) {
-                ctx.font = '14px Courier New';
-                ctx.fillStyle = '#0a0';
-                ctx.fillText('Fetching latest scores...', centerX, boxY + 90);
-            } else {
-                ctx.font = '12px Courier New';
-                ctx.fillStyle = '#0a0';
-                ctx.fillText(`Total Kills: ${stats.totals.kills}  •  Deaths: ${stats.totals.deaths}  •  Missions: ${stats.totals.missionsCompleted}`, centerX, boxY + 70);
-
-                ctx.font = 'bold 14px Courier New';
-                ctx.fillStyle = '#0f0';
-                ctx.fillText('TOP PILOTS', centerX, boxY + 95);
-
-                // Scrollable leaderboard
-                const visibleCount = 9; // Reduced to fit mission/map info per entry
-                const totalEntries = stats.leaderboard.length;
-                const maxScroll = Math.max(0, totalEntries - visibleCount);
-                leaderboardScrollOffset = Math.max(0, Math.min(maxScroll, leaderboardScrollOffset));
-
-                ctx.font = '12px Courier New';
-                ctx.textAlign = 'left';
-                let y = boxY + 125;
-                const listX = boxX + 40;
-                const scoreX = boxX + boxWidth - 40;
-
-                // Show scroll indicator if there are more entries
-                if (totalEntries > visibleCount) {
-                    ctx.textAlign = 'center';
-                    ctx.fillStyle = '#0a0';
-                    ctx.font = '11px Courier New';
-                    ctx.fillText(`Showing ${leaderboardScrollOffset + 1}-${Math.min(leaderboardScrollOffset + visibleCount, totalEntries)} of ${totalEntries}  (↑/↓ to scroll)`, centerX, boxY + 112);
-                    ctx.font = '12px Courier New';
-                    ctx.textAlign = 'left';
-                }
-
-                for (let i = leaderboardScrollOffset; i < Math.min(leaderboardScrollOffset + visibleCount, totalEntries); i++) {
-                    const entry = stats.leaderboard[i];
-                    const rank = i + 1;
-                    ctx.fillStyle = rank <= 3 ? '#ff0' : '#0f0';
-                    ctx.fillText(`${rank}.`, listX, y);
-                    ctx.fillStyle = '#0f0';
-                    ctx.fillText(entry.name.substring(0, 18), listX + 30, y);
-                    ctx.textAlign = 'right';
-                    ctx.fillStyle = '#0c0';
-                    ctx.fillText(entry.score.toLocaleString(), scoreX, y);
-                    ctx.textAlign = 'left';
-                    
-                    // Show mission/map info below each entry
-                    ctx.font = '10px Courier New';
-                    ctx.fillStyle = '#666';
-                    const missionInfo = entry.mission ? `Mission ${entry.mission}` : 'Free Play';
-                    const mapInfo = entry.map ? `Map ${entry.map}` : '?';
-                    const killsInfo = entry.kills !== undefined ? `${entry.kills} kills` : '';
-                    const detailText = killsInfo ? `${missionInfo} • ${mapInfo} • ${killsInfo}` : `${missionInfo} • ${mapInfo}`;
-                    ctx.fillText(detailText, listX + 30, y + 12);
-                    ctx.font = '12px Courier New';
-                    
-                    y += 38; // Increased spacing to fit the extra line
-                }
-
-                if (stats.leaderboard.length === 0) {
-                    ctx.textAlign = 'center';
-                    ctx.fillStyle = '#0a0';
-                    ctx.fillText('No scores yet - be the first!', centerX, boxY + 150);
-                }
-            }
-
-            const backRect = { x: boxX + 160, y: boxY + boxHeight - 50, width: boxWidth - 320, height: 34 };
-            const backHover = hitTest(backRect, mouseX, mouseY);
-            drawMenuButton('BACK TO MENU', backRect, false, backHover);
-            menuButtons.push({ ...backRect, onClick: () => startTransition(GAME_STATES.MENU, 500) });
-        }
-
-        function renderHowToOverlay() {
-            menuButtons = [];
-            const centerX = screenWidth / 2;
-            const centerY = screenHeight / 2;
-            const boxWidth = 620;
-            const boxHeight = 680;
-            const boxX = centerX - boxWidth / 2;
-            const boxY = centerY - boxHeight / 2;
-            drawMenuPanel(boxX, boxY, boxWidth, boxHeight, 'HOW TO PLAY');
-
-            ctx.font = '14px Courier New';
-            ctx.textAlign = 'left';
-            let y = boxY + 65;
-
-            // === COMANCHE MODE ===
-            ctx.fillStyle = '#ff0';
-            ctx.fillText('═══ COMANCHE MODE (Helicopter) ═══', boxX + 30, y);
-            y += 22;
-            ctx.fillStyle = '#0f0';
-            ctx.fillText('MOVEMENT', boxX + 30, y);
-            ctx.fillStyle = '#0c0';
-            y += 18;
-            ctx.fillText('W/S - Forward/Back   A/D - Bank   J/L - Yaw', boxX + 30, y);
-            y += 16;
-            ctx.fillText('R/F - Altitude   Q/E - Look Up/Down   SPACE - Boost', boxX + 30, y);
-            y += 22;
-            ctx.fillStyle = '#0f0';
-            ctx.fillText('WEAPONS', boxX + 30, y);
-            ctx.fillStyle = '#0c0';
-            y += 18;
-            ctx.fillText('1-4 - Select Weapon (Cannon/Rockets/Hellfire/Stinger)', boxX + 30, y);
-            y += 16;
-            ctx.fillText("Z/X or [ ] - Cycle Weapons   ; - Chaff   ' - Flare", boxX + 30, y);
-            y += 22;
-            ctx.fillStyle = '#0f0';
-            ctx.fillText('TARGETING', boxX + 30, y);
-            ctx.fillStyle = '#0c0';
-            y += 18;
-            ctx.fillText('T - Target Crosshairs   Tab - Cycle Targets', boxX + 30, y);
-
-            // === DELTA MODE ===
-            y += 28;
-            ctx.fillStyle = '#ff0';
-            ctx.fillText('═══ DELTA MODE (On Foot) ═══', boxX + 30, y);
-            y += 22;
-            ctx.fillStyle = '#0f0';
-            ctx.fillText('MOVEMENT', boxX + 30, y);
-            ctx.fillStyle = '#0c0';
-            y += 18;
-            ctx.fillText('WASD - Move   Mouse - Look/Aim   Shift - Sprint', boxX + 30, y);
-            y += 16;
-            ctx.fillText('Ctrl - Crouch   V - Prone', boxX + 30, y);
-            y += 22;
-            ctx.fillStyle = '#0f0';
-            ctx.fillText('WEAPONS', boxX + 30, y);
-            ctx.fillStyle = '#0c0';
-            y += 18;
-            ctx.fillText('Click - Fire   R - Reload', boxX + 30, y);
-            y += 16;
-            ctx.fillText('Z/X - Cycle Weapons   1-5 - Direct Select', boxX + 30, y);
-            y += 16;
-            ctx.fillText('(M4, Sniper, Pistol, Javelin, Stinger)', boxX + 30, y);
-            y += 22;
-            ctx.fillStyle = '#0f0';
-            ctx.fillText('TARGETING', boxX + 30, y);
-            ctx.fillStyle = '#0c0';
-            y += 18;
-            ctx.fillText('T - Target Crosshairs   Tab - Cycle Targets', boxX + 30, y);
-
-            // === GENERAL ===
-            y += 28;
-            ctx.fillStyle = '#ff0';
-            ctx.fillText('═══ GENERAL ═══', boxX + 30, y);
-            y += 22;
-            ctx.fillStyle = '#0c0';
-            ctx.fillText('E - Exit/Enter Helicopter (when landed)', boxX + 30, y);
-            y += 16;
-            ctx.fillText('M - Weather   N - Night Vision   B - Sound', boxX + 30, y);
-            y += 16;
-            ctx.fillText('ESC - Pause   H - Toggle Controls   F1 - Tips', boxX + 30, y);
-            y += 16;
-            ctx.fillText('G - Generate AI Mission (in menu)', boxX + 30, y);
-
-            // === TARGETING INFO ===
-            y += 24;
-            ctx.fillStyle = '#0f0';
-            ctx.fillText('TARGETING SYSTEM', boxX + 30, y);
-            ctx.fillStyle = '#0c0';
-            y += 18;
-            ctx.fillText('• Tab cycles through valid targets for current weapon', boxX + 30, y);
-            y += 16;
-            ctx.fillText('• Guided missiles auto-lock when target is selected', boxX + 30, y);
-            y += 16;
-            ctx.fillText('• Lock progress bar shows below target brackets', boxX + 30, y);
-            y += 16;
-            ctx.fillText('• Fire when "LOCK" appears for best accuracy', boxX + 30, y);
-
-            const backRect = { x: boxX + 180, y: boxY + boxHeight - 55, width: boxWidth - 360, height: 34 };
-            const hovered = hitTest(backRect, mouseX, mouseY);
-            drawMenuButton('BACK TO MENU', backRect, false, hovered);
-            menuButtons.push({ ...backRect, onClick: () => startTransition(GAME_STATES.MENU, 500) });
-        }
-        
-        function renderBriefingOverlay() {
-            ctx.save();
-            const mission = getBriefingMission();
-            const isDelta = gameMode === GAME_MODES.DELTA;
-            const briefingText = isDelta
-                ? (mission.briefingDelta || mission.briefing)
-                : mission.briefing;
-            const targetConfig = isDelta
-                ? (mission.targetsDelta || mission.targets)
-                : mission.targets;
-            
-            // Semi-transparent dark background
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.9)';
-            ctx.fillRect(0, 0, screenWidth, screenHeight);
-            
-            const centerX = screenWidth / 2;
-            const boxWidth = 550;
-            const boxHeight = 450;
-            const boxX = centerX - boxWidth / 2;
-            const boxY = (screenHeight - boxHeight) / 2;
-            
-            // Border
-            ctx.strokeStyle = '#0f0';
-            ctx.lineWidth = 3;
-            ctx.strokeRect(boxX, boxY, boxWidth, boxHeight);
-            
-            // Header
-            ctx.fillStyle = 'rgba(0, 50, 0, 0.8)';
-            ctx.fillRect(boxX, boxY, boxWidth, 40);
-            
-            ctx.font = 'bold 20px Courier New';
-            ctx.fillStyle = '#0f0';
-            ctx.textAlign = 'center';
-            ctx.fillText('MISSION BRIEFING', centerX, boxY + 27);
-            
-            let y = boxY + 70;
-            
-            // Mission name
-            ctx.font = 'bold 24px Courier New';
-            ctx.fillStyle = '#0f0';
-            ctx.textAlign = 'left';
-            ctx.fillText(`MISSION: ${mission.name}`, boxX + 30, y);
-            y += 35;
-            
-            // Difficulty
-            ctx.font = '16px Courier New';
-            ctx.fillStyle = '#ff0';
-            const stars = getDifficultyStars(mission.difficulty);
-            ctx.fillText(`DIFFICULTY: ${stars} ${mission.difficulty.toUpperCase()}`, boxX + 30, y);
-            y += 25;
-            
-            // Time limit
-            if (mission.timeLimit) {
-                const mins = Math.floor(mission.timeLimit / 60);
-                const secs = mission.timeLimit % 60;
-                ctx.fillStyle = '#f80';
-                ctx.fillText(`TIME LIMIT: ${mins}:${secs.toString().padStart(2, '0')}`, boxX + 30, y);
-            } else {
-                ctx.fillStyle = '#0f0';
-                ctx.fillText('TIME LIMIT: NONE', boxX + 30, y);
-            }
-            y += 40;
-            
-            // Briefing text
-            ctx.fillStyle = '#0f0';
-            ctx.font = '14px Courier New';
-            ctx.fillText('BRIEFING:', boxX + 30, y);
-            y += 25;
-            
-            ctx.fillStyle = '#0c0';
-            const briefingLines = wrapText(briefingText, boxWidth - 60);
-            for (const line of briefingLines) {
-                ctx.fillText(line, boxX + 30, y);
-                y += 20;
-            }
-            y += 20;
-            
-            // Objectives
-            ctx.fillStyle = '#0f0';
-            ctx.font = '14px Courier New';
-            ctx.fillText('OBJECTIVES:', boxX + 30, y);
-            y += 22;
-            
-            ctx.fillStyle = '#0c0';
-            for (const obj of mission.objectives) {
-                ctx.fillText(`  * ${obj.description}`, boxX + 30, y);
-                y += 20;
-            }
-            y += 20;
-            
-            // Expected resistance
-            ctx.fillStyle = '#f00';
-            ctx.font = '14px Courier New';
-            ctx.fillText('EXPECTED RESISTANCE:', boxX + 30, y);
-            y += 22;
-            
-            ctx.fillStyle = '#c00';
-            if (isDelta) {
-                const soldierCount = targetConfig.soldiers || targetConfig.tanks || 0;
-                ctx.fillText(`  * ${soldierCount} Enemy Combatants`, boxX + 30, y);
-            } else {
-                ctx.fillText(`  * ${targetConfig.tanks} Tanks  * ${targetConfig.sams} SAM Sites`, boxX + 30, y);
-            }
-            y += 30;
-            
-            // Reward
-            ctx.fillStyle = '#ff0';
-            ctx.fillText(`MISSION REWARD: ${mission.rewards.score} points`, boxX + 30, y);
-            
-            // Instructions at bottom of screen (not inside the box)
-            ctx.font = '14px Courier New';
-            ctx.textAlign = 'center';
-            const instructionY = screenHeight - 40;
-            
-            const blinkOn = Math.floor(performance.now() / 500) % 2 === 0;
-            if (blinkOn) {
-                ctx.fillStyle = '#0f0';
-                ctx.fillText('[ENTER] Launch Mission', centerX - 100, instructionY);
-            }
-            ctx.fillStyle = '#888';
-            const backLabel = pendingAIMission ? '[ESC] Back to Menu' : '[ESC] Back to Campaign';
-            ctx.fillText(backLabel, centerX + 100, instructionY);
-            ctx.restore();
-        }
-        
-        function renderPauseOverlay() {
-            pauseButtons = [];
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-            ctx.fillRect(0, 0, screenWidth, screenHeight);
-
-            const panelW = 300;
-            const panelH = 350;
-            const panelX = (screenWidth - panelW) / 2;
-            const panelY = (screenHeight - panelH) / 2;
-
-            ctx.fillStyle = 'rgba(0, 30, 0, 0.95)';
-            ctx.fillRect(panelX, panelY, panelW, panelH);
-            ctx.strokeStyle = '#0f0';
-            ctx.lineWidth = 3;
-            ctx.strokeRect(panelX, panelY, panelW, panelH);
-
-            ctx.font = 'bold 24px Courier New';
-            ctx.fillStyle = '#0f0';
-            ctx.textAlign = 'center';
-            ctx.fillText('PAUSED', screenWidth / 2, panelY + 40);
-
-            ctx.font = '12px Courier New';
-            ctx.fillStyle = '#0a0';
-            ctx.textAlign = 'left';
-            let y = panelY + 70;
-
-            ctx.fillText(`Kills: ${sessionStats.kills}`, panelX + 20, y); y += 20;
-            ctx.fillText(`Score: ${sessionStats.score}`, panelX + 20, y); y += 20;
-            ctx.fillText(`Accuracy: ${calculateAccuracy()}%`, panelX + 20, y); y += 20;
-            const timeLabel = gameMode === GAME_MODES.COMANCHE ? 'Flight Time' : 'Ground Time';
-            const timeValue = gameMode === GAME_MODES.COMANCHE ? telemetry.flightTime : telemetry.groundTime;
-            ctx.fillText(`${timeLabel}: ${Math.floor(timeValue)}s`, panelX + 20, y); y += 20;
-            ctx.fillText(`Distance: ${Math.floor(telemetry.distanceTraveled)}m`, panelX + 20, y); y += 30;
-
-            ctx.font = 'bold 14px Courier New';
-            ctx.textAlign = 'center';
-
-            y = panelY + 220;
-            for (let i = 0; i < PAUSE_OPTIONS.length; i++) {
-                const rect = { x: panelX + 20, y: y - 14, width: panelW - 40, height: 26 };
-                const hovered = hitTest(rect, mouseX, mouseY);
-                const isActive = hovered || i === pauseSelectionIndex;
-                ctx.fillStyle = isActive ? '#ff0' : '#0f0';
-                ctx.fillText(PAUSE_OPTIONS[i], screenWidth / 2, y);
-                pauseButtons.push({ ...rect, onClick: () => {
-                    if (i === 0) {
-                        startTransition(GAME_STATES.PLAYING, 250, { onSwitch: () => resumeFromPause() });
-                    } else if (i === 1) {
-                        startTransition(GAME_STATES.PLAYING, 900, { hold: true, onSwitch: () => restartCurrentMode() });
-                    } else {
-                        startTransition(GAME_STATES.MENU, 700, { onSwitch: () => returnToMenu() });
-                    }
-                }});
-                y += 35;
-            }
-
-            ctx.font = '11px Courier New';
-            ctx.fillStyle = '#0a0';
-            ctx.textAlign = 'center';
-            ctx.fillText('Use UP/DOWN to select, ENTER to confirm', screenWidth / 2, panelY + panelH - 20);
-        }
-        
-        function renderVictoryOverlay() {
-            const mission = getActiveMission();
-            if (!mission) return;
-            ctx.save();
-            
-            // Semi-transparent dark background
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
-            ctx.fillRect(0, 0, screenWidth, screenHeight);
-            
-            const centerX = screenWidth / 2;
-            const centerY = screenHeight / 2;
-            
-            const boxWidth = 400;
-            const boxHeight = 350;
-            const boxX = centerX - boxWidth / 2;
-            const boxY = centerY - boxHeight / 2;
-            
-            // Border with glow effect
-            ctx.shadowColor = '#0f0';
-            ctx.shadowBlur = 20;
-            ctx.strokeStyle = '#0f0';
-            ctx.lineWidth = 3;
-            ctx.strokeRect(boxX, boxY, boxWidth, boxHeight);
-            ctx.shadowBlur = 0;
-            
-            ctx.fillStyle = 'rgba(0, 30, 0, 0.9)';
-            ctx.fillRect(boxX, boxY, boxWidth, boxHeight);
-            
-            // Title
-            ctx.font = 'bold 36px Courier New';
-            ctx.fillStyle = '#0f0';
-            ctx.textAlign = 'center';
-            ctx.shadowColor = '#0f0';
-            ctx.shadowBlur = 15;
-            ctx.fillText('MISSION COMPLETE', centerX, boxY + 50);
-            ctx.shadowBlur = 0;
-            
-            // Score breakdown
-            let y = boxY + 100;
-            ctx.font = '16px Courier New';
-            ctx.textAlign = 'left';
-
-            const scoreInfo = calculateMissionScore(mission);
-            
-            const targetsDestroyed = targets.filter(t => t.destroyed).length;
-            ctx.fillStyle = '#0c0';
-            ctx.fillText(`Targets Destroyed:`, boxX + 40, y);
-            ctx.textAlign = 'right';
-            ctx.fillText(`${targetsDestroyed}`, boxX + boxWidth - 40, y);
-            y += 30;
-            
-            ctx.textAlign = 'left';
-            ctx.fillText(`Combat Score:`, boxX + 40, y);
-            ctx.textAlign = 'right';
-            ctx.fillText(`${score}`, boxX + boxWidth - 40, y);
-            y += 30;
-            
-            // Time bonus
-            let timeBonus = 0;
-            if (mission.timeLimit && scoreInfo.timeBonus > 0) {
-                timeBonus = scoreInfo.timeBonus;
-                ctx.textAlign = 'left';
-                ctx.fillStyle = '#ff0';
-                ctx.fillText(`Time Bonus:`, boxX + 40, y);
-                ctx.textAlign = 'right';
-                ctx.fillText(`+${timeBonus}`, boxX + boxWidth - 40, y);
-                y += 30;
-            }
-            
-            // Health bonus
-            const healthBonus = scoreInfo.healthBonus;
-            ctx.textAlign = 'left';
-            ctx.fillStyle = '#0ff';
-            ctx.fillText(`Health Bonus:`, boxX + 40, y);
-            ctx.textAlign = 'right';
-            ctx.fillText(`+${healthBonus}`, boxX + boxWidth - 40, y);
-            y += 30;
-            
-            // Mission reward
-            ctx.textAlign = 'left';
-            ctx.fillStyle = '#f80';
-            ctx.fillText(`Mission Reward:`, boxX + 40, y);
-            ctx.textAlign = 'right';
-            ctx.fillText(`+${scoreInfo.reward}`, boxX + boxWidth - 40, y);
-            y += 40;
-            
-            // Total
-            const totalScore = scoreInfo.totalScore;
-            ctx.font = 'bold 20px Courier New';
-            ctx.fillStyle = '#0f0';
-            ctx.textAlign = 'left';
-            ctx.fillText(`TOTAL SCORE:`, boxX + 40, y);
-            ctx.textAlign = 'right';
-            ctx.fillText(`${totalScore}`, boxX + boxWidth - 40, y);
-            
-            // Instructions
-            ctx.font = '14px Courier New';
-            ctx.textAlign = 'center';
-            
-            const blinkOn = Math.floor(performance.now() / 500) % 2 === 0;
-            if (activeAIMission) {
-                if (blinkOn) {
-                    ctx.fillStyle = '#0f0';
-                    ctx.fillText('[ENTER] Return to Menu', centerX, boxY + boxHeight - 35);
-                }
-            } else if (getCampaignMissionIndices().indexOf(currentMissionIndex) < getCampaignMissionIndices().length - 1) {
-                if (blinkOn) {
-                    ctx.fillStyle = '#0f0';
-                    ctx.fillText('[ENTER] Next Mission', centerX, boxY + boxHeight - 40);
-                }
-            } else {
-                if (blinkOn) {
-                    ctx.fillStyle = '#ff0';
-                    ctx.fillText('ALL MISSIONS COMPLETE!', centerX, boxY + boxHeight - 55);
-                    ctx.fillStyle = '#0f0';
-                    ctx.fillText('[ENTER] Return to Menu', centerX, boxY + boxHeight - 35);
-                }
-            }
-            ctx.fillStyle = '#888';
-            ctx.fillText('[ESC] Return to Menu', centerX, boxY + boxHeight - 15);
-
-            ctx.restore();
-        }
-
-        function renderDefeatOverlay() {
-            ctx.save();
-            // Semi-transparent red background
-            ctx.fillStyle = 'rgba(50, 0, 0, 0.85)';
-            ctx.fillRect(0, 0, screenWidth, screenHeight);
-            
-            const centerX = screenWidth / 2;
-            const centerY = screenHeight / 2;
-            
-            const boxWidth = 350;
-            const boxHeight = 220;
-            const boxX = centerX - boxWidth / 2;
-            const boxY = centerY - boxHeight / 2;
-            
-            // Border
-            ctx.shadowColor = '#f00';
-            ctx.shadowBlur = 20;
-            ctx.strokeStyle = '#f00';
-            ctx.lineWidth = 3;
-            ctx.strokeRect(boxX, boxY, boxWidth, boxHeight);
-            ctx.shadowBlur = 0;
-            
-            ctx.fillStyle = 'rgba(30, 0, 0, 0.9)';
-            ctx.fillRect(boxX, boxY, boxWidth, boxHeight);
-            
-            // Title
-            ctx.font = 'bold 36px Courier New';
-            ctx.fillStyle = '#f00';
-            ctx.textAlign = 'center';
-            ctx.shadowColor = '#f00';
-            ctx.shadowBlur = 15;
-            ctx.fillText('MISSION FAILED', centerX, boxY + 50);
-            ctx.shadowBlur = 0;
-            
-            // Reason
-            ctx.font = '18px Courier New';
-            ctx.fillStyle = '#f88';
-            ctx.fillText(defeatReason, centerX, boxY + 90);
-            
-            // Score
-            ctx.font = '16px Courier New';
-            ctx.fillStyle = '#c00';
-            ctx.fillText(`Final Score: ${score}`, centerX, boxY + 130);
-            
-            // Instructions
-            ctx.font = '14px Courier New';
-            const blinkOn = Math.floor(performance.now() / 500) % 2 === 0;
-            if (blinkOn) {
-                ctx.fillStyle = '#f00';
-                ctx.fillText('[ENTER] Retry Mission', centerX, boxY + boxHeight - 45);
-            }
-            ctx.fillStyle = '#888';
-            ctx.fillText('[ESC] Return to Menu', centerX, boxY + boxHeight - 20);
-
-            ctx.restore();
-        }
-        
-        function getDifficultyStars(difficulty) {
-            const stars = {
-                'easy': '★☆☆☆☆',
-                'medium': '★★☆☆☆',
-                'hard': '★★★☆☆',
-                'extreme': '★★★★★'
-            };
-            return stars[difficulty] || '★☆☆☆☆';
-        }
-
-        function getStarString(stars) {
-            const filled = Math.max(0, Math.min(3, stars));
-            return `${'★'.repeat(filled)}${'☆'.repeat(3 - filled)}`;
-        }
-        
-        function wrapText(text, maxWidth) {
-            const words = text.split(' ');
-            const lines = [];
-            let currentLine = '';
-            
-            ctx.font = '14px Courier New';
-            
-            for (const word of words) {
-                const testLine = currentLine + (currentLine ? ' ' : '') + word;
-                const metrics = ctx.measureText(testLine);
-                
-                if (metrics.width > maxWidth && currentLine) {
-                    lines.push(currentLine);
-                    currentLine = word;
-                } else {
-                    currentLine = testLine;
-                }
-            }
-            
-            if (currentLine) {
-                lines.push(currentLine);
-            }
-            
-            return lines;
-        }
         
         // ============================================
         // VOXELSPACE RENDERING
@@ -4072,10 +2949,6 @@
             return null;
         }
 
-        function hitTest(rect, x, y) {
-            return x >= rect.x && x <= rect.x + rect.width && y >= rect.y && y <= rect.y + rect.height;
-        }
-
         function calculateAccuracy() {
             const hasTelemetry = telemetry.shotsFired > 0 || telemetry.shotsHit > 0;
             const shots = hasTelemetry ? telemetry.shotsFired : sessionStats.shotsFired;
@@ -4153,23 +3026,6 @@
                 return merged;
             }
             return baseMission;
-        }
-
-        function drawModeToggleButton(rect, isSelected, isHovered) {
-            const active = isSelected || isHovered;
-            const isDelta = gameMode === GAME_MODES.DELTA;
-            const modeLabel = isDelta ? 'MODE: DELTA FORCE' : 'MODE: COMANCHE';
-            const baseColor = isDelta ? '#b8935e' : '#0f0';
-            const activeColor = isDelta ? '#e0c190' : '#7dff7d';
-            ctx.strokeStyle = active ? '#0f0' : '#0a0';
-            ctx.lineWidth = 2;
-            ctx.fillStyle = active ? 'rgba(0, 80, 0, 0.7)' : 'rgba(0, 30, 0, 0.6)';
-            ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
-            ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
-            ctx.fillStyle = active ? activeColor : baseColor;
-            ctx.font = 'bold 16px Courier New';
-            ctx.textAlign = 'center';
-            ctx.fillText(modeLabel, rect.x + rect.width / 2, rect.y + rect.height / 2 + 6);
         }
 
         async function loadMissionLayout(layoutFile) {
@@ -4657,44 +3513,6 @@
 
         function hasAchievement(id) { return false; }
         function unlockAchievement(id) {}
-
-        // =================================================================
-        // MENU DRAWING HELPERS
-        // =================================================================
-        function drawMenuPanel(boxX, boxY, boxWidth, boxHeight, title) {
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
-            ctx.fillRect(0, 0, screenWidth, screenHeight);
-            ctx.strokeStyle = '#0f0'; ctx.lineWidth = 2;
-            ctx.fillStyle = 'rgba(0, 20, 0, 0.9)';
-            ctx.fillRect(boxX, boxY, boxWidth, boxHeight);
-            ctx.strokeRect(boxX, boxY, boxWidth, boxHeight);
-            ctx.fillStyle = 'rgba(0, 40, 0, 0.9)';
-            ctx.fillRect(boxX, boxY, boxWidth, 40);
-            ctx.font = 'bold 18px Courier New'; ctx.fillStyle = '#0f0'; ctx.textAlign = 'center';
-            ctx.fillText(title, boxX + boxWidth / 2, boxY + 26);
-        }
-
-        function drawMenuButton(label, rect, isSelected, isHovered) {
-            const active = isSelected || isHovered;
-            const pulse = isSelected ? Math.sin(performance.now() * 0.004) * 0.15 + 0.85 : 1;
-            if (active) {
-                const grad = ctx.createLinearGradient(rect.x, rect.y, rect.x, rect.y + rect.height);
-                grad.addColorStop(0, 'rgba(0, 100, 0, 0.8)'); grad.addColorStop(0.5, 'rgba(0, 70, 0, 0.7)'); grad.addColorStop(1, 'rgba(0, 50, 0, 0.8)');
-                ctx.fillStyle = grad;
-            } else { ctx.fillStyle = 'rgba(0, 30, 0, 0.6)'; }
-            ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
-            ctx.strokeStyle = active ? '#0f0' : '#0a0'; ctx.lineWidth = isSelected ? 3 : 2;
-            ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
-            if (isSelected) {
-                ctx.fillStyle = '#0f0'; ctx.font = '14px Courier New';
-                ctx.textAlign = 'left'; ctx.fillText('>', rect.x + 8, rect.y + rect.height / 2 + 5);
-                ctx.textAlign = 'right'; ctx.fillText('<', rect.x + rect.width - 8, rect.y + rect.height / 2 + 5);
-            }
-            ctx.globalAlpha = pulse; ctx.fillStyle = active ? '#0f0' : '#0a0';
-            ctx.font = 'bold 16px Courier New'; ctx.textAlign = 'center';
-            ctx.fillText(label, rect.x + rect.width / 2, rect.y + rect.height / 2 + 6);
-            ctx.globalAlpha = 1;
-        }
 
         function drawVerticalLine(x, ytop, ybottom, color) {
             if (ytop < 0) ytop = 0;
