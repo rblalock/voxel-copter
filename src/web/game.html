@@ -9076,10 +9076,6 @@
             }
         }
 
-        function handleCombatInput(deltaTime) {
-            // TODO: port full combat input from index.html
-        }
-
         // -----------------------------------------------------------------
         // MENU INPUT
         // -----------------------------------------------------------------
@@ -9221,16 +9217,26 @@
         function generateWorldStructures() {
             world.stamps = []; world.airports = []; world.bases = []; world.helipads = [];
             airportSpawnTimers = {}; helipadSpawnTimers = {};
-            // Simplified structure generation - spawn some targets
-            const targetCount = CONFIG.TARGET_COUNT + Math.floor(Math.random() * 5);
-            for (let i = 0; i < targetCount; i++) {
-                const spot = findFlatSpot(100, 20, 25, camera.x, camera.y, 100);
+            const airportCount = 1 + Math.floor(Math.random() * 2);
+            for (let i = 0; i < airportCount; i++) {
+                const spot = findFlatSpot(300, 30, 15, 512, 512, 250 + i * 150);
                 if (spot) {
-                    const types = ['TANK', 'SOLDIER', 'BUILDING', 'SAM_SITE'];
-                    const typeKey = types[Math.floor(Math.random() * types.length)];
-                    spawnTargetAt(typeKey, spot.x, spot.y);
+                    const result = generateAirport(spot.x, spot.y, Math.random() * Math.PI * 2);
+                    if (result.airport) world.stamps.push(...result.stamps);
                 }
             }
+            const baseCount = 2 + Math.floor(Math.random() * 3);
+            for (let i = 0; i < baseCount; i++) {
+                const spot = findFlatSpot(300, 20, 20, 512, 512, 200 + i * 100);
+                if (spot) {
+                    const sizes = ['small', 'medium', 'large'];
+                    const result = generateBase(spot.x, spot.y, FACTIONS.ENEMY, sizes[Math.floor(Math.random() * sizes.length)]);
+                    world.stamps.push(...result.stamps);
+                }
+            }
+            const homeHelipad = generateHelipad(512, 512, FACTIONS.FRIENDLY);
+            world.stamps.push(...homeHelipad.stamps);
+            if (world.stamps.length > 0) applyMissionStamps(world.stamps);
         }
 
         function spawnTargetAt(typeKey, x, y, faction, baseHeight) {
@@ -9300,11 +9306,8 @@
         function fetchGlobalStats() { return Promise.resolve(null); }
         function postStatsEvent() {}
         function submitToGlobalLeaderboard() {}
-        function playDamageSound() {}
         function playMissileWarningBeep() {}
         function playCountermeasureSound() {}
-        function startRotorSound() {}
-        function startWindSound() {}
         function showMessage(msg, duration) {
             missionMessage = msg;
             missionMessageTime = duration || 3000;
@@ -10024,34 +10027,1475 @@
             // Z/X now cycle weapons (handled in keydown), no quick-fire
         }
 
-        // Telemetry stubs
+
+        // =================================================================
+        // PARTICLE SYSTEM
+        // =================================================================
+        function spawnParticles(x, y, z, type, count) {
+            if (!count || count <= 0) return;
+            for (let i = 0; i < count; i++) {
+                if (particles.length >= MAX_PARTICLES) return;
+                const p = getPooledParticle();
+                p.x = x; p.y = y; p.z = z;
+                p.vx = 0; p.vy = 0; p.vz = 0;
+                p.type = type; p.size = 2; p.growth = 0; p.color = null;
+                if (type === 'spark') {
+                    const a = Math.random() * Math.PI * 2, spd = 80 + Math.random() * 80;
+                    p.vx = Math.cos(a) * spd; p.vy = Math.sin(a) * spd; p.vz = 40 + Math.random() * 40;
+                    p.life = 0.25 + Math.random() * 0.15; p.size = 1.5 + Math.random() * 1.5;
+                    p.color = { r: 255, g: 180 + Math.random() * 60, b: 60 };
+                } else if (type === 'smoke') {
+                    const a = Math.random() * Math.PI * 2;
+                    const isDelta = gameMode === GAME_MODES.DELTA;
+                    const spd = isDelta ? (4 + Math.random() * 6) : (8 + Math.random() * 12);
+                    p.vx = Math.cos(a) * spd; p.vy = Math.sin(a) * spd;
+                    p.vz = isDelta ? (6 + Math.random() * 8) : (12 + Math.random() * 18);
+                    p.life = isDelta ? (0.4 + Math.random() * 0.4) : (1.0 + Math.random() * 1.0);
+                    p.size = isDelta ? (2 + Math.random() * 2) : (6 + Math.random() * 6);
+                    p.growth = isDelta ? (4 + Math.random() * 4) : (12 + Math.random() * 14);
+                    const shade = 60 + Math.floor(Math.random() * 50);
+                    p.color = { r: shade, g: shade, b: shade };
+                } else if (type === 'debris') {
+                    const a = Math.random() * Math.PI * 2, spd = 30 + Math.random() * 40;
+                    p.vx = Math.cos(a) * spd; p.vy = Math.sin(a) * spd; p.vz = 50 + Math.random() * 40;
+                    p.life = 0.8 + Math.random() * 0.5; p.size = 2 + Math.random() * 2.5;
+                    const shade = 70 + Math.floor(Math.random() * 40);
+                    p.color = { r: shade, g: shade * 0.9, b: shade * 0.8 };
+                } else if (type === 'dust') {
+                    p.z = getTerrainHeight(x, y) + 1;
+                    p.life = 0.35 + Math.random() * 0.25; p.size = 8 + Math.random() * 6;
+                    p.growth = 60 + Math.random() * 40; p.color = { r: 120, g: 110, b: 90 };
+                } else if (type === 'blood') {
+                    const a = Math.random() * Math.PI * 2, spd = 20 + Math.random() * 30;
+                    p.vx = Math.cos(a) * spd; p.vy = Math.sin(a) * spd; p.vz = 30 + Math.random() * 40;
+                    p.life = 0.4 + Math.random() * 0.3; p.size = 2 + Math.random() * 3;
+                    p.color = { r: 120 + Math.floor(Math.random() * 40), g: 20 + Math.floor(Math.random() * 20), b: 20 + Math.floor(Math.random() * 20) };
+                } else if (type === 'trail_smoke') {
+                    const a = Math.random() * Math.PI * 2, spd = 2 + Math.random() * 3;
+                    p.vx = Math.cos(a) * spd; p.vy = Math.sin(a) * spd; p.vz = Math.random() * 2;
+                    p.life = 0.25 + Math.random() * 0.15; p.size = 2 + Math.random() * 2; p.growth = 3 + Math.random() * 2;
+                    const shade = 80 + Math.floor(Math.random() * 40);
+                    p.color = { r: shade, g: shade, b: shade };
+                } else if (type === 'muzzle_flash') {
+                    p.vx = 0; p.vy = 0; p.vz = 0;
+                    p.life = 0.06 + Math.random() * 0.03; p.size = 6 + Math.random() * 4; p.growth = 0;
+                    p.color = { r: 255, g: 220 + Math.floor(Math.random() * 35), b: 100 + Math.floor(Math.random() * 50) };
+                }
+                p.maxLife = p.life;
+                particles.push(p);
+            }
+        }
+
+        // =================================================================
+        // DAMAGE & COMBAT FEEDBACK
+        // =================================================================
+        function screenFlash(color, duration) {
+            screenFlashColor = color;
+            screenFlashTime = duration;
+        }
+
+        function triggerHitMarker(intensity) {
+            hitMarkerTime = 140;
+            hitMarkerIntensity = Math.max(hitMarkerIntensity, intensity || 1);
+        }
+
+        function damagePlayer(amount) {
+            if (isPlayerDead || gameState !== GAME_STATES.PLAYING) return;
+            if (godMode) return;
+            playerHealth -= amount;
+            telemetry.damageTaken += amount;
+            missionNoDamage = false;
+            screenFlash('red', 200);
+            playDamageSound();
+            damageVignetteTime = 320;
+            damageVignetteIntensity = Math.min(0.9, 0.4 + amount / 60);
+            addScreenShake(Math.min(10, 4 + amount * 0.12), 280);
+            if (playerHealth <= 0) {
+                playerHealth = 0;
+                if (gameMode === GAME_MODES.COMANCHE) {
+                    stopRotorSound();
+                    endMission(false, 'HELICOPTER DESTROYED');
+                } else {
+                    endMission(false, 'OPERATOR DOWN');
+                }
+            }
+        }
+
+        // =================================================================
+        // WEAPONS
+        // =================================================================
+        function fireWeapon(weaponKey) {
+            const now = performance.now();
+            const weapon = WEAPONS[weaponKey];
+            const state = weaponState[weaponKey];
+            if (now - lastFireTime < weapon.fireRate) return;
+            if (state.ammo <= 0) return;
+            lastFireTime = now;
+            if (state.ammo !== Infinity) state.ammo--;
+            if (weapon.guided) {
+                const lockedTarget = getLockedTargetForMissile();
+                if (!lockedTarget) {
+                    if (state.ammo !== Infinity) state.ammo++;
+                    return;
+                }
+            }
+            if (weaponKey === 'cannon') playCannonSound();
+            else if (weaponKey === 'rockets') playRocketSound();
+            else if (weaponKey === 'hellfire' || weaponKey === 'stinger') playMissileSound();
+            const shakeIntensity = weaponKey === 'cannon' ? 1.2 : weaponKey === 'rockets' ? 2.6 : 3.2;
+            const flashIntensity = weaponKey === 'cannon' ? 0.7 : weaponKey === 'rockets' ? 1.0 : 1.1;
+            triggerMuzzleFlash(flashIntensity);
+            addScreenShake(shakeIntensity, 120);
+            const spreadAngle = camera.angle + (Math.random() - 0.5) * weapon.spread;
+            const pitchFactor = (camera.horizon - screenHeight / 2) / 240.0;
+            const spawnOffset = 8;
+            const lockedTarget = weapon.guided ? getLockedTargetForMissile() : null;
+            projectiles.push({
+                x: camera.x - Math.sin(spreadAngle) * spawnOffset,
+                y: camera.y - Math.cos(spreadAngle) * spawnOffset,
+                z: camera.height + pitchFactor * spawnOffset,
+                angle: spreadAngle, pitch: pitchFactor,
+                speed: weapon.projectileSpeed, damage: weapon.damage,
+                lifetime: 150, type: weaponKey,
+                projectileType: weapon.projectileType, color: weapon.color,
+                guided: weapon.guided || false, airToAir: weapon.airToAir || false,
+                playerFired: true, lockedTargetId: lockedTarget?.id || null
+            });
+            sessionStats.shotsFired += 1;
+            telemetry.shotsFired += 1;
+            if (weapon.projectileType === 'missile') telemetry.missilesFired += 1;
+        }
+
+        // =================================================================
+        // UTILITY
+        // =================================================================
+        function distance3D(x1, y1, z1, x2, y2, z2) {
+            let dx = x1 - x2, dy = y1 - y2;
+            if (dx > CONFIG.MAP_SIZE / 2) dx -= CONFIG.MAP_SIZE;
+            if (dx < -CONFIG.MAP_SIZE / 2) dx += CONFIG.MAP_SIZE;
+            if (dy > CONFIG.MAP_SIZE / 2) dy -= CONFIG.MAP_SIZE;
+            if (dy < -CONFIG.MAP_SIZE / 2) dy += CONFIG.MAP_SIZE;
+            const dz = z1 - z2;
+            return Math.sqrt(dx * dx + dy * dy + dz * dz);
+        }
+
+        function getDeltaCamera() { return camera; }
+
+        function showMissionMessage(text, duration) {
+            missionMessage = text;
+            missionMessageEnd = performance.now() + (duration || 3000);
+        }
+
+        // =================================================================
+        // STATS / ACHIEVEMENTS (stubs — no backend in this build)
+        // =================================================================
+        function checkAchievements() {}
+        function updateStats(key, delta) {}
+        function recordHighScore(s) {}
+
+        // =================================================================
+        // MAP STAMPING & WORLD GENERATION
+        // =================================================================
+        function stampColorRect(cx, cy, width, length, heading, abgrColor, alpha) {
+            alpha = alpha === undefined ? 1 : alpha;
+            const cos = Math.cos(heading), sin = Math.sin(heading);
+            const hw = width / 2, hl = length / 2;
+            for (let dy = -hl; dy <= hl; dy++) {
+                for (let dx = -hw; dx <= hw; dx++) {
+                    const rx = cx + dx * cos - dy * sin;
+                    const ry = cy + dx * sin + dy * cos;
+                    const ix = Math.floor(rx) & (CONFIG.MAP_SIZE - 1);
+                    const iy = Math.floor(ry) & (CONFIG.MAP_SIZE - 1);
+                    const idx = iy * CONFIG.MAP_SIZE + ix;
+                    if (alpha >= 1) {
+                        currentMap.color[idx] = abgrColor;
+                    } else {
+                        const existing = currentMap.color[idx];
+                        const eR = existing & 0xFF, eG = (existing >> 8) & 0xFF, eB = (existing >> 16) & 0xFF;
+                        const nR = abgrColor & 0xFF, nG = (abgrColor >> 8) & 0xFF, nB = (abgrColor >> 16) & 0xFF;
+                        const r = Math.round(eR * (1 - alpha) + nR * alpha);
+                        const g = Math.round(eG * (1 - alpha) + nG * alpha);
+                        const b = Math.round(eB * (1 - alpha) + nB * alpha);
+                        currentMap.color[idx] = (0xFF000000 | (b << 16) | (g << 8) | r) >>> 0;
+                    }
+                }
+            }
+        }
+
+        function applyMissionStamps(stamps) {
+            restoreBaseMap();
+            for (const stamp of stamps) {
+                if (stamp.type === 'color') {
+                    stampColorRect(stamp.x, stamp.y, stamp.width, stamp.length, stamp.heading || 0, stamp.color, stamp.alpha || 1);
+                }
+                // 'flatten' stamps skipped — rely on naturally flat terrain
+            }
+        }
+
+        function generateHelipad(x, y, faction) {
+            faction = faction || FACTIONS.ENEMY;
+            const helipad = { id: 'helipad_' + Date.now() + '_' + Math.random(), x, y, faction, radius: 15 };
+            world.helipads.push(helipad);
+            const target = spawnTargetAt('HELIPAD', x, y, faction);
+            if (target) helipad.targetId = target.id;
+            const stamps = [
+                { type: 'color', x, y, width: 26, length: 26, heading: 0, color: 0xFF2a2a2a, alpha: 1 },
+                { type: 'color', x, y, width: 18, length: 18, heading: 0, color: 0xFF3a3a3a, alpha: 1 }
+            ];
+            return { helipad, stamps };
+        }
+
+        function generateAirport(x, y, heading, faction) {
+            faction = faction || FACTIONS.ENEMY;
+            const id = 'airport_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
+            const runwayLength = 60, runwayWidth = 20;
+            const runwayHeight = getTerrainHeight(x, y);
+            if (runwayHeight < 15 || isWaterAt(x, y, runwayHeight)) return { stamps: [], airport: null };
+            const airport = { id, x, y, heading, faction, length: runwayLength, width: runwayWidth, entities: [], baseHeight: runwayHeight };
+            const stamps = [
+                { type: 'color', x, y, width: runwayWidth, length: runwayLength, heading, color: 0xFF2a2a2a, alpha: 1 },
+                { type: 'color', x, y, width: 2, length: runwayLength - 10, heading, color: 0xFF4a4a4a, alpha: 1 }
+            ];
+            const cos = Math.cos(heading), sin = Math.sin(heading), sideOffset = runwayWidth + 15;
+            const hangar = spawnTargetAt('HANGAR', x + cos * 20 + sin * sideOffset, y - sin * 20 + cos * sideOffset, faction, runwayHeight);
+            if (hangar) airport.entities.push(hangar);
+            const tower = spawnTargetAt('CONTROL_TOWER', x - cos * 8 + sin * sideOffset, y + sin * 8 + cos * sideOffset, faction, runwayHeight);
+            if (tower) airport.entities.push(tower);
+            const fuel = spawnTargetAt('FUEL_DEPOT', x + cos * 35 + sin * sideOffset, y - sin * 35 + cos * sideOffset, faction, runwayHeight);
+            if (fuel) airport.entities.push(fuel);
+            const sam = spawnTargetAt('SAM_SITE', x - cos * 30 - sin * (sideOffset + 20), y + sin * 30 - cos * (sideOffset + 20), faction);
+            if (sam) airport.entities.push(sam);
+            world.airports.push(airport);
+            return { stamps, airport };
+        }
+
+        function generateBase(x, y, faction, size) {
+            faction = faction || FACTIONS.ENEMY;
+            size = size || 'medium';
+            const id = 'base_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
+            const baseRadius = size === 'small' ? 60 : size === 'large' ? 120 : 90;
+            const base = { id, x, y, faction, size, buildings: [], defenses: [] };
+            const stamps = [];
+            const buildingCount = size === 'small' ? 2 : size === 'large' ? 5 : 3;
+            for (let i = 0; i < Math.min(2, buildingCount); i++) {
+                const angle = (i / buildingCount) * Math.PI * 2 + Math.random() * 0.3;
+                const dist = baseRadius * 0.5 + Math.random() * baseRadius * 0.3;
+                const b = spawnTargetAt('BARRACKS', x + Math.cos(angle) * dist, y + Math.sin(angle) * dist, faction);
+                if (b) base.buildings.push(b);
+            }
+            const hx = x + (Math.random() - 0.5) * baseRadius * 0.6;
+            const hy = y + (Math.random() - 0.5) * baseRadius * 0.6;
+            const hp = spawnTargetAt('HELIPAD', hx, hy, faction);
+            if (hp) {
+                base.buildings.push(hp);
+                world.helipads.push({ id: hp.id, x: hx, y: hy, faction });
+                stamps.push({ type: 'color', x: hx, y: hy, width: 26, length: 26, heading: 0, color: 0xFF2a2a2a, alpha: 1 });
+            }
+            for (let i = 0; i < 3; i++) {
+                const a = Math.random() * Math.PI * 2, d = baseRadius * 0.7 + Math.random() * baseRadius * 0.2;
+                const s = spawnTargetAt('SOLDIER', x + Math.cos(a) * d, y + Math.sin(a) * d, faction);
+                if (s) base.defenses.push(s);
+            }
+            if (size !== 'small') {
+                const ta = Math.random() * Math.PI * 2;
+                const t = spawnTargetAt('TANK', x + Math.cos(ta) * baseRadius * 0.8, y + Math.sin(ta) * baseRadius * 0.8, faction);
+                if (t) base.defenses.push(t);
+            }
+            const sa = Math.random() * Math.PI * 2;
+            const sm = spawnTargetAt('SAM_SITE', x + Math.cos(sa) * baseRadius, y + Math.sin(sa) * baseRadius, faction);
+            if (sm) base.defenses.push(sm);
+            world.bases.push(base);
+            return { stamps, base };
+        }
+
+        function spawnAircraftFromAirport(airport) {
+            if (!airport || airport.faction !== FACTIONS.ENEMY) return null;
+            const roll = Math.random();
+            const typeKey = roll < 0.15 ? 'AIR_TRANSPORT' : roll < 0.55 ? 'AIR_FIGHTER' : 'AIR_ATTACK_HELI';
+            const cos = Math.cos(airport.heading), sin = Math.sin(airport.heading);
+            const spawnX = airport.x + cos * (airport.length / 2 + 20);
+            const spawnY = airport.y + sin * (airport.length / 2 + 20);
+            const aircraft = spawnTargetAt(typeKey, spawnX, spawnY, airport.faction);
+            if (aircraft) {
+                aircraft.z = getTerrainHeight(spawnX, spawnY) + 30;
+                if (aircraft.ai) { aircraft.ai.heading = airport.heading; aircraft.ai.patrolCenter = { x: airport.x, y: airport.y }; }
+            }
+            return aircraft;
+        }
+
+        function spawnHeliFromHelipad(helipad) {
+            if (!helipad || helipad.faction === FACTIONS.FRIENDLY || helipad.faction === 'friendly') return null;
+            const aircraft = spawnTargetAt('AIR_ATTACK_HELI', helipad.x, helipad.y, FACTIONS.ENEMY);
+            if (aircraft) {
+                aircraft.z = getTerrainHeight(helipad.x, helipad.y) + 20;
+                if (aircraft.ai) { aircraft.ai.heading = Math.random() * Math.PI * 2; aircraft.ai.patrolCenter = { x: helipad.x, y: helipad.y }; }
+            }
+            return aircraft;
+        }
+
+        // =================================================================
+        // TARGETING SYSTEM HELPERS
+        // =================================================================
+        function getTargetsInView(cam, maxRange) {
+            maxRange = maxRange || 800;
+            const validTypes = targetingSystem.getValidTargetTypes();
+            if (!validTypes.requiresLock) return [];
+            const sinAngle = Math.sin(cam.angle), cosAngle = Math.cos(cam.angle);
+            const pitchFactor = (cam.horizon - screenHeight / 2) / 240.0;
+            const visibleTargets = [];
+            for (const target of targets) {
+                if (target.destroyed) continue;
+                if (target.faction !== FACTIONS.ENEMY) continue;
+                if (target.type === 'soldier') continue;
+                if (validTypes.domain) {
+                    if (validTypes.domain === 'surface') { if (target.domain === DOMAINS.AIR) continue; }
+                    else if (target.domain !== validTypes.domain) continue;
+                }
+                let dx = target.x - cam.x, dy = target.y - cam.y;
+                if (dx > CONFIG.MAP_SIZE / 2) dx -= CONFIG.MAP_SIZE;
+                if (dx < -CONFIG.MAP_SIZE / 2) dx += CONFIG.MAP_SIZE;
+                if (dy > CONFIG.MAP_SIZE / 2) dy -= CONFIG.MAP_SIZE;
+                if (dy < -CONFIG.MAP_SIZE / 2) dy += CONFIG.MAP_SIZE;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                if (dist > maxRange || dist < 10) continue;
+                const rx = dx * cosAngle - dy * sinAngle;
+                const ry = -dx * sinAngle - dy * cosAngle;
+                if (ry < 10) continue;
+                const angleToTarget = Math.atan2(rx, ry);
+                if (Math.abs(angleToTarget) > 0.6) continue;
+                const dz = target.z - cam.height;
+                const verticalAngle = Math.atan2(dz, dist);
+                const verticalDiff = verticalAngle - pitchFactor;
+                // LOS check
+                let hasLOS = true;
+                for (let s = 1; s < 5; s++) {
+                    const t = s / 5;
+                    const cx2 = ((cam.x + dx * t) % CONFIG.MAP_SIZE + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
+                    const cy2 = ((cam.y + dy * t) % CONFIG.MAP_SIZE + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
+                    const th = currentMap.altitude[(Math.floor(cy2) << CONFIG.MAP_SHIFT) + Math.floor(cx2)];
+                    if ((cam.height + (target.z - cam.height) * t) < th + 5) { hasLOS = false; break; }
+                }
+                if (!hasLOS) continue;
+                const totalAngle = Math.sqrt(angleToTarget * angleToTarget + verticalDiff * verticalDiff);
+                visibleTargets.push({ target, dist, angleFromCrosshair: totalAngle, screenAngleX: angleToTarget, screenAngleY: verticalDiff, rx, ry });
+            }
+            visibleTargets.sort((a, b) => a.angleFromCrosshair - b.angleFromCrosshair);
+            return visibleTargets;
+        }
+
+        function findTargetInCrosshair(cam, maxRange) {
+            maxRange = maxRange || 500;
+            const sinAngle = Math.sin(cam.angle), cosAngle = Math.cos(cam.angle);
+            const pitchFactor = (cam.horizon - screenHeight / 2) / 240.0;
+            let bestTarget = null, bestDist = maxRange;
+            const crosshairTolerance = 0.15;
+            for (const target of targets) {
+                if (target.destroyed || target.faction !== FACTIONS.ENEMY) continue;
+                let dx = target.x - cam.x, dy = target.y - cam.y;
+                if (dx > CONFIG.MAP_SIZE / 2) dx -= CONFIG.MAP_SIZE; if (dx < -CONFIG.MAP_SIZE / 2) dx += CONFIG.MAP_SIZE;
+                if (dy > CONFIG.MAP_SIZE / 2) dy -= CONFIG.MAP_SIZE; if (dy < -CONFIG.MAP_SIZE / 2) dy += CONFIG.MAP_SIZE;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                if (dist > maxRange || dist < 10) continue;
+                const rx = dx * cosAngle - dy * sinAngle;
+                const ry = -dx * sinAngle - dy * cosAngle;
+                if (ry < 10) continue;
+                const angleToTarget = Math.atan2(rx, ry);
+                const dz = target.z - cam.height;
+                const verticalDiff = Math.abs(Math.atan2(dz, dist) - pitchFactor);
+                const totalAngleDiff = Math.sqrt(angleToTarget * angleToTarget + verticalDiff * verticalDiff);
+                if (totalAngleDiff < crosshairTolerance && dist < bestDist) { bestTarget = target; bestDist = dist; }
+            }
+            if (!bestTarget) {
+                const coneTolerance = 0.4;
+                bestDist = maxRange;
+                for (const target of targets) {
+                    if (target.destroyed || target.faction !== FACTIONS.ENEMY) continue;
+                    let dx = target.x - cam.x, dy = target.y - cam.y;
+                    if (dx > CONFIG.MAP_SIZE / 2) dx -= CONFIG.MAP_SIZE; if (dx < -CONFIG.MAP_SIZE / 2) dx += CONFIG.MAP_SIZE;
+                    if (dy > CONFIG.MAP_SIZE / 2) dy -= CONFIG.MAP_SIZE; if (dy < -CONFIG.MAP_SIZE / 2) dy += CONFIG.MAP_SIZE;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    if (dist > maxRange || dist < 10) continue;
+                    const rx = dx * cosAngle - dy * sinAngle;
+                    const ry = -dx * sinAngle - dy * cosAngle;
+                    if (ry < 10) continue;
+                    const angleToTarget = Math.atan2(rx, ry);
+                    if (Math.abs(angleToTarget) < coneTolerance && dist < bestDist) { bestTarget = target; bestDist = dist; }
+                }
+            }
+            return bestTarget;
+        }
+
+        function findNearestTarget(x, y, options) {
+            options = options || {};
+            const { airToAir = false, faction = FACTIONS.ENEMY, maxRange = Infinity } = options;
+            let nearest = null, nearestDist = maxRange;
+            for (const target of targets) {
+                if (target.destroyed) continue;
+                if (faction && target.faction !== faction) continue;
+                if (airToAir && target.domain !== DOMAINS.AIR) continue;
+                let dx = target.x - x, dy = target.y - y;
+                if (dx > CONFIG.MAP_SIZE / 2) dx -= CONFIG.MAP_SIZE; if (dx < -CONFIG.MAP_SIZE / 2) dx += CONFIG.MAP_SIZE;
+                if (dy > CONFIG.MAP_SIZE / 2) dy -= CONFIG.MAP_SIZE; if (dy < -CONFIG.MAP_SIZE / 2) dy += CONFIG.MAP_SIZE;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                if (dist < nearestDist) { nearestDist = dist; nearest = target; }
+            }
+            return nearest;
+        }
+
+        function cycleTarget(direction) {
+            direction = direction || 1;
+            const now = performance.now();
+            if (now - targetingSystem.lastCycleTime < 200) return;
+            targetingSystem.lastCycleTime = now;
+            const cam = gameMode === GAME_MODES.DELTA ? getDeltaCamera() : camera;
+            const visibleTargets = getTargetsInView(cam, targetingSystem.getTargetingRange());
+            if (visibleTargets.length === 0) { targetingSystem.selectedTarget = null; targetingSystem.lockedTarget = null; return; }
+            let currentIndex = -1;
+            if (targetingSystem.selectedTarget) currentIndex = visibleTargets.findIndex(t => t.target === targetingSystem.selectedTarget);
+            const newIndex = currentIndex === -1 ? 0 : (currentIndex + direction + visibleTargets.length) % visibleTargets.length;
+            const newTarget = visibleTargets[newIndex]?.target;
+            if (newTarget !== targetingSystem.selectedTarget) {
+                targetingSystem.selectedTarget = newTarget;
+                targetingSystem.lockedTarget = null; targetingSystem.lockProgress = 0; targetingSystem.isLocking = false;
+            }
+        }
+
+        function selectTargetInCrosshairs() {
+            const cam = gameMode === GAME_MODES.DELTA ? getDeltaCamera() : camera;
+            const visibleTargets = getTargetsInView(cam, targetingSystem.getTargetingRange());
+            if (visibleTargets.length === 0) return;
+            if (visibleTargets[0].angleFromCrosshair > 0.26) return;
+            const closestTarget = visibleTargets[0].target;
+            if (closestTarget !== targetingSystem.selectedTarget) {
+                targetingSystem.selectedTarget = closestTarget;
+                targetingSystem.lockedTarget = null; targetingSystem.lockProgress = 0; targetingSystem.isLocking = false;
+            }
+        }
+
+        function startLockAcquisition() {
+            if (!targetingSystem.selectedTarget) return;
+            const validTypes = targetingSystem.getValidTargetTypes();
+            if (!validTypes.requiresLock) return;
+            if (!targetingSystem.isLocking) { targetingSystem.isLocking = true; targetingSystem.lockStartTime = performance.now(); targetingSystem.lockProgress = 0; }
+        }
+
+        function stopLockAcquisition() { targetingSystem.isLocking = false; }
+
+        // =================================================================
+        // RESUPPLY HELPERS
+        // =================================================================
+        function getNearestFriendlyHelipad(x, y) {
+            let nearest = null, nearestDist = Infinity;
+            for (const helipad of world.helipads) {
+                if (helipad.faction !== FACTIONS.FRIENDLY && helipad.faction !== 'friendly') continue;
+                const dx = helipad.x - x, dy = helipad.y - y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                if (dist < nearestDist) { nearestDist = dist; nearest = { ...helipad, distance: dist }; }
+            }
+            for (const base of world.bases) {
+                if (base.faction !== FACTIONS.FRIENDLY && base.faction !== 'friendly') continue;
+                const dx = base.x - x, dy = base.y - y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                if (dist < nearestDist) { nearestDist = dist; nearest = { ...base, distance: dist, isBase: true }; }
+            }
+            return nearest;
+        }
+
+        function isAtResupplyPoint() {
+            const nearest = getNearestFriendlyHelipad(camera.x, camera.y);
+            if (!nearest) return false;
+            const range = nearest.isBase ? RESUPPLY.range * 1.5 : RESUPPLY.range;
+            if (nearest.distance > range) return false;
+            if (gameMode === GAME_MODES.COMANCHE) return isHeliLanded(playerState.heli);
+            return true;
+        }
+
+        // =================================================================
+        // OBJECTIVE SYSTEM
+        // =================================================================
+        function getObjectiveTotal(obj) {
+            switch (obj.type) {
+                case 'destroy_type': return obj.count || 1;
+                case 'destroy_count': return obj.count || 1;
+                case 'survive_time': return obj.duration || 60;
+                case 'destroy_all': return -1;
+                default: return 1;
+            }
+        }
+
+        function executeEvent(evt) {
+            switch (evt.action) {
+                case 'spawn_enemies':
+                    if (evt.enemies) {
+                        evt.enemies.forEach(e => {
+                            for (let i = 0; i < (e.count || 1); i++) {
+                                const x = e.x + (Math.random() - 0.5) * (e.spread || 100);
+                                const y = e.y + (Math.random() - 0.5) * (e.spread || 100);
+                                spawnTargetAt(e.type || 'TANK', x, y);
+                            }
+                        });
+                    }
+                    break;
+                case 'show_message':
+                    if (evt.message) showMissionMessage(evt.message, evt.duration || 3000);
+                    break;
+                case 'add_objective':
+                    if (evt.objective) {
+                        objectiveState.objectives.push({ id: `obj_dyn_${objectiveState.objectives.length}`, ...evt.objective, progress: 0, total: getObjectiveTotal(evt.objective), complete: false, failed: false });
+                    }
+                    break;
+                case 'complete_mission': endMission(true); break;
+                case 'fail_mission': endMission(false, evt.reason || 'Mission failed'); break;
+            }
+        }
+
+        function updateEventTriggers(action, data) {
+            data = data || {};
+            objectiveState.events.forEach(evt => {
+                if (evt.triggered) return;
+                let shouldTrigger = false;
+                switch (evt.trigger) {
+                    case 'kill_count':
+                        if (action === 'target_destroyed' && sessionStats.kills >= evt.count) shouldTrigger = true;
+                        break;
+                    case 'time_elapsed':
+                        if (action === 'time_update') {
+                            const elapsed = (performance.now() - missionStartTime) / 1000;
+                            if (elapsed >= evt.time) shouldTrigger = true;
+                        }
+                        break;
+                    case 'enter_zone':
+                        if (action === 'position_update') {
+                            const dx = data.x - evt.x, dy = data.y - evt.y;
+                            if (Math.sqrt(dx * dx + dy * dy) < (evt.radius || 100)) shouldTrigger = true;
+                        }
+                        break;
+                    case 'objective_complete':
+                        if (objectiveState.completed.includes(evt.objectiveId)) shouldTrigger = true;
+                        break;
+                }
+                if (shouldTrigger) { evt.triggered = true; executeEvent(evt); }
+            });
+        }
+
+        // =================================================================
+        // AIRSTRIKE SYSTEM
+        // =================================================================
+        function getAirstrikeAimPoint() {
+            const maxRange = Math.min(camera.distance, 1400);
+            const angle = camera.angle;
+            const dirX = -Math.sin(angle), dirY = -Math.cos(angle);
+            const pitchFactor = (camera.horizon - screenHeight / 2) / 240.0;
+            let terrainDist = maxRange;
+            const step = 6;
+            for (let t = step; t <= maxRange; t += step) {
+                const sampleX = ((camera.x + dirX * t) % CONFIG.MAP_SIZE + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
+                const sampleY = ((camera.y + dirY * t) % CONFIG.MAP_SIZE + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
+                const th = getTerrainHeight(sampleX, sampleY);
+                if (camera.height + pitchFactor * t <= th) { terrainDist = t; break; }
+            }
+            const aimX = ((camera.x + dirX * terrainDist) % CONFIG.MAP_SIZE + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
+            const aimY = ((camera.y + dirY * terrainDist) % CONFIG.MAP_SIZE + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
+            return { x: aimX, y: aimY, z: getTerrainHeight(aimX, aimY) + 2, distance: terrainDist };
+        }
+
+        function getAirstrikeCharges(state) { return (state?.mag || 0) + (state?.mags || 0); }
+
+        function consumeAirstrikeCharge(state) {
+            if (!state) return false;
+            if (state.mag > 0) { state.mag--; return true; }
+            if (state.mags > 0) { state.mags--; return true; }
+            return false;
+        }
+
+        function callAirstrike(targetX, targetY, targetZ) {
+            const playerX = camera.x, playerY = camera.y;
+            const toTargetX = targetX - playerX, toTargetY = targetY - playerY;
+            const toTargetDist = Math.sqrt(toTargetX * toTargetX + toTargetY * toTargetY);
+            const dirX = toTargetDist > 0 ? toTargetX / toTargetDist : 1;
+            const dirY = toTargetDist > 0 ? toTargetY / toTargetDist : 0;
+            const spawnDist = 300;
+            let spawnX = playerX - dirX * spawnDist, spawnY = playerY - dirY * spawnDist;
+            const buffer = 60;
+            if (spawnX >= 0 && spawnX <= CONFIG.MAP_SIZE) spawnX = dirX > 0 ? -buffer : CONFIG.MAP_SIZE + buffer;
+            if (spawnY >= 0 && spawnY <= CONFIG.MAP_SIZE) spawnY = dirY > 0 ? -buffer : CONFIG.MAP_SIZE + buffer;
+            const headingToPlayer = Math.atan2(playerY - spawnY, playerX - spawnX);
+            airstrikeState.planesInbound.push({
+                id: Date.now() + Math.random(), type: 'strike_aircraft', faction: FACTIONS.FRIENDLY,
+                x: spawnX, y: spawnY, z: 400, playerX, playerY, targetX, targetY, targetZ,
+                heading: headingToPlayer, speed: 0.18, phase: 'inbound', hasFired: false, destroyed: false
+            });
+            airstrikeState.targetX = targetX; airstrikeState.targetY = targetY; airstrikeState.targetZ = targetZ;
+            airstrikeState.inboundMessageUntil = performance.now() + 6000;
+        }
+
+        function fireAirstrikeMissile(aircraft) {
+            const dx = aircraft.targetX - aircraft.x, dy = aircraft.targetY - aircraft.y, dz = aircraft.targetZ - aircraft.z;
+            const horizDist = Math.sqrt(dx * dx + dy * dy);
+            const pitch = horizDist > 0 ? dz / horizDist : -0.5;
+            projectiles.push({
+                x: aircraft.x, y: aircraft.y, z: aircraft.z - 5,
+                angle: aircraft.heading, pitch: Math.max(-0.8, pitch), speed: 4.0,
+                damage: 250, blastRadius: 65, lifetime: 500,
+                type: 'airstrike', projectileType: 'missile', color: '#ffd166',
+                guided: false, airToAir: false, playerFired: false, isAirstrike: true,
+                targetX: aircraft.targetX, targetY: aircraft.targetY, targetZ: aircraft.targetZ, noWrap: true
+            });
+            playMissileSound();
+        }
+
+        function applyBlastDamage(x, y, z, blastRadius, damage, weaponType) {
+            for (const target of targets) {
+                if (target.destroyed || target.faction === FACTIONS.FRIENDLY) continue;
+                const dx = target.x - x, dy = target.y - y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                if (dist >= blastRadius) continue;
+                const falloff = 1 - (dist / blastRadius);
+                const category = getTargetDamageCategory(target);
+                const multiplier = DAMAGE_MULTIPLIERS[weaponType]?.[category] || 1;
+                target.health = (target.health || 100) - damage * falloff * multiplier;
+                if (target.health <= 0) {
+                    target.destroyed = true;
+                    score += target.points || 100;
+                    sessionStats.kills += 1; sessionStats.score = score;
+                    telemetry.targetsDestroyed += 1;
+                    updateObjectiveProgress('target_destroyed', { type: (target.type || '').toUpperCase(), id: target.id });
+                    explosions.push({ x: target.x, y: target.y, z: target.z || getTerrainHeight(target.x, target.y) + 5, size: 25, maxSize: 25, lifetime: 30, maxLifetime: 30, type: 'secondary' });
+                }
+            }
+        }
+
+        function updateAirstrikeMissile(projectile, dt, index) {
+            let dx = projectile.targetX - projectile.x, dy = projectile.targetY - projectile.y, dz = projectile.targetZ - projectile.z;
+            let dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+            if (dist > 0) {
+                projectile.x += (dx / dist) * projectile.speed * dt;
+                projectile.y += (dy / dist) * projectile.speed * dt;
+                projectile.z += (dz / dist) * projectile.speed * dt;
+                projectile.angle = Math.atan2(-dx / dist, -dy / dist);
+                projectile.pitch = dz / dist;
+            }
+            if (Math.random() < 0.3) spawnParticles(projectile.x, projectile.y, projectile.z, 'trail_smoke', 1);
+            projectile.lifetime -= dt;
+            dx = projectile.targetX - projectile.x; dy = projectile.targetY - projectile.y; dz = projectile.targetZ - projectile.z;
+            dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+            const terrainHeight = getTerrainHeight(projectile.x, projectile.y);
+            const impactZ = Math.max(terrainHeight, projectile.targetZ || terrainHeight);
+            const hasHit = dist < 8 || projectile.z <= terrainHeight || Math.sqrt(dx * dx + dy * dy) < 6;
+            if (hasHit) {
+                createExplosion(projectile.x, projectile.y, impactZ, 'large');
+                applyBlastDamage(projectile.x, projectile.y, impactZ, projectile.blastRadius, projectile.damage, 'airstrike');
+                projectiles.splice(index, 1);
+                return true;
+            }
+            if (projectile.lifetime <= 0) { projectiles.splice(index, 1); return true; }
+            if (projectile.noWrap) {
+                if (projectile.x < -200 || projectile.x > CONFIG.MAP_SIZE + 200 || projectile.y < -200 || projectile.y > CONFIG.MAP_SIZE + 200) {
+                    projectiles.splice(index, 1); return true;
+                }
+            }
+            return false;
+        }
+
+        // =================================================================
+        // PROJECTILE HELPERS
+        // =================================================================
+        function updateGuidedMissile(projectile, dt) {
+            let target;
+            if (projectile.playerFired && projectile.lockedTargetId) {
+                target = targets.find(t => t.id === projectile.lockedTargetId && !t.destroyed);
+                if (!target) { projectile.guided = false; return; }
+            } else if (projectile.playerFired) {
+                target = findTargetInCrosshair(camera, 600);
+            } else {
+                target = findNearestTarget(projectile.x, projectile.y, { airToAir: projectile.airToAir });
+            }
+            if (target) {
+                let dx = target.x - projectile.x, dy = target.y - projectile.y;
+                if (dx > CONFIG.MAP_SIZE / 2) dx -= CONFIG.MAP_SIZE; if (dx < -CONFIG.MAP_SIZE / 2) dx += CONFIG.MAP_SIZE;
+                if (dy > CONFIG.MAP_SIZE / 2) dy -= CONFIG.MAP_SIZE; if (dy < -CONFIG.MAP_SIZE / 2) dy += CONFIG.MAP_SIZE;
+                const targetAngle = Math.atan2(-dx, -dy);
+                const turnRate = 0.08 * dt;
+                const angleDiff = normalizeAngle(targetAngle - projectile.angle);
+                projectile.angle += Math.sign(angleDiff) * Math.min(Math.abs(angleDiff), turnRate);
+            }
+            projectile.x -= Math.sin(projectile.angle) * projectile.speed * dt;
+            projectile.y -= Math.cos(projectile.angle) * projectile.speed * dt;
+            if (projectile.pitch !== undefined) projectile.z += projectile.pitch * projectile.speed * dt;
+        }
+
+        function checkSingleProjectileHit(proj, projIndex) {
+            for (const target of targets) {
+                if (target.destroyed || target.faction === FACTIONS.FRIENDLY) continue;
+                let dx = proj.x - target.x, dy = proj.y - target.y;
+                if (dx > CONFIG.MAP_SIZE / 2) dx -= CONFIG.MAP_SIZE; if (dx < -CONFIG.MAP_SIZE / 2) dx += CONFIG.MAP_SIZE;
+                if (dy > CONFIG.MAP_SIZE / 2) dy -= CONFIG.MAP_SIZE; if (dy < -CONFIG.MAP_SIZE / 2) dy += CONFIG.MAP_SIZE;
+                const dist2D = Math.sqrt(dx * dx + dy * dy);
+                const targetHeight = target.size * 0.75;
+                const zInRange = proj.z >= (target.z - 5) && proj.z <= (target.z + targetHeight);
+                const isBuilding = target.type && ['building','hangar','control_tower','fuel_depot','barracks','radar'].includes(target.type);
+                const hitboxSize = isBuilding ? target.size * 0.5 : target.size;
+                if (dist2D < hitboxSize && zInRange) {
+                    sessionStats.hits += 1; telemetry.shotsHit += 1;
+                    if (proj.projectileType === 'missile') telemetry.missilesHit += 1;
+                    const multiplier = getDamageMultiplier(proj.type, target);
+                    const adjustedDamage = proj.damage * multiplier;
+                    telemetry.damageDealt += Math.min(adjustedDamage, target.health);
+                    target.health -= adjustedDamage;
+                    triggerHitMarker(proj.projectileType === 'bullet' ? 0.8 : 1.0);
+                    if (proj.projectileType === 'bullet') playHitSound();
+                    if (target.health <= 0) {
+                        target.destroyed = true;
+                        score += target.points || 0; sessionStats.score = score; sessionStats.kills += 1;
+                        updateObjectiveProgress('target_destroyed', { type: (target.type || '').toUpperCase(), id: target.id });
+                        updateStats('totalKills', 1);
+                        if (target.type === 'tank') updateStats('tanksDestroyed', 1);
+                        if (target.type === 'sam') updateStats('samsDestroyed', 1);
+                        if (target.type === 'building') updateStats('buildingsDestroyed', 1);
+                        checkAchievements('kill', { targetType: target.type });
+                        if (target.type === 'soldier') {
+                            spawnParticles(target.x, target.y, target.z, 'blood', 8 + Math.floor(Math.random() * 5));
+                            spawnParticles(target.x, target.y, target.z, 'dust', 4 + Math.floor(Math.random() * 3));
+                        } else {
+                            createExplosion(target.x, target.y, target.z, target.type === 'building' ? 'large' : 'medium');
+                            spawnParticles(target.x, target.y, target.z, 'spark', 10 + Math.floor(Math.random() * 6));
+                            spawnParticles(target.x, target.y, target.z, 'smoke', 5 + Math.floor(Math.random() * 4));
+                            spawnParticles(target.x, target.y, target.z, 'debris', 5 + Math.floor(Math.random() * 4));
+                        }
+                    } else {
+                        if (target.type === 'soldier') {
+                            spawnParticles(proj.x, proj.y, proj.z, 'blood', 3 + Math.floor(Math.random() * 3));
+                        } else {
+                            createExplosion(proj.x, proj.y, proj.z, (proj.projectileType === 'missile' || proj.projectileType === 'rocket') ? 'medium' : 'small');
+                        }
+                    }
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // =================================================================
+        // ENEMY AI HELPERS
+        // =================================================================
+        function findNearestTargetOfFaction(fromUnit, targetFaction) {
+            let nearest = null, nearestDist = Infinity;
+            for (const candidate of targets) {
+                if (candidate.destroyed || candidate === fromUnit || candidate.faction !== targetFaction) continue;
+                const dist = distance3D(fromUnit.x, fromUnit.y, fromUnit.z ?? 0, candidate.x, candidate.y, candidate.z ?? 0);
+                if (dist < nearestDist) { nearestDist = dist; nearest = candidate; }
+            }
+            return nearest;
+        }
+
+        function getAITarget(unit) {
+            const faction = unit?.faction || FACTIONS.ENEMY;
+            if (faction === FACTIONS.NEUTRAL) return null;
+            const playerTarget = { x: camera.x, y: camera.y, z: camera.height };
+            if (faction === FACTIONS.ENEMY) {
+                const nearestFriendly = findNearestTargetOfFaction(unit, FACTIONS.FRIENDLY);
+                if (nearestFriendly) {
+                    const fd = distance3D(unit.x, unit.y, unit.z ?? 0, nearestFriendly.x, nearestFriendly.y, nearestFriendly.z ?? 0);
+                    const pd = distance3D(unit.x, unit.y, unit.z ?? 0, playerTarget.x, playerTarget.y, playerTarget.z);
+                    if (fd < pd) return { x: nearestFriendly.x, y: nearestFriendly.y, z: nearestFriendly.z, target: nearestFriendly, isPlayer: false };
+                }
+                return { x: playerTarget.x, y: playerTarget.y, z: playerTarget.z, target: 'player', isPlayer: true };
+            }
+            if (faction === FACTIONS.FRIENDLY) {
+                const nearestEnemy = findNearestTargetOfFaction(unit, FACTIONS.ENEMY);
+                if (!nearestEnemy) return null;
+                return { x: nearestEnemy.x, y: nearestEnemy.y, z: nearestEnemy.z, target: nearestEnemy, isPlayer: false };
+            }
+            return null;
+        }
+
+        function raiseAlert() {
+            if (gameMode !== GAME_MODES.DELTA) return;
+            alertLevel = Math.min(alertLevel + 1, 3);
+            alertTimer = ALERT_DURATION;
+        }
+
+        function getAlertedDetectRange(baseRange) {
+            if (gameMode !== GAME_MODES.DELTA) return baseRange;
+            if (alertLevel === 0) return baseRange * 0.6;
+            if (alertLevel === 1) return baseRange * 0.8;
+            if (alertLevel === 2) return baseRange * 1.0;
+            return baseRange * 1.5;
+        }
+
+        function airSteerToward(entity, targetX, targetY, maxTurnRate, dt) {
+            const ai = entity.ai;
+            const dx = targetX - entity.x, dy = targetY - entity.y;
+            const targetHeading = Math.atan2(dy, dx);
+            const diff = normalizeAngle(targetHeading - ai.heading);
+            ai.heading = normalizeAngle(ai.heading + Math.sign(diff) * Math.min(Math.abs(diff), maxTurnRate * dt * 60));
+        }
+
+        function airHoldAltitude(entity, targetAlt, climbRate, dt) {
+            const diff = targetAlt - entity.z;
+            entity.z += Math.sign(diff) * Math.min(Math.abs(diff), climbRate * dt * 60);
+            entity.z = Math.max(entity.z, getTerrainHeight(entity.x, entity.y) + 20);
+        }
+
+        function fireAircraftWeapon(entity, targetX, targetY, targetZ) {
+            const ai = entity.ai;
+            if (!ai.weaponType) return;
+            const dx = targetX - entity.x, dy = targetY - entity.y, dz = targetZ - entity.z;
+            const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+            if (dist <= 0) return;
+            const spread = ai.weaponType === 'air_cannon' ? 0.05 : ai.weaponType === 'air_missile' ? 0.01 : 0.02;
+            enemyProjectiles.push({
+                type: ai.weaponType,
+                x: entity.x, y: entity.y, z: entity.z,
+                vx: (dx / dist + (Math.random() - 0.5) * spread) * ai.bulletSpeed,
+                vy: (dy / dist + (Math.random() - 0.5) * spread) * ai.bulletSpeed,
+                vz: (dz / dist) * ai.bulletSpeed,
+                damage: ai.bulletDamage, sourceId: entity.id,
+                life: 3000, spawnTime: performance.now(), faction: entity.faction
+            });
+            spawnParticles(entity.x, entity.y, entity.z, 'muzzle_flash', 1);
+        }
+
+        // =================================================================
+        // ENEMY PROJECTILE HELPERS
+        // =================================================================
+        function getProjectileTargetPosition(projectile) {
+            if (projectile.targetId === 'player') return { x: camera.x, y: camera.y, z: camera.height };
+            if (projectile.targetId) {
+                const t = targets.find(c => c.id === projectile.targetId && !c.destroyed);
+                if (t) return { x: t.x, y: t.y, z: t.z };
+            }
+            if (typeof projectile.targetX === 'number') return { x: projectile.targetX, y: projectile.targetY, z: projectile.targetZ };
+            return null;
+        }
+
+        function getHostileFaction(faction) {
+            if (faction === FACTIONS.ENEMY) return FACTIONS.FRIENDLY;
+            if (faction === FACTIONS.FRIENDLY) return FACTIONS.ENEMY;
+            return null;
+        }
+
+        function applyAIDamageToTarget(target, damage, projectileType, impactX, impactY, impactZ) {
+            target.health -= damage;
+            if (target.health <= 0) {
+                target.destroyed = true;
+                updateObjectiveProgress('target_destroyed', { type: (target.type || '').toUpperCase(), id: target.id });
+                if (target.type === 'soldier') {
+                    spawnParticles(target.x, target.y, target.z, 'blood', 8 + Math.floor(Math.random() * 5));
+                    spawnParticles(target.x, target.y, target.z, 'dust', 4);
+                } else {
+                    createExplosion(target.x, target.y, target.z, target.type === 'building' ? 'large' : 'medium');
+                    spawnParticles(target.x, target.y, target.z, 'spark', 10); spawnParticles(target.x, target.y, target.z, 'smoke', 5); spawnParticles(target.x, target.y, target.z, 'debris', 5);
+                }
+            } else {
+                if (target.type === 'soldier') {
+                    spawnParticles(impactX, impactY, impactZ, 'blood', 3 + Math.floor(Math.random() * 3));
+                } else {
+                    createExplosion(impactX, impactY, impactZ, ['sam_missile','tank_shell','air_missile','air_rocket'].includes(projectileType) ? 'medium' : 'small');
+                }
+            }
+        }
+
+        function checkAIProjectileTargetHit(projectile) {
+            const hostileFaction = getHostileFaction(projectile.faction || FACTIONS.ENEMY);
+            if (!hostileFaction) return false;
+            for (const target of targets) {
+                if (target.destroyed || target.faction !== hostileFaction) continue;
+                let dx = projectile.x - target.x, dy = projectile.y - target.y;
+                if (dx > CONFIG.MAP_SIZE / 2) dx -= CONFIG.MAP_SIZE; if (dx < -CONFIG.MAP_SIZE / 2) dx += CONFIG.MAP_SIZE;
+                if (dy > CONFIG.MAP_SIZE / 2) dy -= CONFIG.MAP_SIZE; if (dy < -CONFIG.MAP_SIZE / 2) dy += CONFIG.MAP_SIZE;
+                const dist2D = Math.sqrt(dx * dx + dy * dy);
+                const isBuilding = target.type && ['building','hangar','control_tower','fuel_depot','barracks','radar'].includes(target.type);
+                const hitboxSize = isBuilding ? target.size * 0.5 : target.size;
+                const zInRange = projectile.z >= (target.z - 5) && projectile.z <= (target.z + target.size * 0.75);
+                if (dist2D < hitboxSize && zInRange) {
+                    applyAIDamageToTarget(target, projectile.damage, projectile.type, projectile.x, projectile.y, projectile.z);
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // =================================================================
+        // AI BEHAVIOR TREES
+        // =================================================================
+        function updateTankAI(target, deltaTime, currentTime) {
+            const ai = target.ai;
+            ai.patrolAngle += ai.speed * ai.patrolDirection * deltaTime * 0.001;
+            target.x = ai.patrolCenter.x + Math.cos(ai.patrolAngle) * ai.patrolRadius;
+            target.y = ai.patrolCenter.y + Math.sin(ai.patrolAngle) * ai.patrolRadius;
+            target.x = ((target.x % CONFIG.MAP_SIZE) + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
+            target.y = ((target.y % CONFIG.MAP_SIZE) + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
+            target.z = getTerrainHeight(target.x, target.y) + TARGET_TYPES.TANK.heightOffset;
+            ai.heading = normalizeAngle(ai.patrolAngle + (ai.patrolDirection >= 0 ? Math.PI / 2 : -Math.PI / 2));
+            if (gameMode !== GAME_MODES.DELTA) { ai.state = 'patrol'; return; }
+            const targetInfo = getAITarget(target);
+            if (!targetInfo) { ai.state = 'patrol'; return; }
+            let dx = targetInfo.x - target.x, dy = targetInfo.y - target.y;
+            if (dx > CONFIG.MAP_SIZE / 2) dx -= CONFIG.MAP_SIZE; if (dx < -CONFIG.MAP_SIZE / 2) dx += CONFIG.MAP_SIZE;
+            if (dy > CONFIG.MAP_SIZE / 2) dy -= CONFIG.MAP_SIZE; if (dy < -CONFIG.MAP_SIZE / 2) dy += CONFIG.MAP_SIZE;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            const tankOrigin = { x: target.x, y: target.y, height: target.z };
+            const targetPos = targetInfo.isPlayer ? { x: targetInfo.x, y: targetInfo.y, z: targetInfo.z } : (targetInfo.target || { x: targetInfo.x, y: targetInfo.y, z: targetInfo.z });
+            const hasLOS = !isTargetOccluded(targetPos, tankOrigin, dx, dy, dist);
+            if (dist <= ai.detectRange && hasLOS) ai.state = 'engage';
+            else if (ai.state === 'engage' && (!hasLOS || dist > ai.detectRange * 1.2)) ai.state = 'patrol';
+            if (ai.state === 'engage' && dist <= ai.engageRange && currentTime - ai.lastFired > ai.fireRate) {
+                const aimAngle = Math.atan2(dx, dy);
+                const dz = targetInfo.z - (target.z + 6);
+                enemyProjectiles.push({ x: target.x, y: target.y, z: target.z + 6, angle: aimAngle, pitch: (dist > 0 ? dz / dist : 0) + (Math.random() - 0.5) * 0.02, speed: ai.bulletSpeed, damage: ai.bulletDamage, type: 'tank_shell', lifetime: 200, faction: target.faction });
+                spawnParticles(target.x, target.y, target.z + 8, 'muzzle_flash', 1);
+                ai.lastFired = currentTime;
+            }
+        }
+
+        function updateSamAI(target, currentTime) {
+            if (gameMode !== GAME_MODES.COMANCHE) return;
+            const targetInfo = getAITarget(target);
+            if (!targetInfo) return;
+            let dx = targetInfo.x - target.x, dy = targetInfo.y - target.y;
+            if (dx > CONFIG.MAP_SIZE / 2) dx -= CONFIG.MAP_SIZE; if (dx < -CONFIG.MAP_SIZE / 2) dx += CONFIG.MAP_SIZE;
+            if (dy > CONFIG.MAP_SIZE / 2) dy -= CONFIG.MAP_SIZE; if (dy < -CONFIG.MAP_SIZE / 2) dy += CONFIG.MAP_SIZE;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            const playerTarget = targetInfo.isPlayer ? { x: targetInfo.x, y: targetInfo.y, z: targetInfo.z } : (targetInfo.target || { x: targetInfo.x, y: targetInfo.y, z: targetInfo.z });
+            const samCam = { x: target.x, y: target.y, height: target.z + 10 };
+            const hasLOS = !isTargetOccluded(playerTarget, samCam, dx, dy, dist);
+            if (dist < target.ai.range && hasLOS && currentTime - target.ai.lastFired > target.ai.fireRate) {
+                enemyProjectiles.push({ x: target.x, y: target.y, z: target.z + 10, vx: 0, vy: 0, vz: target.ai.missileSpeed * 3, targetX: targetInfo.x, targetY: targetInfo.y, targetZ: targetInfo.z, speed: target.ai.missileSpeed, damage: target.ai.missileDamage, type: 'sam_missile', lifetime: 800, phase: 'launch', launchAltitude: target.z + 60, angle: 0, faction: target.faction, targetId: targetInfo.isPlayer ? 'player' : targetInfo.target?.id });
+                spawnParticles(target.x, target.y, target.z + 12, 'muzzle_flash', 1);
+                target.ai.lastFired = currentTime;
+                if (targetInfo.isPlayer) showMissileWarning();
+            }
+        }
+
+        function updateSoldierAI(target, deltaTime, currentTime) {
+            const ai = target.ai;
+            const targetInfo = getAITarget(target);
+            let dx = 0, dy = 0, dist = Infinity, hasLOS = false;
+            if (targetInfo) {
+                dx = targetInfo.x - target.x; dy = targetInfo.y - target.y;
+                if (dx > CONFIG.MAP_SIZE / 2) dx -= CONFIG.MAP_SIZE; if (dx < -CONFIG.MAP_SIZE / 2) dx += CONFIG.MAP_SIZE;
+                if (dy > CONFIG.MAP_SIZE / 2) dy -= CONFIG.MAP_SIZE; if (dy < -CONFIG.MAP_SIZE / 2) dy += CONFIG.MAP_SIZE;
+                dist = Math.sqrt(dx * dx + dy * dy);
+                const soldierCam = { x: target.x, y: target.y, height: target.z };
+                const playerTarget = targetInfo.isPlayer ? { x: targetInfo.x, y: targetInfo.y, z: targetInfo.z } : (targetInfo.target || { x: targetInfo.x, y: targetInfo.y, z: targetInfo.z });
+                hasLOS = !isTargetOccluded(playerTarget, soldierCam, dx, dy, dist);
+                const detectRange = getAlertedDetectRange(ai.detectRange);
+                if (dist <= detectRange && hasLOS) { if (targetInfo.isPlayer) raiseAlert(); ai.state = 'engage'; }
+                else if (ai.state === 'engage' && (!hasLOS || dist > detectRange * 1.15)) ai.state = 'patrol';
+            } else { ai.state = 'patrol'; }
+            if (ai.state === 'patrol') {
+                ai.patrolAngle += ai.patrolSpeed * deltaTime * 0.001;
+                target.x = ai.patrolCenter.x + Math.cos(ai.patrolAngle) * ai.patrolRadius;
+                target.y = ai.patrolCenter.y + Math.sin(ai.patrolAngle) * ai.patrolRadius;
+                ai.facingAngle = ai.patrolAngle + Math.PI * 0.5; ai.pose = 'stand';
+            } else {
+                ai.facingAngle = Math.atan2(dx, dy);
+                if (dist > ai.engageRange) { target.x += Math.sin(ai.facingAngle) * ai.patrolSpeed * 0.9 * deltaTime * 0.06; target.y += Math.cos(ai.facingAngle) * ai.patrolSpeed * 0.9 * deltaTime * 0.06; }
+                if (targetInfo && dist <= ai.engageRange && currentTime - ai.lastFired > ai.fireRate) {
+                    const spread = (Math.random() - 0.5) * ai.accuracy;
+                    const aimAngle = ai.facingAngle + spread;
+                    const dz = targetInfo.z - target.z;
+                    enemyProjectiles.push({ x: target.x, y: target.y, z: target.z + 4, angle: aimAngle, pitch: (dist > 0 ? dz / dist : 0) + (Math.random() - 0.5) * ai.accuracy * 0.4, speed: ai.bulletSpeed, damage: ai.bulletDamage, type: 'infantry_bullet', lifetime: 140, faction: target.faction });
+                    spawnParticles(target.x, target.y, target.z + 5, 'muzzle_flash', 1);
+                    ai.lastFired = currentTime; ai.pose = 'shoot';
+                } else { ai.pose = 'stand'; }
+            }
+            target.x = ((target.x % CONFIG.MAP_SIZE) + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
+            target.y = ((target.y % CONFIG.MAP_SIZE) + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
+            target.z = getTerrainHeight(target.x, target.y) + TARGET_TYPES.SOLDIER.heightOffset;
+        }
+
+        function updateSniperAI(target, deltaTime, currentTime) {
+            const ai = target.ai;
+            const targetInfo = getAITarget(target);
+            let dx = 0, dy = 0, dist = Infinity, hasLOS = false;
+            if (targetInfo) {
+                dx = targetInfo.x - target.x; dy = targetInfo.y - target.y;
+                if (dx > CONFIG.MAP_SIZE / 2) dx -= CONFIG.MAP_SIZE; if (dx < -CONFIG.MAP_SIZE / 2) dx += CONFIG.MAP_SIZE;
+                if (dy > CONFIG.MAP_SIZE / 2) dy -= CONFIG.MAP_SIZE; if (dy < -CONFIG.MAP_SIZE / 2) dy += CONFIG.MAP_SIZE;
+                dist = Math.sqrt(dx * dx + dy * dy);
+                const sniperCam = { x: target.x, y: target.y, height: target.z };
+                const playerTarget = targetInfo.isPlayer ? { x: targetInfo.x, y: targetInfo.y, z: targetInfo.z } : (targetInfo.target || { x: targetInfo.x, y: targetInfo.y, z: targetInfo.z });
+                hasLOS = !isTargetOccluded(playerTarget, sniperCam, dx, dy, dist);
+                const detectRange = getAlertedDetectRange(ai.detectRange);
+                if (dist <= detectRange && hasLOS) { if (targetInfo.isPlayer) raiseAlert(); ai.state = 'engage'; }
+                else if (ai.state === 'engage' && (!hasLOS || dist > detectRange * 1.1)) ai.state = 'overwatch';
+            } else { ai.state = 'overwatch'; }
+            if (ai.state === 'patrol' || ai.state === 'overwatch') {
+                ai.patrolAngle += ai.patrolSpeed * deltaTime * 0.0005;
+                target.x = ai.patrolCenter.x + Math.cos(ai.patrolAngle) * ai.patrolRadius * 0.5;
+                target.y = ai.patrolCenter.y + Math.sin(ai.patrolAngle) * ai.patrolRadius * 0.5;
+                ai.facingAngle = ai.patrolAngle; ai.pose = 'crouch';
+            } else if (ai.state === 'engage') {
+                ai.facingAngle = Math.atan2(dx, dy);
+                if (targetInfo && dist <= ai.engageRange && currentTime - ai.lastFired > ai.fireRate) {
+                    const spread = (Math.random() - 0.5) * ai.accuracy;
+                    const dz = targetInfo.z - target.z;
+                    enemyProjectiles.push({ x: target.x, y: target.y, z: target.z + 3, angle: ai.facingAngle + spread, pitch: (dist > 0 ? dz / dist : 0) + (Math.random() - 0.5) * ai.accuracy * 0.2, speed: ai.bulletSpeed, damage: ai.bulletDamage, type: 'sniper_bullet', lifetime: 200, tracerColor: '#ff4400', faction: target.faction });
+                    spawnParticles(target.x, target.y, target.z + 3, 'muzzle_flash', 1);
+                    ai.lastFired = currentTime; ai.pose = 'shoot';
+                } else { ai.pose = 'crouch'; }
+            }
+            target.x = ((target.x % CONFIG.MAP_SIZE) + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
+            target.y = ((target.y % CONFIG.MAP_SIZE) + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
+            target.z = getTerrainHeight(target.x, target.y) + TARGET_TYPES.SNIPER.heightOffset;
+        }
+
+        function updateAircraftAI(entity, deltaTime, currentTime) {
+            if (!entity.ai || entity.ai.type !== 'aircraft') return;
+            const ai = entity.ai;
+            const dt = deltaTime * 0.001;
+            const targetInfo = getAITarget(entity);
+            const hasTarget = !!targetInfo;
+            const targetX = targetInfo?.x ?? entity.x, targetY = targetInfo?.y ?? entity.y, targetZ = targetInfo?.z ?? entity.z;
+            let targetDx = targetX - entity.x, targetDy = targetY - entity.y;
+            if (targetDx > CONFIG.MAP_SIZE / 2) targetDx -= CONFIG.MAP_SIZE; if (targetDx < -CONFIG.MAP_SIZE / 2) targetDx += CONFIG.MAP_SIZE;
+            if (targetDy > CONFIG.MAP_SIZE / 2) targetDy -= CONFIG.MAP_SIZE; if (targetDy < -CONFIG.MAP_SIZE / 2) targetDy += CONFIG.MAP_SIZE;
+            const targetDist = hasTarget ? Math.sqrt(targetDx * targetDx + targetDy * targetDy) : Infinity;
+            if (!ai.state) { ai.state = 'patrol'; ai.patrolCenter = { x: entity.x, y: entity.y }; ai.patrolAngle = Math.random() * Math.PI * 2; ai.heading = ai.patrolAngle; ai.lastFireTime = 0; ai.lastAttackTime = ai.lastAttackTime || 0; ai.burstShotsFired = 0; ai.burstCooldownStart = 0; ai.inBurstCooldown = false; }
+            const isPlayerInAir = gameMode === GAME_MODES.COMANCHE;
+            switch (ai.state) {
+                case 'patrol': {
+                    ai.patrolAngle += ai.turnRate * 0.5 * dt * 60;
+                    airSteerToward(entity, ai.patrolCenter.x + Math.cos(ai.patrolAngle) * 150, ai.patrolCenter.y + Math.sin(ai.patrolAngle) * 150, ai.turnRate, dt);
+                    airHoldAltitude(entity, ai.preferredAlt, ai.climbRate, dt);
+                    if (hasTarget && ((targetInfo?.isPlayer && isPlayerInAir) || !targetInfo?.isPlayer) && targetDist < ai.detectRange && ai.engageRange > 0) { ai.state = 'intercept'; ai.targetId = targetInfo?.isPlayer ? 'player' : targetInfo?.target?.id || null; }
+                    break;
+                }
+                case 'intercept': {
+                    if (!hasTarget) { ai.state = 'patrol'; break; }
+                    airSteerToward(entity, targetX, targetY, ai.turnRate, dt);
+                    airHoldAltitude(entity, Math.max(ai.preferredAlt, targetZ + 20), ai.climbRate, dt);
+                    if (targetDist < ai.engageRange) ai.state = 'attack_run';
+                    else if (targetDist > ai.detectRange * 1.5) ai.state = 'patrol';
+                    break;
+                }
+                case 'attack_run': {
+                    if (!hasTarget) { ai.state = 'patrol'; break; }
+                    airSteerToward(entity, targetX, targetY, ai.turnRate * 1.2, dt);
+                    airHoldAltitude(entity, targetZ + 10, ai.climbRate * 0.5, dt);
+                    if (ai.weaponType) {
+                        if (ai.role === 'fighter') {
+                            const cooldown = ai.attackCooldown || 8000;
+                            if (currentTime - ai.lastAttackTime >= cooldown) { fireAircraftWeapon(entity, targetX, targetY, targetZ); ai.lastAttackTime = currentTime; ai.lastFireTime = currentTime; ai.state = 'extend'; ai.extendTime = currentTime; }
+                        } else if (ai.role === 'attack_heli' && ai.burstCount && ai.burstCooldown) {
+                            if (ai.inBurstCooldown) { if (currentTime - ai.burstCooldownStart >= ai.burstCooldown) { ai.inBurstCooldown = false; ai.burstShotsFired = 0; } }
+                            else if (currentTime - ai.lastFireTime > ai.fireRate) { fireAircraftWeapon(entity, targetX, targetY, targetZ); ai.lastFireTime = currentTime; ai.burstShotsFired = (ai.burstShotsFired || 0) + 1; if (ai.burstShotsFired >= ai.burstCount) { ai.inBurstCooldown = true; ai.burstCooldownStart = currentTime; } }
+                        } else if (currentTime - ai.lastFireTime > ai.fireRate) { fireAircraftWeapon(entity, targetX, targetY, targetZ); ai.lastFireTime = currentTime; }
+                    }
+                    if (ai.role !== 'fighter') { if (targetDist < 50) { ai.state = 'extend'; ai.extendTime = currentTime; } else if (targetDist > ai.engageRange * 1.5) ai.state = 'intercept'; }
+                    else if (targetDist > ai.engageRange * 1.5) ai.state = 'intercept';
+                    if (entity.health < entity.maxHealth * 0.5) { ai.state = 'evade'; ai.evadeTime = currentTime; }
+                    break;
+                }
+                case 'extend': {
+                    if (!hasTarget) { ai.state = 'patrol'; break; }
+                    const awayAngle = Math.atan2(entity.y - targetY, entity.x - targetX);
+                    airSteerToward(entity, entity.x + Math.cos(awayAngle) * 100, entity.y + Math.sin(awayAngle) * 100, ai.turnRate, dt);
+                    airHoldAltitude(entity, ai.preferredAlt + 30, ai.climbRate, dt);
+                    if (currentTime - ai.extendTime > (ai.role === 'fighter' ? (ai.attackCooldown || 8000) : 3000)) ai.state = 'intercept';
+                    break;
+                }
+                case 'evade': {
+                    if (!hasTarget) { ai.state = 'patrol'; break; }
+                    const evadeAngle = Math.atan2(entity.y - targetY, entity.x - targetX) + (Math.random() - 0.5) * Math.PI;
+                    airSteerToward(entity, entity.x + Math.cos(evadeAngle) * 150, entity.y + Math.sin(evadeAngle) * 150, ai.turnRate * 1.5, dt);
+                    airHoldAltitude(entity, ai.preferredAlt + 50, ai.climbRate * 1.5, dt);
+                    if (currentTime - ai.evadeTime > 5000) ai.state = entity.health > entity.maxHealth * 0.3 ? 'intercept' : 'patrol';
+                    break;
+                }
+            }
+            entity.x += Math.cos(ai.heading) * ai.speed * dt * 60;
+            entity.y += Math.sin(ai.heading) * ai.speed * dt * 60;
+            entity.x = ((entity.x % CONFIG.MAP_SIZE) + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
+            entity.y = ((entity.y % CONFIG.MAP_SIZE) + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
+        }
+
+        // =================================================================
+        // FULL GAME SYSTEM IMPLEMENTATIONS (replacing stubs)
+        // =================================================================
         function trackEvent() {}
-        function updatePlaytime() {}
-        function updateTelemetry() {}
-        function updateAlertLevel() {}
-        function updateTargetingSystem() {}
-        function updateResupply() {}
-        function updateObjectiveProgress() {}
-        function updateProjectiles() {}
-        function checkProjectileHits() {}
-        function updateExplosions(dt) {
+
+        function updatePlaytime(deltaTime) {
+            if (gameState !== GAME_STATES.PLAYING) return;
+            playtimeAccumulator += deltaTime;
+            if (playtimeAccumulator >= 1000) {
+                const seconds = Math.floor(playtimeAccumulator / 1000);
+                playtimeAccumulator -= seconds * 1000;
+                updateStats('totalTimePlayed', seconds);
+                checkAchievements('stats');
+            }
+        }
+
+        function updateTelemetry(deltaTime) {
+            const dx = camera.x - telemetry.lastPosition.x;
+            const dy = camera.y - telemetry.lastPosition.y;
+            telemetry.distanceTraveled += Math.sqrt(dx * dx + dy * dy);
+            telemetry.lastPosition = { x: camera.x, y: camera.y };
+            if (gameMode === GAME_MODES.COMANCHE) {
+                telemetry.flightTime += deltaTime / 1000;
+                if (isHeliLanded(playerState.heli)) telemetry.groundTime += deltaTime / 1000;
+            } else {
+                telemetry.groundTime += deltaTime / 1000;
+            }
+        }
+
+        function updateAlertLevel(deltaTime) {
+            if (gameMode !== GAME_MODES.DELTA) { alertLevel = 0; alertTimer = 0; return; }
+            if (alertTimer > 0) {
+                alertTimer -= deltaTime;
+                if (alertTimer <= 0 && alertLevel > 0) {
+                    alertLevel = Math.max(alertLevel - 1, 0);
+                    if (alertLevel > 0) alertTimer = ALERT_DURATION;
+                }
+            }
+        }
+
+        function updateTargetingSystem(deltaTime) {
+            const cam = gameMode === GAME_MODES.DELTA ? getDeltaCamera() : camera;
+            const validTypes = targetingSystem.getValidTargetTypes();
+            const targetingRange = targetingSystem.getTargetingRange();
+            if (!targetingSystem.selectedTarget || targetingSystem.selectedTarget.destroyed) {
+                const visible = getTargetsInView(cam, targetingRange);
+                targetingSystem.selectedTarget = visible[0]?.target || null;
+                targetingSystem.lockedTarget = null; targetingSystem.lockProgress = 0;
+            }
+            if (targetingSystem.selectedTarget) {
+                const visible = getTargetsInView(cam, targetingRange);
+                const stillVisible = visible.some(t => t.target === targetingSystem.selectedTarget);
+                if (!stillVisible || targetingSystem.selectedTarget.destroyed) {
+                    targetingSystem.selectedTarget = visible[0]?.target || null;
+                    targetingSystem.lockedTarget = null; targetingSystem.lockProgress = 0; targetingSystem.isLocking = false;
+                }
+            }
+            if (targetingSystem.selectedTarget && validTypes.requiresLock && !targetingSystem.isLocking && !targetingSystem.lockedTarget) {
+                targetingSystem.isLocking = true; targetingSystem.lockStartTime = performance.now(); targetingSystem.lockProgress = 0;
+            }
+            if (targetingSystem.isLocking && targetingSystem.selectedTarget && validTypes.requiresLock) {
+                const lockTime = targetingSystem.getLockTime();
+                const elapsed = performance.now() - targetingSystem.lockStartTime;
+                targetingSystem.lockProgress = Math.min(100, (elapsed / lockTime) * 100);
+                const visible = getTargetsInView(cam, targetingRange);
+                const targetInfo = visible.find(t => t.target === targetingSystem.selectedTarget);
+                if (!targetInfo || targetInfo.angleFromCrosshair > 0.2) {
+                    targetingSystem.lockProgress = Math.max(0, targetingSystem.lockProgress - deltaTime * 0.1);
+                    if (targetingSystem.lockProgress <= 0) targetingSystem.isLocking = false;
+                } else if (targetingSystem.lockProgress >= 100) {
+                    targetingSystem.lockedTarget = targetingSystem.selectedTarget; targetingSystem.isLocking = false;
+                }
+            }
+            if (targetingSystem.lockedTarget?.destroyed) { targetingSystem.lockedTarget = null; targetingSystem.lockProgress = 0; }
+        }
+
+        function updateResupply(currentTime) {
+            if (!isAtResupplyPoint()) return;
+            if (currentTime - RESUPPLY.lastResupply < RESUPPLY.interval) return;
+            RESUPPLY.lastResupply = currentTime;
+            let didResupply = false;
+            if (gameMode === GAME_MODES.COMANCHE) {
+                if (weaponState.rockets.ammo < WEAPONS.rockets.maxAmmo) { weaponState.rockets.ammo = Math.min(weaponState.rockets.ammo + RESUPPLY.ammoPerTick, WEAPONS.rockets.maxAmmo); didResupply = true; }
+                if (weaponState.hellfire.ammo < WEAPONS.hellfire.maxAmmo) { weaponState.hellfire.ammo = Math.min(weaponState.hellfire.ammo + RESUPPLY.ammoPerTick, WEAPONS.hellfire.maxAmmo); didResupply = true; }
+                if (weaponState.stinger.ammo < WEAPONS.stinger.maxAmmo) { weaponState.stinger.ammo = Math.min(weaponState.stinger.ammo + RESUPPLY.ammoPerTick, WEAPONS.stinger.maxAmmo); didResupply = true; }
+                if (countermeasures.chaff.count < 10) { countermeasures.chaff.count = Math.min(countermeasures.chaff.count + 1, 10); didResupply = true; }
+                if (countermeasures.flare.count < 10) { countermeasures.flare.count = Math.min(countermeasures.flare.count + 1, 10); didResupply = true; }
+            } else if (gameMode === GAME_MODES.DELTA) {
+                for (const weaponKey of Object.keys(soldierWeapon.weapons)) {
+                    const state = soldierWeapon.weapons[weaponKey];
+                    const maxMags = WEAPONS_DELTA[weaponKey]?.maxMags || 5;
+                    if (state.mags < maxMags) { state.mags = Math.min(state.mags + 1, maxMags); didResupply = true; }
+                }
+            }
+            if (playerHealth < maxPlayerHealth) { playerHealth = Math.min(playerHealth + RESUPPLY.healthPerTick, maxPlayerHealth); didResupply = true; }
+        }
+
+        function updateObjectiveProgress(action, data) {
+            data = data || {};
+            if (missionComplete || isPlayerDead) return;
+            objectiveState.objectives.forEach(obj => {
+                if (obj.complete || obj.failed) return;
+                switch (obj.type) {
+                    case 'destroy_all': break;
+                    case 'destroy_type':
+                        if (action === 'target_destroyed' && data.type === obj.targetType) {
+                            obj.progress++;
+                            if (obj.progress >= obj.total) { obj.complete = true; objectiveState.completed.push(obj.id); }
+                        }
+                        break;
+                    case 'destroy_count':
+                        if (action === 'target_destroyed') {
+                            obj.progress++;
+                            if (obj.progress >= obj.total) { obj.complete = true; objectiveState.completed.push(obj.id); }
+                        }
+                        break;
+                    case 'reach_location':
+                        if (action === 'position_update') {
+                            const dx = data.x - obj.x, dy = data.y - obj.y;
+                            if (Math.sqrt(dx * dx + dy * dy) < (obj.radius || 50)) {
+                                const othersComplete = objectiveState.objectives.filter(o => o.id !== obj.id).every(o => o.complete);
+                                if (othersComplete) { obj.complete = true; objectiveState.completed.push(obj.id); }
+                                else if (!obj._inZoneMessageShown || performance.now() - obj._inZoneMessageShown > 5000) {
+                                    obj._inZoneMessageShown = performance.now();
+                                    showMissionMessage('COMPLETE ALL OBJECTIVES BEFORE EXTRACTION', 3000);
+                                }
+                            }
+                        }
+                        break;
+                    case 'survive_time':
+                        if (action === 'time_update') {
+                            const elapsed = (performance.now() - objectiveState.surviveStartTime) / 1000;
+                            obj.progress = Math.min(elapsed, obj.total);
+                            if (elapsed >= obj.total) { obj.complete = true; objectiveState.completed.push(obj.id); }
+                        }
+                        break;
+                    case 'protect_target':
+                        if (action === 'target_destroyed' && data.id === obj.targetId) { obj.failed = true; objectiveState.failed.push(obj.id); }
+                        break;
+                }
+            });
+            updateEventTriggers(action, data);
+        }
+
+        function updateProjectiles(deltaTime) {
+            const dt = Math.max(0, Math.min(3, deltaTime / 16.666));
+            if (dt <= 0) return;
+            for (let i = projectiles.length - 1; i >= 0; i--) {
+                const p = projectiles[i];
+                if (p.isAirstrike) {
+                    const removed = updateAirstrikeMissile(p, dt, i);
+                    if (!removed && p.lifetime <= 0) projectiles.splice(i, 1);
+                    continue;
+                }
+                if (p.guided) { updateGuidedMissile(p, dt); }
+                else { p.x -= Math.sin(p.angle) * p.speed * dt; p.y -= Math.cos(p.angle) * p.speed * dt; p.z += p.pitch * p.speed * dt; }
+                if (!p.noWrap) {
+                    p.x = ((p.x % CONFIG.MAP_SIZE) + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
+                    p.y = ((p.y % CONFIG.MAP_SIZE) + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
+                }
+                if ((p.projectileType === 'missile' || p.projectileType === 'rocket') && Math.random() < 0.3) spawnParticles(p.x, p.y, p.z, 'trail_smoke', 1);
+                p.lifetime -= dt;
+                const terrainHeight = getTerrainHeight(p.x, p.y);
+                let hitTarget = false;
+                if (p.playerFired) hitTarget = checkSingleProjectileHit(p, i);
+                if (!hitTarget && p.z <= terrainHeight) {
+                    createExplosion(p.x, p.y, terrainHeight, (p.projectileType === 'missile' || p.projectileType === 'rocket') ? 'large' : 'small');
+                    projectiles.splice(i, 1); continue;
+                }
+                if (p.lifetime <= 0 || hitTarget) projectiles.splice(i, 1);
+            }
+        }
+
+        function checkProjectileHits() {
+            for (let i = projectiles.length - 1; i >= 0; i--) {
+                const proj = projectiles[i];
+                if (proj.playerFired) continue;
+                const candidates = [];
+                for (const target of targets) {
+                    if (target.destroyed) continue;
+                    let dx = proj.x - target.x, dy = proj.y - target.y;
+                    if (dx > CONFIG.MAP_SIZE / 2) dx -= CONFIG.MAP_SIZE; if (dx < -CONFIG.MAP_SIZE / 2) dx += CONFIG.MAP_SIZE;
+                    if (dy > CONFIG.MAP_SIZE / 2) dy -= CONFIG.MAP_SIZE; if (dy < -CONFIG.MAP_SIZE / 2) dy += CONFIG.MAP_SIZE;
+                    candidates.push({ target, dx, dy, dist2D: Math.sqrt(dx * dx + dy * dy) });
+                }
+                candidates.sort((a, b) => a.dist2D - b.dist2D);
+                for (const entry of candidates) {
+                    const { target, dist2D } = entry;
+                    const targetHeight = target.size * 0.75;
+                    const zInRange = proj.z >= (target.z - 5) && proj.z <= (target.z + targetHeight);
+                    const isBuilding = target.type && ['building','hangar','control_tower','fuel_depot','barracks','radar'].includes(target.type);
+                    const hitboxSize = isBuilding ? target.size * 0.5 : target.size;
+                    if (dist2D < hitboxSize && zInRange) {
+                        sessionStats.hits += 1; telemetry.shotsHit += 1;
+                        if (proj.projectileType === 'missile') telemetry.missilesHit += 1;
+                        const multiplier = getDamageMultiplier(proj.type, target);
+                        const adjustedDamage = proj.damage * multiplier;
+                        telemetry.damageDealt += Math.min(adjustedDamage, target.health);
+                        target.health -= adjustedDamage;
+                        triggerHitMarker(proj.projectileType === 'bullet' ? 0.8 : 1.0);
+                        if (proj.projectileType === 'bullet') playHitSound();
+                        if (target.health <= 0) {
+                            target.destroyed = true; score += target.points || 0; sessionStats.score += target.points || 0; sessionStats.kills += 1;
+                            updateObjectiveProgress('target_destroyed', { type: (target.type || '').toUpperCase(), id: target.id });
+                            updateStats('totalKills', 1);
+                            if (target.type === 'soldier') { spawnParticles(target.x, target.y, target.z, 'blood', 8 + Math.floor(Math.random() * 5)); spawnParticles(target.x, target.y, target.z, 'dust', 4); }
+                            else { createExplosion(target.x, target.y, target.z, target.type === 'building' ? 'large' : 'medium'); spawnParticles(target.x, target.y, target.z, 'spark', 10); spawnParticles(target.x, target.y, target.z, 'smoke', 5); spawnParticles(target.x, target.y, target.z, 'debris', 5); }
+                        } else {
+                            if (target.type === 'soldier') spawnParticles(proj.x, proj.y, proj.z, 'blood', 3 + Math.floor(Math.random() * 3));
+                            else createExplosion(proj.x, proj.y, proj.z, (proj.projectileType === 'missile' || proj.projectileType === 'rocket') ? 'medium' : 'small');
+                        }
+                        projectiles.splice(i, 1); break;
+                    }
+                }
+            }
+        }
+
+        function updateExplosions(deltaTime) {
+            const dt = Math.max(0, Math.min(3, deltaTime / 16.666));
             for (let i = explosions.length - 1; i >= 0; i--) {
-                explosions[i].lifetime--;
+                explosions[i].lifetime -= dt;
                 if (explosions[i].lifetime <= 0) explosions.splice(i, 1);
             }
         }
-        function updateEnemyAI() {}
-        function updateEnemyProjectiles() {}
-        function updateAirstrikePlanes() {}
-        function updateAirportSpawns() {}
-        function updateHelipadSpawns() {}
-        function createExplosion(x, y, z, size) {
-            explosions.push({ x: x, y: y, z: z, size: 20, maxSize: 20, lifetime: 30, maxLifetime: 30, type: size || 'medium' });
+
+        function updateEnemyAI(deltaTime, currentTime) {
+            for (const target of targets) {
+                if (target.destroyed || !target.ai) continue;
+                if (target.ai.type === 'patrol') updateTankAI(target, deltaTime, currentTime);
+                else if (target.ai.type === 'sam') updateSamAI(target, currentTime);
+                else if (target.ai.type === 'infantry') updateSoldierAI(target, deltaTime, currentTime);
+                else if (target.ai.type === 'sniper') updateSniperAI(target, deltaTime, currentTime);
+                else if (target.ai.type === 'aircraft') updateAircraftAI(target, deltaTime, currentTime);
+            }
         }
-        function handleAirstrikeAction() {}
-        function spawnTarget(typeKey) {
-            const spot = findFlatSpot(100, 20, 25, camera.x, camera.y, 100);
-            if (spot) spawnTargetAt(typeKey, spot.x, spot.y);
+
+        function updateEnemyProjectiles(deltaTime) {
+            const dt = Math.max(0, Math.min(3, deltaTime / 16.666));
+            if (dt <= 0) return;
+            const now = performance.now();
+            for (let i = enemyProjectiles.length - 1; i >= 0; i--) {
+                const ep = enemyProjectiles[i];
+                const projectileFaction = ep.faction || FACTIONS.ENEMY;
+                if (ep.type === 'air_cannon' || ep.type === 'air_rocket' || ep.type === 'air_missile') {
+                    ep.x += ep.vx * dt; ep.y += ep.vy * dt; ep.z += ep.vz * dt;
+                } else if (ep.type === 'infantry_bullet' || ep.type === 'tank_shell' || ep.type === 'sniper_bullet') {
+                    ep.x += Math.sin(ep.angle) * ep.speed * dt; ep.y += Math.cos(ep.angle) * ep.speed * dt; ep.z += ep.pitch * ep.speed * dt;
+                } else if (ep.type === 'sam_missile') {
+                    if (ep.phase === 'launch') {
+                        ep.z += ep.vz * 0.06 * dt;
+                        if (ep.z >= ep.launchAltitude) {
+                            ep.phase = 'track';
+                            const tpos = getProjectileTargetPosition(ep);
+                            let dx = (tpos?.x ?? ep.x) - ep.x, dy = (tpos?.y ?? ep.y) - ep.y;
+                            if (dx > CONFIG.MAP_SIZE / 2) dx -= CONFIG.MAP_SIZE; if (dx < -CONFIG.MAP_SIZE / 2) dx += CONFIG.MAP_SIZE;
+                            if (dy > CONFIG.MAP_SIZE / 2) dy -= CONFIG.MAP_SIZE; if (dy < -CONFIG.MAP_SIZE / 2) dy += CONFIG.MAP_SIZE;
+                            ep.angle = Math.atan2(dx, dy);
+                        }
+                    } else {
+                        const tpos = getProjectileTargetPosition(ep);
+                        let dx = (tpos?.x ?? ep.x) - ep.x, dy = (tpos?.y ?? ep.y) - ep.y;
+                        if (dx > CONFIG.MAP_SIZE / 2) dx -= CONFIG.MAP_SIZE; if (dx < -CONFIG.MAP_SIZE / 2) dx += CONFIG.MAP_SIZE;
+                        if (dy > CONFIG.MAP_SIZE / 2) dy -= CONFIG.MAP_SIZE; if (dy < -CONFIG.MAP_SIZE / 2) dy += CONFIG.MAP_SIZE;
+                        const dist = Math.sqrt(dx * dx + dy * dy);
+                        if (dist > 0) {
+                            const targetAngle = Math.atan2(dx, dy);
+                            const turnRate = 0.06 * dt;
+                            const angleDiff = normalizeAngle(targetAngle - (ep.angle || targetAngle));
+                            ep.angle = (ep.angle || targetAngle) + Math.sign(angleDiff) * Math.min(Math.abs(angleDiff), turnRate);
+                            ep.x += Math.sin(ep.angle) * ep.speed * dt; ep.y += Math.cos(ep.angle) * ep.speed * dt;
+                            ep.z += ((tpos?.z ?? ep.z) - ep.z) * 0.03 * dt;
+                        }
+                    }
+                } else {
+                    const tpos = getProjectileTargetPosition(ep);
+                    let dx = (tpos?.x ?? ep.x) - ep.x, dy = (tpos?.y ?? ep.y) - ep.y;
+                    if (dx > CONFIG.MAP_SIZE / 2) dx -= CONFIG.MAP_SIZE; if (dx < -CONFIG.MAP_SIZE / 2) dx += CONFIG.MAP_SIZE;
+                    if (dy > CONFIG.MAP_SIZE / 2) dy -= CONFIG.MAP_SIZE; if (dy < -CONFIG.MAP_SIZE / 2) dy += CONFIG.MAP_SIZE;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    if (dist > 0) {
+                        const targetAngle = Math.atan2(dx, dy);
+                        const angleDiff = normalizeAngle(targetAngle - (ep.angle || targetAngle));
+                        ep.angle = (ep.angle || targetAngle) + Math.sign(angleDiff) * Math.min(Math.abs(angleDiff), 0.06 * dt);
+                        ep.x += Math.sin(ep.angle) * ep.speed * dt; ep.y += Math.cos(ep.angle) * ep.speed * dt;
+                        ep.z += ((tpos?.z ?? ep.z) - ep.z) * 0.03 * dt;
+                    }
+                }
+                if (typeof ep.life === 'number') {
+                    if (now - ep.spawnTime > ep.life) { if (ep.type === 'sam_missile') telemetry.missilesDodged += 1; enemyProjectiles.splice(i, 1); continue; }
+                } else { ep.lifetime -= dt; }
+                if (checkAIProjectileTargetHit(ep)) { enemyProjectiles.splice(i, 1); continue; }
+                if (projectileFaction === FACTIONS.ENEMY) {
+                    if (ep.type === 'air_cannon' || ep.type === 'air_rocket' || ep.type === 'air_missile') {
+                        if (gameMode === GAME_MODES.COMANCHE) {
+                            const dx = ep.x - camera.x, dy = ep.y - camera.y, dz = ep.z - camera.height;
+                            if (Math.sqrt(dx * dx + dy * dy + dz * dz) < (ep.type === 'air_missile' ? 22 : 15)) { damagePlayer(ep.damage); enemyProjectiles.splice(i, 1); continue; }
+                        }
+                    } else {
+                        const playerDist = distance3D(ep.x, ep.y, ep.z, camera.x, camera.y, camera.height);
+                        const hitRadius = ep.type === 'infantry_bullet' ? 12 : ep.type === 'tank_shell' ? 22 : 30;
+                        if (playerDist < hitRadius) { damagePlayer(ep.damage); enemyProjectiles.splice(i, 1); createExplosion(ep.x, ep.y, ep.z, ep.type === 'infantry_bullet' ? 'small' : 'medium'); continue; }
+                    }
+                }
+                const terrainHeight = getTerrainHeight(ep.x, ep.y);
+                if (ep.z <= terrainHeight) {
+                    createExplosion(ep.x, ep.y, terrainHeight, ['sam_missile','tank_shell','air_missile','air_rocket'].includes(ep.type) ? 'medium' : 'small');
+                    if (ep.type === 'sam_missile') telemetry.missilesDodged += 1;
+                    enemyProjectiles.splice(i, 1); continue;
+                }
+                if (typeof ep.life !== 'number' && ep.lifetime <= 0) { if (ep.type === 'sam_missile') telemetry.missilesDodged += 1; enemyProjectiles.splice(i, 1); }
+            }
+        }
+
+        function updateAirstrikePlanes(deltaTime) {
+            if (airstrikeState.planesInbound.length === 0) return;
+            const dt = Math.max(0, Math.min(3, deltaTime / 16.666));
+            const now = performance.now();
+            for (let i = airstrikeState.planesInbound.length - 1; i >= 0; i--) {
+                const plane = airstrikeState.planesInbound[i];
+                if (plane.destroyed) { airstrikeState.planesInbound.splice(i, 1); continue; }
+                if (plane.phase === 'inbound') {
+                    const dx = plane.playerX - plane.x, dy = plane.playerY - plane.y;
+                    const headingDiff = normalizeAngle(Math.atan2(dy, dx) - plane.heading);
+                    plane.heading += Math.sign(headingDiff) * Math.min(Math.abs(headingDiff), 0.03 * dt);
+                    if (Math.sqrt(dx * dx + dy * dy) < 100) plane.phase = 'attack';
+                } else if (plane.phase === 'attack') {
+                    const dx = plane.targetX - plane.x, dy = plane.targetY - plane.y;
+                    const distToTarget = Math.sqrt(dx * dx + dy * dy);
+                    const headingDiff = normalizeAngle(Math.atan2(dy, dx) - plane.heading);
+                    plane.heading += Math.sign(headingDiff) * Math.min(Math.abs(headingDiff), 0.04 * dt);
+                    if (distToTarget < 40 && !plane.hasFired) { fireAirstrikeMissile(plane); plane.hasFired = true; plane.phase = 'egress'; }
+                }
+                plane.x += Math.cos(plane.heading) * plane.speed * dt * 60;
+                plane.y += Math.sin(plane.heading) * plane.speed * dt * 60;
+                if (plane.phase === 'egress' && (plane.x < -120 || plane.x > CONFIG.MAP_SIZE + 120 || plane.y < -120 || plane.y > CONFIG.MAP_SIZE + 120)) plane.destroyed = true;
+            }
+            if (airstrikeState.planesInbound.length === 0 && !airstrikeState.designating && now > airstrikeState.inboundMessageUntil) {
+                airstrikeState.targetX = null; airstrikeState.targetY = null; airstrikeState.targetZ = null;
+            }
+        }
+
+        function updateAirportSpawns(currentTime) {
+            const spawnInterval = 30000;
+            const maxAircraft = ENTITY_BUDGET.maxAir;
+            const aircraftCount = targets.filter(t => t.domain === DOMAINS.AIR && !t.destroyed).length;
+            if (aircraftCount >= maxAircraft) return;
+            for (const airport of world.airports) {
+                if (!airportSpawnTimers[airport.id]) airportSpawnTimers[airport.id] = currentTime + Math.random() * spawnInterval;
+                if (currentTime > airportSpawnTimers[airport.id]) {
+                    spawnAircraftFromAirport(airport);
+                    airportSpawnTimers[airport.id] = currentTime + spawnInterval + Math.random() * 10000;
+                }
+            }
+        }
+
+        function updateHelipadSpawns(currentTime) {
+            const spawnInterval = 45000;
+            const maxAircraft = ENTITY_BUDGET.maxAir;
+            const aircraftCount = targets.filter(t => t.domain === DOMAINS.AIR && !t.destroyed).length;
+            if (aircraftCount >= maxAircraft) return;
+            for (const helipad of world.helipads) {
+                if (helipad.faction === FACTIONS.FRIENDLY || helipad.faction === 'friendly') continue;
+                if (!helipadSpawnTimers[helipad.id]) helipadSpawnTimers[helipad.id] = currentTime + Math.random() * spawnInterval;
+                if (currentTime > helipadSpawnTimers[helipad.id]) {
+                    spawnHeliFromHelipad(helipad);
+                    helipadSpawnTimers[helipad.id] = currentTime + spawnInterval + Math.random() * 15000;
+                }
+            }
+        }
+
+        function handleAirstrikeAction(now) {
+            const state = soldierWeapon.weapons.airstrike;
+            if (!state) return;
+            if (now - state.lastFire < 450) return;
+            if (airstrikeState.designating) {
+                const aimPoint = getAirstrikeAimPoint();
+                if (!aimPoint) return;
+                if (!consumeAirstrikeCharge(state)) { airstrikeState.designating = false; return; }
+                state.lastFire = now; airstrikeState.designating = false; airstrikeState.lastCallTime = now;
+                callAirstrike(aimPoint.x, aimPoint.y, aimPoint.z);
+            } else {
+                if (getAirstrikeCharges(state) <= 0) return;
+                state.lastFire = now; airstrikeState.designating = true;
+            }
         }
 
         function adjustSetting(index, dir) {
@@ -10100,8 +11544,16 @@
                         playerState.heli.z = camera.height; playerState.heli.angle = camera.angle;
                         playerState.heli.bank = camera.bank; playerState.heli.forwardSpeed = camera.forwardSpeed;
                     }
-                    updateProjectiles(deltaTime); updateExplosions(deltaTime); updateParticles(deltaTime);
+                    updateProjectiles(deltaTime); updateEnemyProjectiles(deltaTime);
+                    updateExplosions(deltaTime); updateParticles(deltaTime);
                     updateEnemyAI(deltaTime, timestamp);
+                    updateAirstrikePlanes(deltaTime);
+                    updateAirportSpawns(timestamp); updateHelipadSpawns(timestamp);
+                    updateTargetingSystem(deltaTime); updateAlertLevel(deltaTime);
+                    updateResupply(timestamp);
+                    updateObjectiveProgress('time_update', {});
+                    updateObjectiveProgress('position_update', { x: camera.x, y: camera.y });
+                    updateTelemetry(deltaTime); updatePlaytime(deltaTime);
                 }
                 updateCombatFeedback(deltaTime); updateScreenShake(deltaTime); updateScreenFlash(deltaTime);
             } else if (isMenuState(gameState)) {
