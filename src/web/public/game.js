@@ -2076,6 +2076,7 @@
     setCameraAngle: () => setCameraAngle,
     rgbToHex: () => rgbToHex,
     rgbToCss: () => rgbToCss,
+    renderTargets: () => renderTargets,
     renderProjectiles: () => renderProjectiles,
     renderParticles: () => renderParticles,
     renderMissionMessage: () => renderMissionMessage,
@@ -5333,6 +5334,118 @@
       _ctx.fillText(toast.desc, x + 40, y + 42);
     });
     _ctx.restore();
+  }
+  function renderTargets(cam, targets2, weather, fogEnabled) {
+    const sinAngle = Math.sin(cam.angle);
+    const cosAngle = Math.cos(cam.angle);
+    const fogStart = weather.fogStart;
+    const fogEnd = Math.min(cam.distance, fogStart + (cam.distance - fogStart) / (weather.fogDensity || 2));
+    for (const target of targets2) {
+      if (target.destroyed)
+        continue;
+      let dx = target.x - cam.x;
+      let dy = target.y - cam.y;
+      if (dx > CONFIG.MAP_SIZE / 2)
+        dx -= CONFIG.MAP_SIZE;
+      if (dx < -CONFIG.MAP_SIZE / 2)
+        dx += CONFIG.MAP_SIZE;
+      if (dy > CONFIG.MAP_SIZE / 2)
+        dy -= CONFIG.MAP_SIZE;
+      if (dy < -CONFIG.MAP_SIZE / 2)
+        dy += CONFIG.MAP_SIZE;
+      const rx = dx * cosAngle - dy * sinAngle;
+      const ry = -dx * sinAngle - dy * cosAngle;
+      if (ry > 10 && ry < cam.distance) {
+        const fogFactor = fogEnabled ? Math.min(1, Math.max(0, (ry - fogStart) / (fogEnd - fogStart))) : 0;
+        if (isTargetOccluded(target, cam, dx, dy, ry))
+          continue;
+        const scaleX = _screenWidth / 2 / ry;
+        const scaleY = 240 / ry;
+        const screenX = _screenWidth / 2 + rx * scaleX;
+        const bankTiltFactor = Math.sin(cam.bank || 0) * 0.3;
+        const columnOffset = screenX - _screenWidth / 2;
+        const bankOffset = columnOffset * bankTiltFactor;
+        let screenY = (cam.height - target.z) * scaleY + cam.horizon + bankOffset;
+        if (target.type === "building")
+          screenY += target.size * 0.9 * scaleY;
+        else if (target.type === "tank")
+          screenY += target.size * 0.3 * scaleY;
+        else if (target.type === "sam")
+          screenY += target.size * 0.35 * scaleY;
+        else if (target.type === "hangar")
+          screenY += target.size * 0.6 * scaleY;
+        else if (target.type === "control_tower")
+          screenY += target.size * 1 * scaleY;
+        else if (target.type === "barracks")
+          screenY += target.size * 0.5 * scaleY;
+        else if (target.type === "fuel_depot")
+          screenY += target.size * 0.4 * scaleY;
+        else if (target.type === "helipad")
+          screenY += target.size * 0.1 * scaleY;
+        else if (target.type === "soldier")
+          screenY += target.size * 0.25 * scaleY;
+        const size = target.size * scaleY;
+        const isAircraft = target.domain === DOMAINS.AIR;
+        let groundScreenY = 0, altitude = 0;
+        if (isAircraft) {
+          const terrainHeight = _getTerrainHeight(target.x, target.y);
+          altitude = target.z - terrainHeight;
+          groundScreenY = (cam.height - terrainHeight) * scaleY + cam.horizon + bankOffset;
+        }
+        if (screenX > -size && screenX < _screenWidth + size && screenY > -size && screenY < _screenHeight + size) {
+          const healthPercent = target.health / target.maxHealth;
+          if (target.type === "tank") {
+            drawTank(screenX, screenY, size, target.color, target.ai?.heading || 0, fogFactor, weather.ambient, weather.skyColor);
+          } else if (target.type === "building") {
+            drawBuilding(screenX, screenY, size, getDamagedBuildingColor(target.color, healthPercent), fogFactor, weather.ambient, weather.skyColor);
+          } else if (target.type === "sam") {
+            drawSAMSite(screenX, screenY, size, target.color, fogFactor, weather.ambient, weather.skyColor);
+          } else if (target.type === "hangar") {
+            drawHangar(screenX, screenY, size, getDamagedBuildingColor(target.color, healthPercent), fogFactor, weather.ambient, weather.skyColor);
+          } else if (target.type === "control_tower") {
+            drawControlTower(screenX, screenY, size, getDamagedBuildingColor(target.color, healthPercent), fogFactor, weather.ambient, weather.skyColor);
+          } else if (target.type === "barracks") {
+            drawBarracks(screenX, screenY, size, getDamagedBuildingColor(target.color, healthPercent), fogFactor, weather.ambient, weather.skyColor);
+          } else if (target.type === "fuel_depot") {
+            drawFuelDepot(screenX, screenY, size, getDamagedBuildingColor(target.color, healthPercent), fogFactor, weather.ambient, weather.skyColor);
+          } else if (target.type === "helipad") {
+            if (target.faction === FACTIONS.FRIENDLY || target.faction === "friendly") {
+              drawResupplyGlow(screenX, screenY, size, fogFactor);
+            }
+            drawHelipad(screenX, screenY, size, getDamagedBuildingColor(target.color, healthPercent), fogFactor, weather.ambient, weather.skyColor);
+          } else if (target.type === "soldier") {
+            drawSoldier(screenX, screenY, size, target.color, target.ai?.pose, fogFactor, weather.ambient, weather.skyColor);
+          } else if (target.type === "sniper") {
+            const sniperPose = target.ai?.pose === "shoot" ? "shoot" : "crouch";
+            drawSoldier(screenX, screenY, size, target.color, sniperPose, fogFactor, weather.ambient, weather.skyColor);
+          } else if (target.type === "air_fighter") {
+            drawFighterJet(screenX, screenY, size, target.color, target.ai?.heading || 0, fogFactor, weather.ambient, weather.skyColor);
+          } else if (target.type === "air_transport") {
+            drawTransportPlane(screenX, screenY, size, target.color, target.ai?.heading || 0, fogFactor, weather.ambient, weather.skyColor);
+          } else if (target.type === "air_attack_heli") {
+            drawAttackHelicopter(screenX, screenY, size, target.color, target.ai?.heading || 0, fogFactor, weather.ambient, weather.skyColor);
+          }
+          if (isAircraft) {
+            const altitudeFactor = Math.min(1, Math.max(0, altitude / 250));
+            const shadowAlpha = Math.max(0, 0.22 * (1 - fogFactor) * (1 - altitudeFactor * 0.7));
+            const shadowSize = Math.max(2, size * (0.85 - altitudeFactor * 0.3));
+            const terrainHeight = _getTerrainHeight(target.x, target.y);
+            const shadowOccluded = isShadowOccluded(target.x, target.y, terrainHeight, cam, dx, dy, ry);
+            if (!shadowOccluded && groundScreenY > -size && groundScreenY < _screenHeight + size) {
+              drawAircraftShadow(screenX, groundScreenY, shadowSize, shadowAlpha, cam.angle);
+            }
+          }
+          if (target.health < target.maxHealth) {
+            const healthPct = target.health / target.maxHealth;
+            _ctx.fillStyle = getSpriteColor("#333333", ry, weather, cam.distance, fogEnabled);
+            _ctx.fillRect(screenX - size / 2, screenY - size - 10, size, 5);
+            const healthColor = healthPct > 0.5 ? "#4aa04a" : healthPct > 0.25 ? "#c9a83a" : "#a04a4a";
+            _ctx.fillStyle = getSpriteColor(healthColor, ry, weather, cam.distance, fogEnabled);
+            _ctx.fillRect(screenX - size / 2, screenY - size - 10, size * healthPct, 5);
+          }
+        }
+      }
+    }
   }
 
   // src/voxelvibe/render/radar.ts
