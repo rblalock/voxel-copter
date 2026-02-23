@@ -40,6 +40,7 @@
     State: () => exports_state,
     Sprites: () => exports_sprites,
     Render: () => Render,
+    Radar: () => exports_radar,
     Physics: () => exports_physics,
     Particles: () => exports_particles,
     Missions: () => exports_missions,
@@ -47,6 +48,7 @@
     Loop: () => exports_loop,
     Keyboard: () => exports_keyboard,
     Input: () => Input,
+    HUD: () => exports_hud,
     Game: () => Game,
     Data: () => Data,
     Core: () => Core,
@@ -5043,6 +5045,651 @@
     _ctx.restore();
   }
 
+  // src/voxelvibe/render/radar.ts
+  var exports_radar = {};
+  __export(exports_radar, {
+    setScreenSize: () => setScreenSize2,
+    renderTerrainRadar: () => renderTerrainRadar,
+    renderRadar: () => renderRadar,
+    renderMinimap: () => renderMinimap,
+    init: () => init2
+  });
+  var _ctx2;
+  var _screenWidth2 = 800;
+  var _screenHeight2 = 600;
+  function init2(ctx) {
+    _ctx2 = ctx;
+  }
+  function setScreenSize2(width, height) {
+    _screenWidth2 = width;
+    _screenHeight2 = height;
+  }
+  function renderRadar(camera, targets2, enemyProjectiles, objectiveState2) {
+    const radarSize = CONFIG.RADAR_SIZE;
+    const radarX = 10;
+    const radarY = _screenHeight2 - radarSize - 10;
+    const radarCenterX = radarX + radarSize / 2;
+    const radarCenterY = radarY + radarSize / 2;
+    _ctx2.fillStyle = "rgba(0, 20, 0, 0.7)";
+    _ctx2.fillRect(radarX, radarY, radarSize, radarSize);
+    _ctx2.strokeStyle = "#0f0";
+    _ctx2.lineWidth = 2;
+    _ctx2.strokeRect(radarX, radarY, radarSize, radarSize);
+    _ctx2.strokeStyle = "rgba(0, 255, 0, 0.3)";
+    _ctx2.lineWidth = 1;
+    _ctx2.beginPath();
+    _ctx2.arc(radarCenterX, radarCenterY, radarSize / 4, 0, Math.PI * 2);
+    _ctx2.stroke();
+    _ctx2.beginPath();
+    _ctx2.arc(radarCenterX, radarCenterY, radarSize / 2 - 5, 0, Math.PI * 2);
+    _ctx2.stroke();
+    _ctx2.beginPath();
+    _ctx2.moveTo(radarCenterX, radarY + 5);
+    _ctx2.lineTo(radarCenterX, radarY + radarSize - 5);
+    _ctx2.moveTo(radarX + 5, radarCenterY);
+    _ctx2.lineTo(radarX + radarSize - 5, radarCenterY);
+    _ctx2.stroke();
+    const scale = (radarSize / 2 - 5) / CONFIG.RADAR_RANGE;
+    for (const target of targets2) {
+      if (target.destroyed)
+        continue;
+      const physicalDx = target.x - camera.x;
+      const physicalDy = target.y - camera.y;
+      const physicalDist = Math.sqrt(physicalDx * physicalDx + physicalDy * physicalDy);
+      if (physicalDist > CONFIG.RADAR_RANGE * 2)
+        continue;
+      let dx = physicalDx;
+      let dy = physicalDy;
+      if (dx > CONFIG.MAP_SIZE / 2)
+        dx -= CONFIG.MAP_SIZE;
+      if (dx < -CONFIG.MAP_SIZE / 2)
+        dx += CONFIG.MAP_SIZE;
+      if (dy > CONFIG.MAP_SIZE / 2)
+        dy -= CONFIG.MAP_SIZE;
+      if (dy < -CONFIG.MAP_SIZE / 2)
+        dy += CONFIG.MAP_SIZE;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist > CONFIG.RADAR_RANGE)
+        continue;
+      const sinAngle = Math.sin(-camera.angle);
+      const cosAngle = Math.cos(-camera.angle);
+      const rx = dx * cosAngle - dy * sinAngle;
+      const ry = dx * sinAngle + dy * cosAngle;
+      const radarTargetX = radarCenterX + rx * scale;
+      const radarTargetY = radarCenterY - ry * scale;
+      if (target.type === "sam") {
+        _ctx2.fillStyle = "#ff6600";
+      } else if (target.type === "tank") {
+        _ctx2.fillStyle = "#ff0000";
+      } else if (target.type === "soldier") {
+        _ctx2.fillStyle = "#ffcc00";
+      } else {
+        _ctx2.fillStyle = "#ffff00";
+      }
+      _ctx2.beginPath();
+      _ctx2.arc(radarTargetX, radarTargetY, 3, 0, Math.PI * 2);
+      _ctx2.fill();
+    }
+    for (const ep of enemyProjectiles) {
+      const physicalDx = ep.x - camera.x;
+      const physicalDy = ep.y - camera.y;
+      const physicalDist = Math.sqrt(physicalDx * physicalDx + physicalDy * physicalDy);
+      if (physicalDist > CONFIG.RADAR_RANGE * 2)
+        continue;
+      let dx = physicalDx;
+      let dy = physicalDy;
+      if (dx > CONFIG.MAP_SIZE / 2)
+        dx -= CONFIG.MAP_SIZE;
+      if (dx < -CONFIG.MAP_SIZE / 2)
+        dx += CONFIG.MAP_SIZE;
+      if (dy > CONFIG.MAP_SIZE / 2)
+        dy -= CONFIG.MAP_SIZE;
+      if (dy < -CONFIG.MAP_SIZE / 2)
+        dy += CONFIG.MAP_SIZE;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist > CONFIG.RADAR_RANGE)
+        continue;
+      const sinAngle = Math.sin(-camera.angle);
+      const cosAngle = Math.cos(-camera.angle);
+      const rx = dx * cosAngle - dy * sinAngle;
+      const ry = dx * sinAngle + dy * cosAngle;
+      const radarX2 = radarCenterX + rx * scale;
+      const radarY2 = radarCenterY - ry * scale;
+      const blinkOn = Math.floor(performance.now() / 100) % 2 === 0;
+      if (blinkOn) {
+        _ctx2.fillStyle = "#ff00ff";
+        _ctx2.beginPath();
+        _ctx2.arc(radarX2, radarY2, 4, 0, Math.PI * 2);
+        _ctx2.fill();
+      }
+    }
+    if (objectiveState2.objectives.length > 0) {
+      for (const obj of objectiveState2.objectives) {
+        if (obj.type === "reach_location" && !obj.complete) {
+          let dx = obj.x - camera.x;
+          let dy = obj.y - camera.y;
+          if (dx > CONFIG.MAP_SIZE / 2)
+            dx -= CONFIG.MAP_SIZE;
+          if (dx < -CONFIG.MAP_SIZE / 2)
+            dx += CONFIG.MAP_SIZE;
+          if (dy > CONFIG.MAP_SIZE / 2)
+            dy -= CONFIG.MAP_SIZE;
+          if (dy < -CONFIG.MAP_SIZE / 2)
+            dy += CONFIG.MAP_SIZE;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          const sinAngle = Math.sin(-camera.angle);
+          const cosAngle = Math.cos(-camera.angle);
+          const rx = dx * cosAngle - dy * sinAngle;
+          const ry = dx * sinAngle + dy * cosAngle;
+          const radarRx = rx * scale;
+          const radarRy = ry * scale;
+          const radarDist = Math.sqrt(radarRx * radarRx + radarRy * radarRy);
+          const maxRadarDist = radarSize / 2 - 8;
+          let finalRx, finalRy;
+          if (radarDist > maxRadarDist && radarDist > 0) {
+            const clampScale = maxRadarDist / radarDist;
+            finalRx = radarRx * clampScale;
+            finalRy = radarRy * clampScale;
+          } else {
+            finalRx = radarRx;
+            finalRy = radarRy;
+          }
+          const objX = radarCenterX + finalRx;
+          const objY = radarCenterY - finalRy;
+          const blinkOn = Math.floor(performance.now() / 400) % 2 === 0;
+          _ctx2.fillStyle = blinkOn ? "#00ffff" : "#008888";
+          _ctx2.beginPath();
+          _ctx2.moveTo(objX, objY - 5);
+          _ctx2.lineTo(objX + 4, objY);
+          _ctx2.lineTo(objX, objY + 5);
+          _ctx2.lineTo(objX - 4, objY);
+          _ctx2.closePath();
+          _ctx2.fill();
+        }
+      }
+    }
+    _ctx2.fillStyle = "#0f0";
+    _ctx2.beginPath();
+    _ctx2.moveTo(radarCenterX, radarCenterY - 6);
+    _ctx2.lineTo(radarCenterX - 4, radarCenterY + 4);
+    _ctx2.lineTo(radarCenterX + 4, radarCenterY + 4);
+    _ctx2.closePath();
+    _ctx2.fill();
+    _ctx2.font = "10px Courier New";
+    _ctx2.fillStyle = "#0f0";
+    _ctx2.textAlign = "left";
+    _ctx2.fillText("RADAR", radarX + 5, radarY + 12);
+  }
+  function renderMinimap(camera, targets2, world, playerState, gameMode2) {
+    const mapSize = 120;
+    const mapX = _screenWidth2 - mapSize - 15;
+    const mapY = 50;
+    const scale = mapSize / CONFIG.MAP_SIZE;
+    _ctx2.fillStyle = "rgba(0, 20, 0, 0.8)";
+    _ctx2.fillRect(mapX, mapY, mapSize, mapSize);
+    _ctx2.strokeStyle = "#0f0";
+    _ctx2.lineWidth = 1;
+    _ctx2.strokeRect(mapX, mapY, mapSize, mapSize);
+    _ctx2.fillStyle = "#f00";
+    for (const base of world.bases) {
+      const bx = mapX + base.x * scale;
+      const by = mapY + base.y * scale;
+      _ctx2.fillRect(bx - 2, by - 2, 4, 4);
+    }
+    _ctx2.fillStyle = "#f80";
+    for (const airport of world.airports) {
+      const ax = mapX + airport.x * scale;
+      const ay = mapY + airport.y * scale;
+      _ctx2.fillRect(ax - 3, ay - 1, 6, 2);
+    }
+    _ctx2.fillStyle = "#f00";
+    for (const target of targets2) {
+      if (target.destroyed)
+        continue;
+      if (target.domain === DOMAINS.AIR) {
+        const tx = mapX + target.x * scale;
+        const ty = mapY + target.y * scale;
+        _ctx2.beginPath();
+        _ctx2.arc(tx, ty, 2, 0, Math.PI * 2);
+        _ctx2.fill();
+      }
+    }
+    _ctx2.fillStyle = "#0f0";
+    const px = mapX + camera.x * scale;
+    const py = mapY + camera.y * scale;
+    _ctx2.save();
+    _ctx2.translate(px, py);
+    _ctx2.rotate(-camera.angle + Math.PI / 2);
+    _ctx2.beginPath();
+    _ctx2.moveTo(0, -4);
+    _ctx2.lineTo(-3, 3);
+    _ctx2.lineTo(3, 3);
+    _ctx2.closePath();
+    _ctx2.fill();
+    _ctx2.restore();
+    if (gameMode2 === GAME_MODES2.DELTA && playerState.heli.visible) {
+      _ctx2.fillStyle = "#0ff";
+      const hx = mapX + playerState.heli.x * scale;
+      const hy = mapY + playerState.heli.y * scale;
+      _ctx2.fillRect(hx - 2, hy - 2, 4, 4);
+    }
+    _ctx2.font = "9px Courier New";
+    _ctx2.fillStyle = "#0a0";
+    _ctx2.textAlign = "left";
+    _ctx2.fillText("TACTICAL MAP", mapX + 3, mapY + mapSize - 3);
+  }
+  function renderTerrainRadar(camera, getTerrainHeight2) {
+    if (!currentMap.altitude)
+      return;
+    const tfWidth = 200;
+    const tfHeight = 60;
+    const tfX = _screenWidth2 / 2 - tfWidth / 2;
+    const tfY = _screenHeight2 - tfHeight - 85;
+    _ctx2.fillStyle = "rgba(0, 20, 0, 0.85)";
+    _ctx2.fillRect(tfX, tfY, tfWidth, tfHeight);
+    _ctx2.strokeStyle = "#0a0";
+    _ctx2.lineWidth = 1;
+    _ctx2.strokeRect(tfX + 1, tfY + 1, tfWidth - 2, tfHeight - 2);
+    _ctx2.strokeStyle = "#0f0";
+    _ctx2.lineWidth = 2;
+    _ctx2.strokeRect(tfX, tfY, tfWidth, tfHeight);
+    const cornerSize = 5;
+    _ctx2.fillStyle = "#0f0";
+    _ctx2.fillRect(tfX, tfY, cornerSize, 2);
+    _ctx2.fillRect(tfX, tfY, 2, cornerSize);
+    _ctx2.fillRect(tfX + tfWidth - cornerSize, tfY, cornerSize, 2);
+    _ctx2.fillRect(tfX + tfWidth - 2, tfY, 2, cornerSize);
+    _ctx2.fillRect(tfX, tfY + tfHeight - 2, cornerSize, 2);
+    _ctx2.fillRect(tfX, tfY + tfHeight - cornerSize, 2, cornerSize);
+    _ctx2.fillRect(tfX + tfWidth - cornerSize, tfY + tfHeight - 2, cornerSize, 2);
+    _ctx2.fillRect(tfX + tfWidth - 2, tfY + tfHeight - cornerSize, 2, cornerSize);
+    _ctx2.font = "bold 9px Courier New";
+    _ctx2.fillStyle = "#0f0";
+    _ctx2.textAlign = "center";
+    _ctx2.fillText("TERRAIN RADAR", tfX + tfWidth / 2, tfY + 10);
+    const scanRange = 300;
+    const numSamples = 40;
+    const graphX = tfX + 10;
+    const graphWidth = tfWidth - 20;
+    const graphY = tfY + 15;
+    const graphHeight = tfHeight - 22;
+    const sinAngle = Math.sin(camera.angle);
+    const cosAngle = Math.cos(camera.angle);
+    const terrainHeights = [];
+    let maxHeight = camera.height;
+    let minHeight = 0;
+    for (let i = 0;i < numSamples; i++) {
+      const dist = i / numSamples * scanRange;
+      let sampleX = camera.x - sinAngle * dist;
+      let sampleY = camera.y - cosAngle * dist;
+      sampleX = (sampleX % CONFIG.MAP_SIZE + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
+      sampleY = (sampleY % CONFIG.MAP_SIZE + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
+      const height = getTerrainHeight2(sampleX, sampleY);
+      terrainHeights.push(height);
+      if (height > maxHeight)
+        maxHeight = height;
+    }
+    maxHeight = Math.max(maxHeight + 50, camera.height + 100);
+    minHeight = Math.max(0, Math.min(...terrainHeights) - 20);
+    const heightRange = maxHeight - minHeight;
+    _ctx2.strokeStyle = "rgba(0, 100, 0, 0.3)";
+    _ctx2.lineWidth = 1;
+    for (let alt = 0;alt <= maxHeight; alt += 100) {
+      if (alt < minHeight)
+        continue;
+      const y = graphY + graphHeight - (alt - minHeight) / heightRange * graphHeight;
+      if (y >= graphY && y <= graphY + graphHeight) {
+        _ctx2.beginPath();
+        _ctx2.moveTo(graphX, y);
+        _ctx2.lineTo(graphX + graphWidth, y);
+        _ctx2.stroke();
+      }
+    }
+    _ctx2.fillStyle = "rgba(139, 90, 43, 0.6)";
+    _ctx2.strokeStyle = "#8B5A2B";
+    _ctx2.lineWidth = 1;
+    _ctx2.beginPath();
+    _ctx2.moveTo(graphX, graphY + graphHeight);
+    for (let i = 0;i < numSamples; i++) {
+      const x = graphX + i / numSamples * graphWidth;
+      const normalizedHeight = (terrainHeights[i] - minHeight) / heightRange;
+      const y = graphY + graphHeight - normalizedHeight * graphHeight;
+      if (i === 0) {
+        _ctx2.lineTo(x, y);
+      } else {
+        _ctx2.lineTo(x, y);
+      }
+    }
+    _ctx2.lineTo(graphX + graphWidth, graphY + graphHeight);
+    _ctx2.closePath();
+    _ctx2.fill();
+    _ctx2.stroke();
+    const heliAltY = graphY + graphHeight - (camera.height - minHeight) / heightRange * graphHeight;
+    _ctx2.setLineDash([4, 4]);
+    _ctx2.strokeStyle = "#0f0";
+    _ctx2.lineWidth = 1;
+    _ctx2.beginPath();
+    _ctx2.moveTo(graphX, heliAltY);
+    _ctx2.lineTo(graphX + graphWidth, heliAltY);
+    _ctx2.stroke();
+    _ctx2.setLineDash([]);
+    _ctx2.fillStyle = "#0f0";
+    _ctx2.beginPath();
+    _ctx2.moveTo(graphX - 2, heliAltY);
+    _ctx2.lineTo(graphX + 6, heliAltY - 4);
+    _ctx2.lineTo(graphX + 6, heliAltY + 4);
+    _ctx2.closePath();
+    _ctx2.fill();
+    let collisionWarning = false;
+    let warningDist = 0;
+    for (let i = 0;i < numSamples; i++) {
+      if (terrainHeights[i] > camera.height - 20) {
+        collisionWarning = true;
+        warningDist = i / numSamples * scanRange;
+        break;
+      }
+    }
+    if (collisionWarning) {
+      const blinkOn = Math.floor(performance.now() / 200) % 2 === 0;
+      if (blinkOn) {
+        _ctx2.fillStyle = "#ff0000";
+        _ctx2.font = "bold 10px Courier New";
+        _ctx2.textAlign = "center";
+        _ctx2.fillText("PULL UP", tfX + tfWidth / 2, tfY + tfHeight - 3);
+        const warnX = graphX + warningDist / scanRange * graphWidth;
+        _ctx2.strokeStyle = "#ff0000";
+        _ctx2.lineWidth = 2;
+        _ctx2.beginPath();
+        _ctx2.moveTo(warnX, graphY);
+        _ctx2.lineTo(warnX, graphY + graphHeight);
+        _ctx2.stroke();
+      }
+    }
+    _ctx2.font = "9px Courier New";
+    _ctx2.fillStyle = "#0f0";
+    _ctx2.textAlign = "left";
+    _ctx2.fillText(`ALT:${Math.floor(camera.height)}`, tfX + 4, tfY + tfHeight - 3);
+    _ctx2.textAlign = "right";
+    _ctx2.fillText(`${scanRange}m`, tfX + tfWidth - 4, tfY + tfHeight - 3);
+  }
+
+  // src/voxelvibe/render/hud.ts
+  var exports_hud = {};
+  __export(exports_hud, {
+    setScreenSize: () => setScreenSize3,
+    renderFlightPathPredictor: () => renderFlightPathPredictor,
+    renderCompass: () => renderCompass,
+    renderAttitudeIndicator: () => renderAttitudeIndicator,
+    renderAltitudeLadder: () => renderAltitudeLadder,
+    init: () => init3,
+    drawHUDPanel: () => drawHUDPanel
+  });
+  var _ctx3;
+  var _screenWidth3 = 800;
+  var _screenHeight3 = 600;
+  function init3(ctx) {
+    _ctx3 = ctx;
+  }
+  function setScreenSize3(width, height) {
+    _screenWidth3 = width;
+    _screenHeight3 = height;
+  }
+  function drawHUDPanel(x, y, width, height, title = null) {
+    _ctx3.fillStyle = "rgba(0, 20, 0, 0.85)";
+    _ctx3.fillRect(x, y, width, height);
+    _ctx3.strokeStyle = "#0a0";
+    _ctx3.lineWidth = 1;
+    _ctx3.strokeRect(x + 1, y + 1, width - 2, height - 2);
+    _ctx3.strokeStyle = "#0f0";
+    _ctx3.lineWidth = 2;
+    _ctx3.strokeRect(x, y, width, height);
+    const cornerSize = 6;
+    _ctx3.fillStyle = "#0f0";
+    _ctx3.fillRect(x, y, cornerSize, 2);
+    _ctx3.fillRect(x, y, 2, cornerSize);
+    _ctx3.fillRect(x + width - cornerSize, y, cornerSize, 2);
+    _ctx3.fillRect(x + width - 2, y, 2, cornerSize);
+    _ctx3.fillRect(x, y + height - 2, cornerSize, 2);
+    _ctx3.fillRect(x, y + height - cornerSize, 2, cornerSize);
+    _ctx3.fillRect(x + width - cornerSize, y + height - 2, cornerSize, 2);
+    _ctx3.fillRect(x + width - 2, y + height - cornerSize, 2, cornerSize);
+    if (title) {
+      _ctx3.fillStyle = "rgba(0, 80, 0, 0.5)";
+      _ctx3.fillRect(x + 2, y + 2, width - 4, 16);
+      _ctx3.font = "bold 11px Courier New";
+      _ctx3.fillStyle = "#0f0";
+      _ctx3.textAlign = "center";
+      _ctx3.fillText(title, x + width / 2, y + 13);
+    }
+  }
+  function renderCompass(heading) {
+    const compassWidth = 250;
+    const compassX = _screenWidth3 / 2 - compassWidth / 2;
+    const compassY = 8;
+    const compassHeight = 28;
+    _ctx3.fillStyle = "rgba(0, 0, 0, 0.6)";
+    _ctx3.fillRect(compassX, compassY, compassWidth, compassHeight);
+    _ctx3.strokeStyle = "#0a0";
+    _ctx3.lineWidth = 1;
+    _ctx3.strokeRect(compassX, compassY, compassWidth, compassHeight);
+    _ctx3.save();
+    _ctx3.beginPath();
+    _ctx3.rect(compassX + 1, compassY + 1, compassWidth - 2, compassHeight - 2);
+    _ctx3.clip();
+    const pixelsPerDegree = 2;
+    _ctx3.font = "bold 11px Courier New";
+    _ctx3.textAlign = "center";
+    const cardinals = {
+      0: "N",
+      45: "NE",
+      90: "E",
+      135: "SE",
+      180: "S",
+      225: "SW",
+      270: "W",
+      315: "NW"
+    };
+    for (let deg = -180;deg <= 540; deg += 5) {
+      let normDeg = (deg % 360 + 360) % 360;
+      let diff = deg - heading;
+      if (diff > 180)
+        diff -= 360;
+      if (diff < -180)
+        diff += 360;
+      if (Math.abs(diff) < compassWidth / 2 / pixelsPerDegree) {
+        const x = _screenWidth3 / 2 + diff * pixelsPerDegree;
+        _ctx3.strokeStyle = "#0f0";
+        _ctx3.lineWidth = 1;
+        _ctx3.beginPath();
+        if (deg % 10 === 0) {
+          _ctx3.moveTo(x, compassY + compassHeight - 10);
+          _ctx3.lineTo(x, compassY + compassHeight - 2);
+          _ctx3.stroke();
+          if (cardinals[normDeg]) {
+            _ctx3.fillStyle = "#0f0";
+            _ctx3.fillText(cardinals[normDeg], x, compassY + 14);
+          } else if (deg % 30 === 0) {
+            _ctx3.fillStyle = "#0a0";
+            _ctx3.font = "9px Courier New";
+            _ctx3.fillText(normDeg.toString(), x, compassY + 14);
+            _ctx3.font = "bold 11px Courier New";
+          }
+        } else {
+          _ctx3.moveTo(x, compassY + compassHeight - 6);
+          _ctx3.lineTo(x, compassY + compassHeight - 2);
+          _ctx3.stroke();
+        }
+      }
+    }
+    _ctx3.restore();
+    _ctx3.fillStyle = "#ff0";
+    _ctx3.beginPath();
+    _ctx3.moveTo(_screenWidth3 / 2, compassY - 2);
+    _ctx3.lineTo(_screenWidth3 / 2 - 6, compassY + 6);
+    _ctx3.lineTo(_screenWidth3 / 2 + 6, compassY + 6);
+    _ctx3.closePath();
+    _ctx3.fill();
+  }
+  function renderAltitudeLadder(altitude, verticalSpeed, _camDistance) {
+    const ladderX = _screenWidth3 - 50;
+    const ladderY = _screenHeight3 / 2 - 100;
+    const ladderHeight = 200;
+    const ladderWidth = 40;
+    _ctx3.fillStyle = "rgba(0, 0, 0, 0.5)";
+    _ctx3.fillRect(ladderX, ladderY, ladderWidth, ladderHeight);
+    _ctx3.strokeStyle = "#0a0";
+    _ctx3.lineWidth = 1;
+    _ctx3.strokeRect(ladderX, ladderY, ladderWidth, ladderHeight);
+    altitude = Math.round(altitude);
+    const altPerPixel = 2;
+    _ctx3.save();
+    _ctx3.beginPath();
+    _ctx3.rect(ladderX, ladderY, ladderWidth, ladderHeight);
+    _ctx3.clip();
+    const centerY = ladderY + ladderHeight / 2;
+    for (let alt = Math.floor((altitude - 100) / 10) * 10;alt <= altitude + 100; alt += 10) {
+      const yOffset = (altitude - alt) / altPerPixel;
+      const y = centerY + yOffset;
+      if (y >= ladderY && y <= ladderY + ladderHeight) {
+        _ctx3.strokeStyle = "#0f0";
+        _ctx3.lineWidth = 1;
+        _ctx3.beginPath();
+        if (alt % 50 === 0) {
+          _ctx3.moveTo(ladderX, y);
+          _ctx3.lineTo(ladderX + 15, y);
+          _ctx3.stroke();
+          _ctx3.font = "10px Courier New";
+          _ctx3.fillStyle = "#0f0";
+          _ctx3.textAlign = "left";
+          _ctx3.fillText(alt.toString(), ladderX + 18, y + 3);
+        } else {
+          _ctx3.moveTo(ladderX, y);
+          _ctx3.lineTo(ladderX + 8, y);
+          _ctx3.stroke();
+        }
+      }
+    }
+    _ctx3.restore();
+    _ctx3.fillStyle = "#0f0";
+    _ctx3.font = "bold 14px Courier New";
+    _ctx3.textAlign = "center";
+    _ctx3.fillText(altitude.toString(), ladderX + ladderWidth / 2, ladderY + ladderHeight + 18);
+    const vspeed = Math.round((verticalSpeed || 0) * 10);
+    if (vspeed !== 0) {
+      _ctx3.font = "10px Courier New";
+      _ctx3.fillStyle = vspeed > 0 ? "#0f0" : "#f80";
+      const vspeedStr = (vspeed > 0 ? "+" : "") + vspeed;
+      _ctx3.fillText(vspeedStr, ladderX + ladderWidth / 2, ladderY - 5);
+    }
+  }
+  function renderFlightPathPredictor(bank, forwardSpeed, yawRate) {
+    const cx = _screenWidth3 / 2;
+    const cy = _screenHeight3 / 2;
+    const bankAngle = bank || 0;
+    forwardSpeed = Math.abs(forwardSpeed || 0);
+    yawRate = yawRate || 0;
+    if (forwardSpeed < 0.5)
+      return;
+    _ctx3.save();
+    _ctx3.setLineDash([5, 5]);
+    _ctx3.strokeStyle = "#0f0";
+    _ctx3.lineWidth = 1;
+    _ctx3.beginPath();
+    _ctx3.moveTo(cx, cy);
+    let px = cx;
+    let py = cy;
+    let angle = 0;
+    const steps = 30;
+    const timeStep = 0.07;
+    for (let i = 0;i < steps; i++) {
+      const turnFactor = yawRate * 800;
+      const advanceFactor = forwardSpeed * 3;
+      angle += turnFactor * timeStep;
+      px += Math.sin(angle) * advanceFactor;
+      py -= Math.cos(angle) * advanceFactor * 0.5;
+      _ctx3.lineTo(px, py);
+      if (i > steps * 0.7) {
+        _ctx3.globalAlpha = 1 - (i - steps * 0.7) / (steps * 0.3);
+      }
+    }
+    _ctx3.stroke();
+    _ctx3.globalAlpha = 0.5;
+    _ctx3.setLineDash([]);
+    _ctx3.beginPath();
+    _ctx3.arc(px, py, 5, 0, Math.PI * 2);
+    _ctx3.stroke();
+    _ctx3.restore();
+  }
+  function renderAttitudeIndicator(cx, cy, bank, pitch) {
+    const width = 120;
+    const height = 40;
+    const bankAngle = bank || 0;
+    const pitchOffset = (pitch || 0) * 30;
+    _ctx3.fillStyle = "rgba(0, 0, 0, 0.5)";
+    _ctx3.fillRect(cx - width / 2, cy - height / 2, width, height);
+    _ctx3.strokeStyle = "#0f0";
+    _ctx3.lineWidth = 1;
+    _ctx3.strokeRect(cx - width / 2, cy - height / 2, width, height);
+    _ctx3.save();
+    _ctx3.beginPath();
+    _ctx3.rect(cx - width / 2 + 2, cy - height / 2 + 2, width - 4, height - 4);
+    _ctx3.clip();
+    _ctx3.save();
+    _ctx3.translate(cx, cy + pitchOffset);
+    _ctx3.rotate(bankAngle);
+    _ctx3.fillStyle = "#234";
+    _ctx3.fillRect(-width, -height * 2, width * 2, height * 2);
+    _ctx3.fillStyle = "#432";
+    _ctx3.fillRect(-width, 0, width * 2, height * 2);
+    _ctx3.strokeStyle = "#fff";
+    _ctx3.lineWidth = 2;
+    _ctx3.beginPath();
+    _ctx3.moveTo(-width, 0);
+    _ctx3.lineTo(width, 0);
+    _ctx3.stroke();
+    _ctx3.strokeStyle = "#888";
+    _ctx3.lineWidth = 1;
+    for (let p = -20;p <= 20; p += 10) {
+      if (p !== 0) {
+        const y = -p * 1.5;
+        _ctx3.beginPath();
+        _ctx3.moveTo(-20, y);
+        _ctx3.lineTo(20, y);
+        _ctx3.stroke();
+      }
+    }
+    _ctx3.restore();
+    _ctx3.restore();
+    _ctx3.strokeStyle = "#ff0";
+    _ctx3.lineWidth = 2;
+    _ctx3.beginPath();
+    _ctx3.moveTo(cx - 25, cy);
+    _ctx3.lineTo(cx - 10, cy);
+    _ctx3.moveTo(cx + 10, cy);
+    _ctx3.lineTo(cx + 25, cy);
+    _ctx3.moveTo(cx - 3, cy);
+    _ctx3.lineTo(cx + 3, cy);
+    _ctx3.moveTo(cx, cy - 3);
+    _ctx3.lineTo(cx, cy + 3);
+    _ctx3.stroke();
+    _ctx3.strokeStyle = "#0f0";
+    _ctx3.lineWidth = 1;
+    _ctx3.beginPath();
+    _ctx3.arc(cx, cy - height / 2 + 5, 35, Math.PI * 1.25, Math.PI * 1.75);
+    _ctx3.stroke();
+    _ctx3.save();
+    _ctx3.translate(cx, cy - height / 2 + 5);
+    _ctx3.rotate(bankAngle);
+    _ctx3.fillStyle = "#0f0";
+    _ctx3.beginPath();
+    _ctx3.moveTo(0, -35);
+    _ctx3.lineTo(-4, -28);
+    _ctx3.lineTo(4, -28);
+    _ctx3.closePath();
+    _ctx3.fill();
+    _ctx3.restore();
+  }
+
   // src/voxelvibe/input/keyboard.ts
   var exports_keyboard = {};
   __export(exports_keyboard, {
@@ -5288,7 +5935,9 @@
   };
   var Render = {
     Voxelspace: exports_voxelspace,
-    Sprites: exports_sprites
+    Sprites: exports_sprites,
+    Radar: exports_radar,
+    HUD: exports_hud
   };
   var Input = {
     Keyboard: exports_keyboard

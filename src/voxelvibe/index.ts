@@ -24,6 +24,8 @@ import * as AI from './systems/ai';
 // Render
 import * as Voxelspace from './render/voxelspace';
 import * as Sprites from './render/sprites';
+import * as Radar from './render/radar';
+import * as HUD from './render/hud';
 
 // Input
 import * as Keyboard from './input/keyboard';
@@ -57,6 +59,8 @@ export const Systems = {
 export const Render = {
 	Voxelspace,
 	Sprites,
+	Radar,
+	HUD,
 };
 
 export const Input = {
@@ -101,6 +105,8 @@ export {
 	AI,
 	Voxelspace,
 	Sprites,
+	Radar,
+	HUD,
 	Keyboard,
 	State,
 	Loop,
