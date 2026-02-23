@@ -342,8 +342,6 @@ export function renderTerrainRadar(
 	camera: RadarCamera,
 	getTerrainHeight: (x: number, y: number) => number,
 ): void {
-    if (!currentMap.altitude) return;
-    
     // Position: bottom center, above the HUD bar
     const tfWidth = 200;
     const tfHeight = 60;

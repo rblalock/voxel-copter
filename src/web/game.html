@@ -452,6 +452,28 @@
         let sessionStats = { shotsFired: 0, hits: 0, targetsDestroyed: 0, score: 0, kills: 0, submitted: false, startTime: 0 };
         let telemetry = { shotsFired: 0, shotsHit: 0, missilesFired: 0, missilesHit: 0, missilesDodged: 0, targetsDestroyed: 0, damageDealt: 0, damageTaken: 0, flightTime: 0, groundTime: 0, distanceTraveled: 0, lastPosition: { x: 512, y: 512 } };
         let showOnboardingHints = true;
+        const ONBOARDING_HINTS = [
+            {
+                condition: () => gameMode === GAME_MODES.COMANCHE && telemetry.flightTime < 10,
+                text: 'Use ARROW KEYS to fly, SPACE to climb, SHIFT to descend'
+            },
+            {
+                condition: () => gameMode === GAME_MODES.COMANCHE && telemetry.shotsFired === 0 && telemetry.flightTime > 5,
+                text: 'Press H for controls'
+            },
+            {
+                condition: () => gameMode === GAME_MODES.COMANCHE && isHeliLanded(playerState.heli) && telemetry.groundTime < 5,
+                text: "You're landed! Press E to exit and fight on foot"
+            },
+            {
+                condition: () => gameMode === GAME_MODES.DELTA && canEnterHeli() && telemetry.groundTime > 10,
+                text: 'Press E to re-enter your helicopter'
+            },
+            {
+                condition: () => missileWarning && telemetry.missilesDodged === 0,
+                text: "MISSILE! Press ; for CHAFF or \' for FLARES!"
+            }
+        ];
 
         // Airstrike / C4
         let placedC4Charges = [];
@@ -3162,7 +3184,7 @@
                 renderProjectiles(renderCam, projectiles);
                 
                 // Render enemy projectiles
-                renderEnemyProjectiles(renderCam);
+                renderEnemyProjectiles(renderCam, enemyProjectiles);
                 
                 // Render explosions
                 renderExplosions(renderCam, explosions);
@@ -3321,7 +3343,8 @@
         
         // ============================================
         // TERRAIN OCCLUSION CHECK
-        // ============================================        function renderMissionMessage() {
+        // ============================================
+        function renderMissionMessage() {
             if (!missionMessage || performance.now() > missionMessageEnd) {
                 missionMessage = null;
                 return;
@@ -4727,6 +4750,14 @@
                 if (typeof drawHelicopter === 'function') drawHelicopter(screenX, screenY, size, '#6a7a7a', heli.angle, fogFactor, weather.ambient, weather.skyColor);
                 else { ctx.save(); ctx.fillStyle = `rgba(106,122,122,${Math.max(0.1, 1 - fogFactor)})`; ctx.fillRect(screenX - size / 2, screenY - size / 4, size, size / 2); ctx.restore(); }
             }
+        }
+
+        function renderExtractionBeacon(cam) {
+            // TODO: render extraction beacon marker
+        }
+
+        function renderC4Charges(cam) {
+            // TODO: render placed C4 charges
         }
 
         // -----------------------------------------------------------------

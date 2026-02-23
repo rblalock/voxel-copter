@@ -5682,8 +5682,6 @@
     _ctx2.fillText("TACTICAL MAP", mapX + 3, mapY + mapSize - 3);
   }
   function renderTerrainRadar(camera, getTerrainHeight2) {
-    if (!currentMap.altitude)
-      return;
     const tfWidth = 200;
     const tfHeight = 60;
     const tfX = _screenWidth2 / 2 - tfWidth / 2;
