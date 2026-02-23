@@ -900,9 +900,22 @@
   __export(exports_audio, {
     stopLoopingSound: () => stopLoopingSound,
     resumeAudio: () => resumeAudio,
+    playVictoryStinger: () => playVictoryStinger,
     playTone: () => playTone,
+    playRocketSound: () => playRocketSound,
+    playMissileWarningBeep: () => playMissileWarningBeep,
+    playMissileSound: () => playMissileSound,
+    playMenuNavigateSound: () => playMenuNavigateSound,
     playMenuNavigate: () => playMenuNavigate,
+    playMenuConfirmSound: () => playMenuConfirmSound,
     playMenuConfirm: () => playMenuConfirm,
+    playHitSound: () => playHitSound,
+    playExplosionSound: () => playExplosionSound,
+    playDefeatStinger: () => playDefeatStinger,
+    playDamageSound: () => playDamageSound,
+    playCountermeasureSound: () => playCountermeasureSound,
+    playCannonSound: () => playCannonSound,
+    playAchievementSound: () => playAchievementSound,
     playAchievement: () => playAchievement,
     initAudio: () => initAudio,
     getNoiseBuffer: () => getNoiseBuffer,
@@ -1013,6 +1026,283 @@
       sound.filter?.disconnect();
       sound.gain?.disconnect();
     } catch {}
+  }
+  function playMenuNavigateSound(state) {
+    if (!state.soundEnabled || !state.ctx)
+      return;
+    try {
+      const osc = state.ctx.createOscillator();
+      const gain = state.ctx.createGain();
+      osc.type = "triangle";
+      osc.frequency.setValueAtTime(520, state.ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(360, state.ctx.currentTime + 0.08);
+      gain.gain.setValueAtTime(0.08, state.ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, state.ctx.currentTime + 0.08);
+      osc.connect(gain);
+      gain.connect(state.sfxVolume);
+      osc.start();
+      osc.stop(state.ctx.currentTime + 0.08);
+    } catch (e) {
+      console.warn("Error playing menu navigate sound:", e);
+    }
+  }
+  function playMenuConfirmSound(state) {
+    if (!state.soundEnabled || !state.ctx)
+      return;
+    try {
+      const osc = state.ctx.createOscillator();
+      const gain = state.ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(820, state.ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(520, state.ctx.currentTime + 0.12);
+      gain.gain.setValueAtTime(0.12, state.ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, state.ctx.currentTime + 0.12);
+      osc.connect(gain);
+      gain.connect(state.sfxVolume);
+      osc.start();
+      osc.stop(state.ctx.currentTime + 0.12);
+    } catch (e) {
+      console.warn("Error playing menu confirm sound:", e);
+    }
+  }
+  function playAchievementSound(state) {
+    if (!state.soundEnabled || !state.ctx)
+      return;
+    try {
+      const osc = state.ctx.createOscillator();
+      const gain = state.ctx.createGain();
+      osc.type = "triangle";
+      osc.frequency.setValueAtTime(660, state.ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(980, state.ctx.currentTime + 0.18);
+      gain.gain.setValueAtTime(0.14, state.ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, state.ctx.currentTime + 0.18);
+      osc.connect(gain);
+      gain.connect(state.sfxVolume);
+      osc.start();
+      osc.stop(state.ctx.currentTime + 0.2);
+    } catch (e) {
+      console.warn("Error playing achievement sound:", e);
+    }
+  }
+  function playVictoryStinger(state) {
+    if (!state.soundEnabled || !state.ctx)
+      return;
+    const now = state.ctx.currentTime;
+    const osc = state.ctx.createOscillator();
+    const gain = state.ctx.createGain();
+    osc.type = "triangle";
+    gain.gain.setValueAtTime(0, now);
+    const notes = [392, 523, 659];
+    notes.forEach((freq, idx) => {
+      const t = now + idx * 0.18;
+      osc.frequency.setValueAtTime(freq, t);
+      gain.gain.setValueAtTime(0.16, t);
+      gain.gain.exponentialRampToValueAtTime(0.01, t + 0.16);
+    });
+    osc.connect(gain);
+    gain.connect(state.sfxVolume);
+    osc.start(now);
+    osc.stop(now + 0.6);
+  }
+  function playDefeatStinger(state) {
+    if (!state.soundEnabled || !state.ctx)
+      return;
+    const now = state.ctx.currentTime;
+    const osc = state.ctx.createOscillator();
+    const gain = state.ctx.createGain();
+    osc.type = "sine";
+    gain.gain.setValueAtTime(0, now);
+    const notes = [330, 277, 220];
+    notes.forEach((freq, idx) => {
+      const t = now + idx * 0.2;
+      osc.frequency.setValueAtTime(freq, t);
+      gain.gain.setValueAtTime(0.14, t);
+      gain.gain.exponentialRampToValueAtTime(0.01, t + 0.18);
+    });
+    osc.connect(gain);
+    gain.connect(state.sfxVolume);
+    osc.start(now);
+    osc.stop(now + 0.7);
+  }
+  function playCannonSound(state) {
+    if (!state.soundEnabled || !state.ctx)
+      return;
+    try {
+      const gain = state.ctx.createGain();
+      const filter = state.ctx.createBiquadFilter();
+      const bufferSize = Math.floor(state.ctx.sampleRate * 0.05);
+      const buffer = state.ctx.createBuffer(1, bufferSize, state.ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0;i < bufferSize; i++) {
+        data[i] = Math.random() * 2 - 1;
+      }
+      const noise = state.ctx.createBufferSource();
+      noise.buffer = buffer;
+      filter.type = "lowpass";
+      filter.frequency.value = 1000;
+      gain.gain.setValueAtTime(0.25, state.ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, state.ctx.currentTime + 0.05);
+      noise.connect(filter);
+      filter.connect(gain);
+      gain.connect(state.sfxVolume);
+      noise.start();
+    } catch (e) {
+      console.warn("Error playing cannon sound:", e);
+    }
+  }
+  function playRocketSound(state) {
+    if (!state.soundEnabled || !state.ctx)
+      return;
+    try {
+      const osc = state.ctx.createOscillator();
+      const gain = state.ctx.createGain();
+      osc.type = "sawtooth";
+      osc.frequency.setValueAtTime(200, state.ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(50, state.ctx.currentTime + 0.3);
+      gain.gain.setValueAtTime(0.18, state.ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, state.ctx.currentTime + 0.3);
+      osc.connect(gain);
+      gain.connect(state.sfxVolume);
+      osc.start();
+      osc.stop(state.ctx.currentTime + 0.3);
+    } catch (e) {
+      console.warn("Error playing rocket sound:", e);
+    }
+  }
+  function playMissileSound(state) {
+    if (!state.soundEnabled || !state.ctx)
+      return;
+    try {
+      const osc = state.ctx.createOscillator();
+      const gain = state.ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(800, state.ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(200, state.ctx.currentTime + 0.5);
+      gain.gain.setValueAtTime(0.12, state.ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, state.ctx.currentTime + 0.5);
+      osc.connect(gain);
+      gain.connect(state.sfxVolume);
+      osc.start();
+      osc.stop(state.ctx.currentTime + 0.5);
+    } catch (e) {
+      console.warn("Error playing missile sound:", e);
+    }
+  }
+  function playExplosionSound(state, size = "medium") {
+    if (!state.soundEnabled || !state.ctx)
+      return;
+    try {
+      const duration = size === "large" ? 0.5 : size === "medium" ? 0.35 : 0.2;
+      const volume = size === "large" ? 0.35 : size === "medium" ? 0.25 : 0.15;
+      const osc = state.ctx.createOscillator();
+      const noiseGain = state.ctx.createGain();
+      const oscGain = state.ctx.createGain();
+      const filter = state.ctx.createBiquadFilter();
+      const bufferSize = Math.floor(state.ctx.sampleRate * duration);
+      const buffer = state.ctx.createBuffer(1, bufferSize, state.ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0;i < bufferSize; i++) {
+        data[i] = Math.random() * 2 - 1;
+      }
+      const noise = state.ctx.createBufferSource();
+      noise.buffer = buffer;
+      filter.type = "lowpass";
+      filter.frequency.setValueAtTime(2000, state.ctx.currentTime);
+      filter.frequency.exponentialRampToValueAtTime(100, state.ctx.currentTime + duration);
+      noiseGain.gain.setValueAtTime(volume, state.ctx.currentTime);
+      noiseGain.gain.exponentialRampToValueAtTime(0.01, state.ctx.currentTime + duration);
+      noise.connect(filter);
+      filter.connect(noiseGain);
+      noiseGain.connect(state.sfxVolume);
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(60, state.ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(20, state.ctx.currentTime + duration);
+      oscGain.gain.setValueAtTime(volume * 0.5, state.ctx.currentTime);
+      oscGain.gain.exponentialRampToValueAtTime(0.01, state.ctx.currentTime + duration);
+      osc.connect(oscGain);
+      oscGain.connect(state.sfxVolume);
+      noise.start();
+      osc.start();
+      osc.stop(state.ctx.currentTime + duration);
+    } catch (e) {
+      console.warn("Error playing explosion sound:", e);
+    }
+  }
+  function playHitSound(state) {
+    if (!state.soundEnabled || !state.ctx)
+      return;
+    try {
+      const osc = state.ctx.createOscillator();
+      const gain = state.ctx.createGain();
+      osc.type = "square";
+      osc.frequency.value = 150;
+      gain.gain.setValueAtTime(0.12, state.ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, state.ctx.currentTime + 0.05);
+      osc.connect(gain);
+      gain.connect(state.sfxVolume);
+      osc.start();
+      osc.stop(state.ctx.currentTime + 0.05);
+    } catch (e) {
+      console.warn("Error playing hit sound:", e);
+    }
+  }
+  function playMissileWarningBeep(state) {
+    if (!state.soundEnabled || !state.ctx)
+      return;
+    try {
+      const osc = state.ctx.createOscillator();
+      const gain = state.ctx.createGain();
+      osc.type = "square";
+      osc.frequency.value = 800;
+      gain.gain.setValueAtTime(0.15, state.ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, state.ctx.currentTime + 0.1);
+      osc.connect(gain);
+      gain.connect(state.sfxVolume);
+      osc.start();
+      osc.stop(state.ctx.currentTime + 0.1);
+    } catch (e) {
+      console.warn("Error playing warning beep:", e);
+    }
+  }
+  function playDamageSound(state) {
+    if (!state.soundEnabled || !state.ctx)
+      return;
+    try {
+      const bufferSize = Math.floor(state.ctx.sampleRate * 0.1);
+      const buffer = state.ctx.createBuffer(1, bufferSize, state.ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0;i < bufferSize; i++) {
+        data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufferSize * 0.1));
+      }
+      const noise = state.ctx.createBufferSource();
+      noise.buffer = buffer;
+      const gain = state.ctx.createGain();
+      gain.gain.value = 0.25;
+      noise.connect(gain);
+      gain.connect(state.sfxVolume);
+      noise.start();
+    } catch (e) {
+      console.warn("Error playing damage sound:", e);
+    }
+  }
+  function playCountermeasureSound(state) {
+    if (!state.soundEnabled || !state.ctx)
+      return;
+    try {
+      const osc = state.ctx.createOscillator();
+      const gain = state.ctx.createGain();
+      osc.type = "triangle";
+      osc.frequency.setValueAtTime(1200, state.ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(400, state.ctx.currentTime + 0.15);
+      gain.gain.setValueAtTime(0.1, state.ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, state.ctx.currentTime + 0.15);
+      osc.connect(gain);
+      gain.connect(state.sfxVolume);
+      osc.start();
+      osc.stop(state.ctx.currentTime + 0.15);
+    } catch (e) {
+      console.warn("Error playing countermeasure sound:", e);
+    }
   }
 
   // src/voxelvibe/systems/particles.ts

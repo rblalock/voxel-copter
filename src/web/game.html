@@ -4912,6 +4912,15 @@
         // -----------------------------------------------------------------
         // AUDIO SYSTEM (ported from index.html)
         // -----------------------------------------------------------------
+        // Proxy object bridges legacy globals to VoxelVibe AudioState
+        const audioProxy = {
+            get ctx() { return audioCtx; },
+            get sfxVolume() { return sfxVolume; },
+            get soundEnabled() { return soundEnabled; },
+            get noiseBuffer() { return noiseBuffer; },
+            set noiseBuffer(v) { noiseBuffer = v; }
+        };
+        const VVAudio = VV.Systems.Audio;
         function initAudio() {
             try {
                 audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -5033,102 +5042,15 @@
             }
         }
 
-        function playMenuNavigateSound() {
-            if (!soundEnabled || !audioCtx) return;
-            try {
-                const osc = audioCtx.createOscillator();
-                const gain = audioCtx.createGain();
-                osc.type = 'triangle';
-                osc.frequency.setValueAtTime(520, audioCtx.currentTime);
-                osc.frequency.exponentialRampToValueAtTime(360, audioCtx.currentTime + 0.08);
-                gain.gain.setValueAtTime(0.08, audioCtx.currentTime);
-                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.08);
-                osc.connect(gain);
-                gain.connect(sfxVolume);
-                osc.start();
-                osc.stop(audioCtx.currentTime + 0.08);
-            } catch (e) {
-                console.warn('Error playing menu navigate sound:', e);
-            }
-        }
+        function playMenuNavigateSound() { VVAudio.playMenuNavigateSound(audioProxy); }
 
-        function playMenuConfirmSound() {
-            if (!soundEnabled || !audioCtx) return;
-            try {
-                const osc = audioCtx.createOscillator();
-                const gain = audioCtx.createGain();
-                osc.type = 'sine';
-                osc.frequency.setValueAtTime(820, audioCtx.currentTime);
-                osc.frequency.exponentialRampToValueAtTime(520, audioCtx.currentTime + 0.12);
-                gain.gain.setValueAtTime(0.12, audioCtx.currentTime);
-                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.12);
-                osc.connect(gain);
-                gain.connect(sfxVolume);
-                osc.start();
-                osc.stop(audioCtx.currentTime + 0.12);
-            } catch (e) {
-                console.warn('Error playing menu confirm sound:', e);
-            }
-        }
+        function playMenuConfirmSound() { VVAudio.playMenuConfirmSound(audioProxy); }
 
-        function playAchievementSound() {
-            if (!soundEnabled || !audioCtx) return;
-            try {
-                const osc = audioCtx.createOscillator();
-                const gain = audioCtx.createGain();
-                osc.type = 'triangle';
-                osc.frequency.setValueAtTime(660, audioCtx.currentTime);
-                osc.frequency.exponentialRampToValueAtTime(980, audioCtx.currentTime + 0.18);
-                gain.gain.setValueAtTime(0.14, audioCtx.currentTime);
-                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.18);
-                osc.connect(gain);
-                gain.connect(sfxVolume);
-                osc.start();
-                osc.stop(audioCtx.currentTime + 0.2);
-            } catch (e) {
-                console.warn('Error playing achievement sound:', e);
-            }
-        }
+        function playAchievementSound() { VVAudio.playAchievementSound(audioProxy); }
 
-        function playVictoryStinger() {
-            if (!soundEnabled || !audioCtx) return;
-            const now = audioCtx.currentTime;
-            const osc = audioCtx.createOscillator();
-            const gain = audioCtx.createGain();
-            osc.type = 'triangle';
-            gain.gain.setValueAtTime(0.0, now);
-            const notes = [392, 523, 659];
-            notes.forEach((freq, idx) => {
-                const t = now + idx * 0.18;
-                osc.frequency.setValueAtTime(freq, t);
-                gain.gain.setValueAtTime(0.16, t);
-                gain.gain.exponentialRampToValueAtTime(0.01, t + 0.16);
-            });
-            osc.connect(gain);
-            gain.connect(sfxVolume);
-            osc.start(now);
-            osc.stop(now + 0.6);
-        }
+        function playVictoryStinger() { VVAudio.playVictoryStinger(audioProxy); }
 
-        function playDefeatStinger() {
-            if (!soundEnabled || !audioCtx) return;
-            const now = audioCtx.currentTime;
-            const osc = audioCtx.createOscillator();
-            const gain = audioCtx.createGain();
-            osc.type = 'sine';
-            gain.gain.setValueAtTime(0.0, now);
-            const notes = [330, 277, 220];
-            notes.forEach((freq, idx) => {
-                const t = now + idx * 0.2;
-                osc.frequency.setValueAtTime(freq, t);
-                gain.gain.setValueAtTime(0.14, t);
-                gain.gain.exponentialRampToValueAtTime(0.01, t + 0.18);
-            });
-            osc.connect(gain);
-            gain.connect(sfxVolume);
-            osc.start(now);
-            osc.stop(now + 0.7);
-        }
+        function playDefeatStinger() { VVAudio.playDefeatStinger(audioProxy); }
         
         // Rotor/Engine Sound (looping) - only for helicopter mode
         function startRotorSound() {
@@ -5186,194 +5108,22 @@
         }
         
         // Cannon Fire Sound
-        function playCannonSound() {
-            if (!soundEnabled || !audioCtx) return;
-            
-            try {
-                const gain = audioCtx.createGain();
-                const filter = audioCtx.createBiquadFilter();
-                
-                // White noise burst for gunshot
-                const bufferSize = Math.floor(audioCtx.sampleRate * 0.05);  // 50ms
-                const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
-                const data = buffer.getChannelData(0);
-                for (let i = 0; i < bufferSize; i++) {
-                    data[i] = Math.random() * 2 - 1;
-                }
-                
-                const noise = audioCtx.createBufferSource();
-                noise.buffer = buffer;
-                
-                filter.type = 'lowpass';
-                filter.frequency.value = 1000;
-                
-                gain.gain.setValueAtTime(0.25, audioCtx.currentTime);
-                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.05);
-                
-                noise.connect(filter);
-                filter.connect(gain);
-                gain.connect(sfxVolume);
-                
-                noise.start();
-            } catch (e) {
-                console.warn('Error playing cannon sound:', e);
-            }
-        }
+        function playCannonSound() { VVAudio.playCannonSound(audioProxy); }
         
         // Rocket Launch Sound
-        function playRocketSound() {
-            if (!soundEnabled || !audioCtx) return;
-            
-            try {
-                const osc = audioCtx.createOscillator();
-                const gain = audioCtx.createGain();
-                
-                // Whoosh sound
-                osc.type = 'sawtooth';
-                osc.frequency.setValueAtTime(200, audioCtx.currentTime);
-                osc.frequency.exponentialRampToValueAtTime(50, audioCtx.currentTime + 0.3);
-                
-                gain.gain.setValueAtTime(0.18, audioCtx.currentTime);
-                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
-                
-                osc.connect(gain);
-                gain.connect(sfxVolume);
-                
-                osc.start();
-                osc.stop(audioCtx.currentTime + 0.3);
-            } catch (e) {
-                console.warn('Error playing rocket sound:', e);
-            }
-        }
+        function playRocketSound() { VVAudio.playRocketSound(audioProxy); }
         
         // Missile Launch Sound (Hellfire/Stinger)
-        function playMissileSound() {
-            if (!soundEnabled || !audioCtx) return;
-            
-            try {
-                // Higher pitched than rocket
-                const osc = audioCtx.createOscillator();
-                const gain = audioCtx.createGain();
-                
-                osc.type = 'sine';
-                osc.frequency.setValueAtTime(800, audioCtx.currentTime);
-                osc.frequency.exponentialRampToValueAtTime(200, audioCtx.currentTime + 0.5);
-                
-                gain.gain.setValueAtTime(0.12, audioCtx.currentTime);
-                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
-                
-                osc.connect(gain);
-                gain.connect(sfxVolume);
-                
-                osc.start();
-                osc.stop(audioCtx.currentTime + 0.5);
-            } catch (e) {
-                console.warn('Error playing missile sound:', e);
-            }
-        }
+        function playMissileSound() { VVAudio.playMissileSound(audioProxy); }
         
         // Explosion Sound
-        function playExplosionSound(size = 'medium') {
-            if (!soundEnabled || !audioCtx) return;
-            
-            try {
-                const duration = size === 'large' ? 0.5 : size === 'medium' ? 0.35 : 0.2;
-                const volume = size === 'large' ? 0.35 : size === 'medium' ? 0.25 : 0.15;
-                
-                // Low frequency rumble + noise
-                const osc = audioCtx.createOscillator();
-                const noiseGain = audioCtx.createGain();
-                const oscGain = audioCtx.createGain();
-                const filter = audioCtx.createBiquadFilter();
-                
-                // Noise component
-                const bufferSize = Math.floor(audioCtx.sampleRate * duration);
-                const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
-                const data = buffer.getChannelData(0);
-                for (let i = 0; i < bufferSize; i++) {
-                    data[i] = Math.random() * 2 - 1;
-                }
-                const noise = audioCtx.createBufferSource();
-                noise.buffer = buffer;
-                
-                filter.type = 'lowpass';
-                filter.frequency.setValueAtTime(2000, audioCtx.currentTime);
-                filter.frequency.exponentialRampToValueAtTime(100, audioCtx.currentTime + duration);
-                
-                noiseGain.gain.setValueAtTime(volume, audioCtx.currentTime);
-                noiseGain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
-                
-                noise.connect(filter);
-                filter.connect(noiseGain);
-                noiseGain.connect(sfxVolume);
-                
-                // Bass thump
-                osc.type = 'sine';
-                osc.frequency.setValueAtTime(60, audioCtx.currentTime);
-                osc.frequency.exponentialRampToValueAtTime(20, audioCtx.currentTime + duration);
-                
-                oscGain.gain.setValueAtTime(volume * 0.5, audioCtx.currentTime);
-                oscGain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
-                
-                osc.connect(oscGain);
-                oscGain.connect(sfxVolume);
-                
-                noise.start();
-                osc.start();
-                osc.stop(audioCtx.currentTime + duration);
-            } catch (e) {
-                console.warn('Error playing explosion sound:', e);
-            }
-        }
+        function playExplosionSound(size = 'medium') { VVAudio.playExplosionSound(audioProxy, size); }
         
         // Hit Sound (bullet impact)
-        function playHitSound() {
-            if (!soundEnabled || !audioCtx) return;
-            
-            try {
-                const osc = audioCtx.createOscillator();
-                const gain = audioCtx.createGain();
-                
-                osc.type = 'square';
-                osc.frequency.value = 150;
-                
-                gain.gain.setValueAtTime(0.12, audioCtx.currentTime);
-                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.05);
-                
-                osc.connect(gain);
-                gain.connect(sfxVolume);
-                
-                osc.start();
-                osc.stop(audioCtx.currentTime + 0.05);
-            } catch (e) {
-                console.warn('Error playing hit sound:', e);
-            }
-        }
+        function playHitSound() { VVAudio.playHitSound(audioProxy); }
         
         // Missile Warning Alarm
-        function playMissileWarningBeep() {
-            if (!soundEnabled || !audioCtx) return;
-            
-            try {
-                // Beeping alarm
-                const osc = audioCtx.createOscillator();
-                const gain = audioCtx.createGain();
-                
-                osc.type = 'square';
-                osc.frequency.value = 800;
-                
-                gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
-                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
-                
-                osc.connect(gain);
-                gain.connect(sfxVolume);
-                
-                osc.start();
-                osc.stop(audioCtx.currentTime + 0.1);
-            } catch (e) {
-                console.warn('Error playing warning beep:', e);
-            }
-        }
+        function playMissileWarningBeep() { VVAudio.playMissileWarningBeep(audioProxy); }
         
         function startWarningAlarm() {
             if (warningInterval || !soundEnabled) return;
@@ -5389,57 +5139,10 @@
         }
         
         // Player Damage Sound
-        function playDamageSound() {
-            if (!soundEnabled || !audioCtx) return;
-            
-            try {
-                // Crunch/impact sound
-                const bufferSize = Math.floor(audioCtx.sampleRate * 0.1);
-                const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
-                const data = buffer.getChannelData(0);
-                for (let i = 0; i < bufferSize; i++) {
-                    data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufferSize * 0.1));
-                }
-                
-                const noise = audioCtx.createBufferSource();
-                noise.buffer = buffer;
-                
-                const gain = audioCtx.createGain();
-                gain.gain.value = 0.25;
-                
-                noise.connect(gain);
-                gain.connect(sfxVolume);
-                
-                noise.start();
-            } catch (e) {
-                console.warn('Error playing damage sound:', e);
-            }
-        }
+        function playDamageSound() { VVAudio.playDamageSound(audioProxy); }
         
         // Countermeasure Deploy Sound
-        function playCountermeasureSound() {
-            if (!soundEnabled || !audioCtx) return;
-            
-            try {
-                const osc = audioCtx.createOscillator();
-                const gain = audioCtx.createGain();
-                
-                osc.type = 'triangle';
-                osc.frequency.setValueAtTime(1200, audioCtx.currentTime);
-                osc.frequency.exponentialRampToValueAtTime(400, audioCtx.currentTime + 0.15);
-                
-                gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
-                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15);
-                
-                osc.connect(gain);
-                gain.connect(sfxVolume);
-                
-                osc.start();
-                osc.stop(audioCtx.currentTime + 0.15);
-            } catch (e) {
-                console.warn('Error playing countermeasure sound:', e);
-            }
-        }
+        function playCountermeasureSound() { VVAudio.playCountermeasureSound(audioProxy); }
         function showMissileWarning() {
             missileWarning = true;
             missileWarningTime = 3000; // 3 seconds of warning
