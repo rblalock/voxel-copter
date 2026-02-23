@@ -80,6 +80,7 @@
     <script src="/src/web/game/ui-hud.js"></script>
     <script src="/src/web/game/audio.js"></script>
     <script src="/src/web/game/world-gen.js"></script>
+    <script src="/src/web/game/targeting.js"></script>
     <script>
     // =====================================================================
     // VOXELCOPTER — Ported to VoxelVibe Engine
@@ -2520,6 +2521,28 @@
             spawnAircraftFromAirport, spawnHeliFromHelipad,
         } = window.GameWorldGen;
 
+        // Targeting context bridge
+        const gameTargetingCtx = {
+            get CONFIG() { return CONFIG; },
+            get FACTIONS() { return FACTIONS; },
+            get DOMAINS() { return DOMAINS; },
+            get GAME_MODES() { return GAME_MODES; },
+            get currentMap() { return currentMap; },
+            get targets() { return targets; },
+            get camera() { return camera; },
+            get gameMode() { return gameMode; },
+            get screenHeight() { return screenHeight; },
+            get targetingSystem() { return targetingSystem; },
+            getDeltaCamera() { return getDeltaCamera(); },
+        };
+        window.GameTargeting.init(gameTargetingCtx);
+        const {
+            getTargetsInView, findTargetInCrosshair, findNearestTarget,
+            cycleTarget, selectTargetInCrosshairs,
+            startLockAcquisition, stopLockAcquisition,
+            updateTargetingSystem,
+        } = window.GameTargeting;
+
         // AI world context - bridges game globals to VoxelVibe AI system
         const aiCtx = {
             get playerX() { return camera.x; },
@@ -2877,151 +2900,6 @@
         // =================================================================
         // TARGETING SYSTEM HELPERS
         // =================================================================
-        function getTargetsInView(cam, maxRange) {
-            maxRange = maxRange || 800;
-            const validTypes = targetingSystem.getValidTargetTypes();
-            if (!validTypes.requiresLock) return [];
-            const sinAngle = Math.sin(cam.angle), cosAngle = Math.cos(cam.angle);
-            const pitchFactor = (cam.horizon - screenHeight / 2) / 240.0;
-            const visibleTargets = [];
-            for (const target of targets) {
-                if (target.destroyed) continue;
-                if (target.faction !== FACTIONS.ENEMY) continue;
-                if (target.type === 'soldier') continue;
-                if (validTypes.domain) {
-                    if (validTypes.domain === 'surface') { if (target.domain === DOMAINS.AIR) continue; }
-                    else if (target.domain !== validTypes.domain) continue;
-                }
-                let dx = target.x - cam.x, dy = target.y - cam.y;
-                if (dx > CONFIG.MAP_SIZE / 2) dx -= CONFIG.MAP_SIZE;
-                if (dx < -CONFIG.MAP_SIZE / 2) dx += CONFIG.MAP_SIZE;
-                if (dy > CONFIG.MAP_SIZE / 2) dy -= CONFIG.MAP_SIZE;
-                if (dy < -CONFIG.MAP_SIZE / 2) dy += CONFIG.MAP_SIZE;
-                const dist = Math.sqrt(dx * dx + dy * dy);
-                if (dist > maxRange || dist < 10) continue;
-                const rx = dx * cosAngle - dy * sinAngle;
-                const ry = -dx * sinAngle - dy * cosAngle;
-                if (ry < 10) continue;
-                const angleToTarget = Math.atan2(rx, ry);
-                if (Math.abs(angleToTarget) > 0.6) continue;
-                const dz = target.z - cam.height;
-                const verticalAngle = Math.atan2(dz, dist);
-                const verticalDiff = verticalAngle - pitchFactor;
-                // LOS check
-                let hasLOS = true;
-                for (let s = 1; s < 5; s++) {
-                    const t = s / 5;
-                    const cx2 = ((cam.x + dx * t) % CONFIG.MAP_SIZE + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
-                    const cy2 = ((cam.y + dy * t) % CONFIG.MAP_SIZE + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
-                    const th = currentMap.altitude[(Math.floor(cy2) << CONFIG.MAP_SHIFT) + Math.floor(cx2)];
-                    if ((cam.height + (target.z - cam.height) * t) < th + 5) { hasLOS = false; break; }
-                }
-                if (!hasLOS) continue;
-                const totalAngle = Math.sqrt(angleToTarget * angleToTarget + verticalDiff * verticalDiff);
-                visibleTargets.push({ target, dist, angleFromCrosshair: totalAngle, screenAngleX: angleToTarget, screenAngleY: verticalDiff, rx, ry });
-            }
-            visibleTargets.sort((a, b) => a.angleFromCrosshair - b.angleFromCrosshair);
-            return visibleTargets;
-        }
-
-        function findTargetInCrosshair(cam, maxRange) {
-            maxRange = maxRange || 500;
-            const sinAngle = Math.sin(cam.angle), cosAngle = Math.cos(cam.angle);
-            const pitchFactor = (cam.horizon - screenHeight / 2) / 240.0;
-            let bestTarget = null, bestDist = maxRange;
-            const crosshairTolerance = 0.15;
-            for (const target of targets) {
-                if (target.destroyed || target.faction !== FACTIONS.ENEMY) continue;
-                let dx = target.x - cam.x, dy = target.y - cam.y;
-                if (dx > CONFIG.MAP_SIZE / 2) dx -= CONFIG.MAP_SIZE; if (dx < -CONFIG.MAP_SIZE / 2) dx += CONFIG.MAP_SIZE;
-                if (dy > CONFIG.MAP_SIZE / 2) dy -= CONFIG.MAP_SIZE; if (dy < -CONFIG.MAP_SIZE / 2) dy += CONFIG.MAP_SIZE;
-                const dist = Math.sqrt(dx * dx + dy * dy);
-                if (dist > maxRange || dist < 10) continue;
-                const rx = dx * cosAngle - dy * sinAngle;
-                const ry = -dx * sinAngle - dy * cosAngle;
-                if (ry < 10) continue;
-                const angleToTarget = Math.atan2(rx, ry);
-                const dz = target.z - cam.height;
-                const verticalDiff = Math.abs(Math.atan2(dz, dist) - pitchFactor);
-                const totalAngleDiff = Math.sqrt(angleToTarget * angleToTarget + verticalDiff * verticalDiff);
-                if (totalAngleDiff < crosshairTolerance && dist < bestDist) { bestTarget = target; bestDist = dist; }
-            }
-            if (!bestTarget) {
-                const coneTolerance = 0.4;
-                bestDist = maxRange;
-                for (const target of targets) {
-                    if (target.destroyed || target.faction !== FACTIONS.ENEMY) continue;
-                    let dx = target.x - cam.x, dy = target.y - cam.y;
-                    if (dx > CONFIG.MAP_SIZE / 2) dx -= CONFIG.MAP_SIZE; if (dx < -CONFIG.MAP_SIZE / 2) dx += CONFIG.MAP_SIZE;
-                    if (dy > CONFIG.MAP_SIZE / 2) dy -= CONFIG.MAP_SIZE; if (dy < -CONFIG.MAP_SIZE / 2) dy += CONFIG.MAP_SIZE;
-                    const dist = Math.sqrt(dx * dx + dy * dy);
-                    if (dist > maxRange || dist < 10) continue;
-                    const rx = dx * cosAngle - dy * sinAngle;
-                    const ry = -dx * sinAngle - dy * cosAngle;
-                    if (ry < 10) continue;
-                    const angleToTarget = Math.atan2(rx, ry);
-                    if (Math.abs(angleToTarget) < coneTolerance && dist < bestDist) { bestTarget = target; bestDist = dist; }
-                }
-            }
-            return bestTarget;
-        }
-
-        function findNearestTarget(x, y, options) {
-            options = options || {};
-            const { airToAir = false, faction = FACTIONS.ENEMY, maxRange = Infinity } = options;
-            let nearest = null, nearestDist = maxRange;
-            for (const target of targets) {
-                if (target.destroyed) continue;
-                if (faction && target.faction !== faction) continue;
-                if (airToAir && target.domain !== DOMAINS.AIR) continue;
-                let dx = target.x - x, dy = target.y - y;
-                if (dx > CONFIG.MAP_SIZE / 2) dx -= CONFIG.MAP_SIZE; if (dx < -CONFIG.MAP_SIZE / 2) dx += CONFIG.MAP_SIZE;
-                if (dy > CONFIG.MAP_SIZE / 2) dy -= CONFIG.MAP_SIZE; if (dy < -CONFIG.MAP_SIZE / 2) dy += CONFIG.MAP_SIZE;
-                const dist = Math.sqrt(dx * dx + dy * dy);
-                if (dist < nearestDist) { nearestDist = dist; nearest = target; }
-            }
-            return nearest;
-        }
-
-        function cycleTarget(direction) {
-            direction = direction || 1;
-            const now = performance.now();
-            if (now - targetingSystem.lastCycleTime < 200) return;
-            targetingSystem.lastCycleTime = now;
-            const cam = gameMode === GAME_MODES.DELTA ? getDeltaCamera() : camera;
-            const visibleTargets = getTargetsInView(cam, targetingSystem.getTargetingRange());
-            if (visibleTargets.length === 0) { targetingSystem.selectedTarget = null; targetingSystem.lockedTarget = null; return; }
-            let currentIndex = -1;
-            if (targetingSystem.selectedTarget) currentIndex = visibleTargets.findIndex(t => t.target === targetingSystem.selectedTarget);
-            const newIndex = currentIndex === -1 ? 0 : (currentIndex + direction + visibleTargets.length) % visibleTargets.length;
-            const newTarget = visibleTargets[newIndex]?.target;
-            if (newTarget !== targetingSystem.selectedTarget) {
-                targetingSystem.selectedTarget = newTarget;
-                targetingSystem.lockedTarget = null; targetingSystem.lockProgress = 0; targetingSystem.isLocking = false;
-            }
-        }
-
-        function selectTargetInCrosshairs() {
-            const cam = gameMode === GAME_MODES.DELTA ? getDeltaCamera() : camera;
-            const visibleTargets = getTargetsInView(cam, targetingSystem.getTargetingRange());
-            if (visibleTargets.length === 0) return;
-            if (visibleTargets[0].angleFromCrosshair > 0.26) return;
-            const closestTarget = visibleTargets[0].target;
-            if (closestTarget !== targetingSystem.selectedTarget) {
-                targetingSystem.selectedTarget = closestTarget;
-                targetingSystem.lockedTarget = null; targetingSystem.lockProgress = 0; targetingSystem.isLocking = false;
-            }
-        }
-
-        function startLockAcquisition() {
-            if (!targetingSystem.selectedTarget) return;
-            const validTypes = targetingSystem.getValidTargetTypes();
-            if (!validTypes.requiresLock) return;
-            if (!targetingSystem.isLocking) { targetingSystem.isLocking = true; targetingSystem.lockStartTime = performance.now(); targetingSystem.lockProgress = 0; }
-        }
-
-        function stopLockAcquisition() { targetingSystem.isLocking = false; }
-
         // =================================================================
         // RESUPPLY HELPERS
         // =================================================================
@@ -3416,42 +3294,6 @@
                     if (alertLevel > 0) alertTimer = ALERT_DURATION;
                 }
             }
-        }
-
-        function updateTargetingSystem(deltaTime) {
-            const cam = gameMode === GAME_MODES.DELTA ? getDeltaCamera() : camera;
-            const validTypes = targetingSystem.getValidTargetTypes();
-            const targetingRange = targetingSystem.getTargetingRange();
-            if (!targetingSystem.selectedTarget || targetingSystem.selectedTarget.destroyed) {
-                const visible = getTargetsInView(cam, targetingRange);
-                targetingSystem.selectedTarget = visible[0]?.target || null;
-                targetingSystem.lockedTarget = null; targetingSystem.lockProgress = 0;
-            }
-            if (targetingSystem.selectedTarget) {
-                const visible = getTargetsInView(cam, targetingRange);
-                const stillVisible = visible.some(t => t.target === targetingSystem.selectedTarget);
-                if (!stillVisible || targetingSystem.selectedTarget.destroyed) {
-                    targetingSystem.selectedTarget = visible[0]?.target || null;
-                    targetingSystem.lockedTarget = null; targetingSystem.lockProgress = 0; targetingSystem.isLocking = false;
-                }
-            }
-            if (targetingSystem.selectedTarget && validTypes.requiresLock && !targetingSystem.isLocking && !targetingSystem.lockedTarget) {
-                targetingSystem.isLocking = true; targetingSystem.lockStartTime = performance.now(); targetingSystem.lockProgress = 0;
-            }
-            if (targetingSystem.isLocking && targetingSystem.selectedTarget && validTypes.requiresLock) {
-                const lockTime = targetingSystem.getLockTime();
-                const elapsed = performance.now() - targetingSystem.lockStartTime;
-                targetingSystem.lockProgress = Math.min(100, (elapsed / lockTime) * 100);
-                const visible = getTargetsInView(cam, targetingRange);
-                const targetInfo = visible.find(t => t.target === targetingSystem.selectedTarget);
-                if (!targetInfo || targetInfo.angleFromCrosshair > 0.2) {
-                    targetingSystem.lockProgress = Math.max(0, targetingSystem.lockProgress - deltaTime * 0.1);
-                    if (targetingSystem.lockProgress <= 0) targetingSystem.isLocking = false;
-                } else if (targetingSystem.lockProgress >= 100) {
-                    targetingSystem.lockedTarget = targetingSystem.selectedTarget; targetingSystem.isLocking = false;
-                }
-            }
-            if (targetingSystem.lockedTarget?.destroyed) { targetingSystem.lockedTarget = null; targetingSystem.lockProgress = 0; }
         }
 
         function updateResupply(currentTime) {
