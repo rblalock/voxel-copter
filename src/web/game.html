@@ -437,8 +437,8 @@
         let achievementToasts = [];
 
         // Stats
-        let sessionStats = { shotsFired: 0, targetsDestroyed: 0, score: 0, startTime: 0 };
-        let telemetry = { shotsFired: 0, missilesFired: 0, targetsDestroyed: 0, damageDealt: 0, damageTaken: 0, flightTime: 0, groundTime: 0 };
+        let sessionStats = { shotsFired: 0, hits: 0, targetsDestroyed: 0, score: 0, kills: 0, submitted: false, startTime: 0 };
+        let telemetry = { shotsFired: 0, shotsHit: 0, missilesFired: 0, missilesHit: 0, missilesDodged: 0, targetsDestroyed: 0, damageDealt: 0, damageTaken: 0, flightTime: 0, groundTime: 0, distanceTraveled: 0, lastPosition: { x: 512, y: 512 } };
         let showOnboardingHints = true;
 
         // Airstrike / C4
@@ -446,7 +446,7 @@
         let airstrikeState = { designating: false, targetX: null, targetY: null, targetZ: null, planesInbound: [], lastCallTime: 0, inboundMessageUntil: 0 };
 
         // Objective system
-        let objectiveState = { objectives: [], completed: false, startTime: 0, allComplete: false, failed: [] };
+        let objectiveState = { objectives: [], completed: [], events: [], surviveStartTime: 0, startTime: 0, allComplete: false, failed: [] };
 
         // Leaderboard cache
         let cachedGlobalStats = null;
