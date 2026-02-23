@@ -9321,47 +9321,717 @@
             }
         }
 
+
         // -----------------------------------------------------------------
-        // AUDIO STUBS
+        // AUDIO SYSTEM (ported from index.html)
         // -----------------------------------------------------------------
         function initAudio() {
             try {
                 audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                masterVolumeNode = audioCtx.createGain();
-                sfxVolumeNode = audioCtx.createGain();
-                masterVolumeNode.connect(audioCtx.destination);
-                sfxVolumeNode.connect(masterVolumeNode);
-                applySettings();
-            } catch(e) { soundEnabled = false; }
+                masterVolume = audioCtx.createGain();
+                sfxVolume = audioCtx.createGain();
+                masterVolume.connect(audioCtx.destination);
+                sfxVolume.connect(masterVolume);
+                applyAudioSettings();
+            } catch (e) {
+                console.warn('Web Audio API not supported');
+                soundEnabled = false;
+            }
         }
+        
         function initAudioOnInteraction() {
-            if (!audioCtx) initAudio();
-            if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+            if (!audioCtx) {
+                initAudio();
+            }
+            if (audioCtx && audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
         }
-        function toggleSound() { soundEnabled = !soundEnabled; }
-        function playMenuNavigateSound() { /* TODO */ }
-        function playMenuConfirmSound() { /* TODO */ }
-        function playCannonSound() { /* TODO */ }
-        function playRocketSound() { /* TODO */ }
-        function playMissileSound() { /* TODO */ }
-        function playExplosionSound() { /* TODO */ }
-        function updateRotorSound() { /* TODO */ }
-        function updateWindSound() { /* TODO */ }
-        function stopRotorSound() { /* TODO */ }
-        function stopWarningAlarm() { /* TODO */ }
-        function stopWindSound() { /* TODO */ }
+        
+        function toggleSound() {
+            soundEnabled = !soundEnabled;
+            if (!soundEnabled) {
+                stopRotorSound();
+                stopWarningAlarm();
+                stopWindSound();
+            }
+            if (soundEnabled) {
+                if (gameState === GAME_STATES.PLAYING) {
+                    startRotorSound();
+                    startWindSound();
+                }
+            }
+        }
+
+        function applyAudioSettings() {
+            if (!masterVolume || !sfxVolume) return;
+            masterVolume.gain.value = settings.masterVolume;
+            sfxVolume.gain.value = settings.sfxVolume;
+        }
+
+        function getNoiseBuffer() {
+            if (noiseBuffer || !audioCtx) return noiseBuffer;
+            const bufferSize = Math.floor(audioCtx.sampleRate * 2);
+            const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+            const data = buffer.getChannelData(0);
+            for (let i = 0; i < bufferSize; i++) {
+                data[i] = Math.random() * 2 - 1;
+            }
+            noiseBuffer = buffer;
+            return noiseBuffer;
+        }
+
+        function startWindSound() {
+            if (!soundEnabled || !audioCtx || windSource) return;
+            const buffer = getNoiseBuffer();
+            if (!buffer) return;
+            windSource = audioCtx.createBufferSource();
+            windFilter = audioCtx.createBiquadFilter();
+            windGain = audioCtx.createGain();
+            windSource.buffer = buffer;
+            windSource.loop = true;
+            windFilter.type = 'highpass';
+            windFilter.frequency.value = 180;
+            windGain.gain.value = 0;
+            windSource.connect(windFilter);
+            windFilter.connect(windGain);
+            windGain.connect(sfxVolume);
+            windSource.start();
+        }
+
+        function stopWindSound() {
+            try {
+                if (windSource) {
+                    windSource.stop();
+                    windSource.disconnect();
+                    windSource = null;
+                }
+                if (windFilter) {
+                    windFilter.disconnect();
+                    windFilter = null;
+                }
+                if (windGain) {
+                    windGain.disconnect();
+                    windGain = null;
+                }
+            } catch (e) {
+                // Ignore errors
+            }
+        }
+
+        function updateWindSound() {
+            if (!windGain || !audioCtx) return;
+            const maxSpeed = Math.max(0.01, HELI_PHYSICS.MAX_FORWARD_SPEED);
+            const speedNorm = Math.min(1, Math.abs(camera.forwardSpeed) / maxSpeed);
+            const targetGain = 0.02 + speedNorm * 0.12;
+            const targetFilter = 180 + speedNorm * 1000;
+            windGain.gain.setTargetAtTime(targetGain, audioCtx.currentTime, 0.08);
+            if (windFilter) {
+                windFilter.frequency.setTargetAtTime(targetFilter, audioCtx.currentTime, 0.08);
+            }
+        }
+
+        function updateRotorSound() {
+            if (!rotorOscillator || !rotorGain || !audioCtx) return;
+            const maxSpeed = Math.max(0.01, HELI_PHYSICS.MAX_FORWARD_SPEED);
+            const speedNorm = Math.min(1, Math.abs(camera.forwardSpeed) / maxSpeed);
+            const climbNorm = Math.min(1, Math.abs(camera.verticalSpeed) / (CONFIG.CLIMB_SPEED || 1));
+            const baseFreq = 38;
+            const targetFreq = baseFreq * (1 + speedNorm * 0.6 + climbNorm * 0.4);
+            const targetGain = 0.09 + speedNorm * 0.05 + climbNorm * 0.04;
+            rotorOscillator.frequency.setTargetAtTime(targetFreq, audioCtx.currentTime, 0.07);
+            rotorGain.gain.setTargetAtTime(targetGain, audioCtx.currentTime, 0.08);
+            if (rotorLfo) {
+                rotorLfo.frequency.setTargetAtTime(8 + speedNorm * 4, audioCtx.currentTime, 0.1);
+            }
+        }
+
+        function playMenuNavigateSound() {
+            if (!soundEnabled || !audioCtx) return;
+            try {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(520, audioCtx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(360, audioCtx.currentTime + 0.08);
+                gain.gain.setValueAtTime(0.08, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.08);
+                osc.connect(gain);
+                gain.connect(sfxVolume);
+                osc.start();
+                osc.stop(audioCtx.currentTime + 0.08);
+            } catch (e) {
+                console.warn('Error playing menu navigate sound:', e);
+            }
+        }
+
+        function playMenuConfirmSound() {
+            if (!soundEnabled || !audioCtx) return;
+            try {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(820, audioCtx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(520, audioCtx.currentTime + 0.12);
+                gain.gain.setValueAtTime(0.12, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.12);
+                osc.connect(gain);
+                gain.connect(sfxVolume);
+                osc.start();
+                osc.stop(audioCtx.currentTime + 0.12);
+            } catch (e) {
+                console.warn('Error playing menu confirm sound:', e);
+            }
+        }
+
+        function playAchievementSound() {
+            if (!soundEnabled || !audioCtx) return;
+            try {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(660, audioCtx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(980, audioCtx.currentTime + 0.18);
+                gain.gain.setValueAtTime(0.14, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.18);
+                osc.connect(gain);
+                gain.connect(sfxVolume);
+                osc.start();
+                osc.stop(audioCtx.currentTime + 0.2);
+            } catch (e) {
+                console.warn('Error playing achievement sound:', e);
+            }
+        }
+
+        function playVictoryStinger() {
+            if (!soundEnabled || !audioCtx) return;
+            const now = audioCtx.currentTime;
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = 'triangle';
+            gain.gain.setValueAtTime(0.0, now);
+            const notes = [392, 523, 659];
+            notes.forEach((freq, idx) => {
+                const t = now + idx * 0.18;
+                osc.frequency.setValueAtTime(freq, t);
+                gain.gain.setValueAtTime(0.16, t);
+                gain.gain.exponentialRampToValueAtTime(0.01, t + 0.16);
+            });
+            osc.connect(gain);
+            gain.connect(sfxVolume);
+            osc.start(now);
+            osc.stop(now + 0.6);
+        }
+
+        function playDefeatStinger() {
+            if (!soundEnabled || !audioCtx) return;
+            const now = audioCtx.currentTime;
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = 'sine';
+            gain.gain.setValueAtTime(0.0, now);
+            const notes = [330, 277, 220];
+            notes.forEach((freq, idx) => {
+                const t = now + idx * 0.2;
+                osc.frequency.setValueAtTime(freq, t);
+                gain.gain.setValueAtTime(0.14, t);
+                gain.gain.exponentialRampToValueAtTime(0.01, t + 0.18);
+            });
+            osc.connect(gain);
+            gain.connect(sfxVolume);
+            osc.start(now);
+            osc.stop(now + 0.7);
+        }
+        
+        // Rotor/Engine Sound (looping) - only for helicopter mode
+        function startRotorSound() {
+            // Don't play rotor sound in Delta (soldier) mode
+            if (gameMode === GAME_MODES.DELTA) return;
+            if (!soundEnabled || !audioCtx || rotorOscillator) return;
+            
+            try {
+                // Create low-frequency "thwop thwop" helicopter rotor
+                rotorOscillator = audioCtx.createOscillator();
+                rotorGain = audioCtx.createGain();
+                
+                rotorOscillator.type = 'sawtooth';
+                rotorOscillator.frequency.value = 40;  // Low frequency
+                
+                // Create modulation for "chopping" effect
+                rotorLfo = audioCtx.createOscillator();
+                const lfoGain = audioCtx.createGain();
+                rotorLfo.frequency.value = 8;  // 8 Hz modulation (blade frequency)
+                lfoGain.gain.value = 20;
+                
+                rotorLfo.connect(lfoGain);
+                lfoGain.connect(rotorOscillator.frequency);
+                
+                rotorOscillator.connect(rotorGain);
+                rotorGain.gain.value = 0.12;
+                rotorGain.connect(sfxVolume);
+                
+                rotorOscillator.start();
+                rotorLfo.start();
+            } catch (e) {
+                console.warn('Error starting rotor sound:', e);
+            }
+        }
+        
+        function stopRotorSound() {
+            try {
+                if (rotorOscillator) {
+                    rotorOscillator.stop();
+                    rotorOscillator.disconnect();
+                    rotorOscillator = null;
+                }
+                if (rotorLfo) {
+                    rotorLfo.stop();
+                    rotorLfo.disconnect();
+                    rotorLfo = null;
+                }
+                if (rotorGain) {
+                    rotorGain.disconnect();
+                    rotorGain = null;
+                }
+            } catch (e) {
+                // Ignore errors when stopping
+            }
+        }
+        
+        // Cannon Fire Sound
+        function playCannonSound() {
+            if (!soundEnabled || !audioCtx) return;
+            
+            try {
+                const gain = audioCtx.createGain();
+                const filter = audioCtx.createBiquadFilter();
+                
+                // White noise burst for gunshot
+                const bufferSize = Math.floor(audioCtx.sampleRate * 0.05);  // 50ms
+                const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+                const data = buffer.getChannelData(0);
+                for (let i = 0; i < bufferSize; i++) {
+                    data[i] = Math.random() * 2 - 1;
+                }
+                
+                const noise = audioCtx.createBufferSource();
+                noise.buffer = buffer;
+                
+                filter.type = 'lowpass';
+                filter.frequency.value = 1000;
+                
+                gain.gain.setValueAtTime(0.25, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.05);
+                
+                noise.connect(filter);
+                filter.connect(gain);
+                gain.connect(sfxVolume);
+                
+                noise.start();
+            } catch (e) {
+                console.warn('Error playing cannon sound:', e);
+            }
+        }
+        
+        // Rocket Launch Sound
+        function playRocketSound() {
+            if (!soundEnabled || !audioCtx) return;
+            
+            try {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                
+                // Whoosh sound
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(200, audioCtx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(50, audioCtx.currentTime + 0.3);
+                
+                gain.gain.setValueAtTime(0.18, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+                
+                osc.connect(gain);
+                gain.connect(sfxVolume);
+                
+                osc.start();
+                osc.stop(audioCtx.currentTime + 0.3);
+            } catch (e) {
+                console.warn('Error playing rocket sound:', e);
+            }
+        }
+        
+        // Missile Launch Sound (Hellfire/Stinger)
+        function playMissileSound() {
+            if (!soundEnabled || !audioCtx) return;
+            
+            try {
+                // Higher pitched than rocket
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(800, audioCtx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(200, audioCtx.currentTime + 0.5);
+                
+                gain.gain.setValueAtTime(0.12, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
+                
+                osc.connect(gain);
+                gain.connect(sfxVolume);
+                
+                osc.start();
+                osc.stop(audioCtx.currentTime + 0.5);
+            } catch (e) {
+                console.warn('Error playing missile sound:', e);
+            }
+        }
+        
+        // Explosion Sound
+        function playExplosionSound(size = 'medium') {
+            if (!soundEnabled || !audioCtx) return;
+            
+            try {
+                const duration = size === 'large' ? 0.5 : size === 'medium' ? 0.35 : 0.2;
+                const volume = size === 'large' ? 0.35 : size === 'medium' ? 0.25 : 0.15;
+                
+                // Low frequency rumble + noise
+                const osc = audioCtx.createOscillator();
+                const noiseGain = audioCtx.createGain();
+                const oscGain = audioCtx.createGain();
+                const filter = audioCtx.createBiquadFilter();
+                
+                // Noise component
+                const bufferSize = Math.floor(audioCtx.sampleRate * duration);
+                const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+                const data = buffer.getChannelData(0);
+                for (let i = 0; i < bufferSize; i++) {
+                    data[i] = Math.random() * 2 - 1;
+                }
+                const noise = audioCtx.createBufferSource();
+                noise.buffer = buffer;
+                
+                filter.type = 'lowpass';
+                filter.frequency.setValueAtTime(2000, audioCtx.currentTime);
+                filter.frequency.exponentialRampToValueAtTime(100, audioCtx.currentTime + duration);
+                
+                noiseGain.gain.setValueAtTime(volume, audioCtx.currentTime);
+                noiseGain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
+                
+                noise.connect(filter);
+                filter.connect(noiseGain);
+                noiseGain.connect(sfxVolume);
+                
+                // Bass thump
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(60, audioCtx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(20, audioCtx.currentTime + duration);
+                
+                oscGain.gain.setValueAtTime(volume * 0.5, audioCtx.currentTime);
+                oscGain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
+                
+                osc.connect(oscGain);
+                oscGain.connect(sfxVolume);
+                
+                noise.start();
+                osc.start();
+                osc.stop(audioCtx.currentTime + duration);
+            } catch (e) {
+                console.warn('Error playing explosion sound:', e);
+            }
+        }
+        
+        // Hit Sound (bullet impact)
+        function playHitSound() {
+            if (!soundEnabled || !audioCtx) return;
+            
+            try {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                
+                osc.type = 'square';
+                osc.frequency.value = 150;
+                
+                gain.gain.setValueAtTime(0.12, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.05);
+                
+                osc.connect(gain);
+                gain.connect(sfxVolume);
+                
+                osc.start();
+                osc.stop(audioCtx.currentTime + 0.05);
+            } catch (e) {
+                console.warn('Error playing hit sound:', e);
+            }
+        }
+        
+        // Missile Warning Alarm
+        function playMissileWarningBeep() {
+            if (!soundEnabled || !audioCtx) return;
+            
+            try {
+                // Beeping alarm
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                
+                osc.type = 'square';
+                osc.frequency.value = 800;
+                
+                gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+                
+                osc.connect(gain);
+                gain.connect(sfxVolume);
+                
+                osc.start();
+                osc.stop(audioCtx.currentTime + 0.1);
+            } catch (e) {
+                console.warn('Error playing warning beep:', e);
+            }
+        }
+        
+        function startWarningAlarm() {
+            if (warningInterval || !soundEnabled) return;
+            playMissileWarningBeep();
+            warningInterval = setInterval(playMissileWarningBeep, 500);  // Beep every 500ms
+        }
+        
+        function stopWarningAlarm() {
+            if (warningInterval) {
+                clearInterval(warningInterval);
+                warningInterval = null;
+            }
+        }
+        
+        // Player Damage Sound
+        function playDamageSound() {
+            if (!soundEnabled || !audioCtx) return;
+            
+            try {
+                // Crunch/impact sound
+                const bufferSize = Math.floor(audioCtx.sampleRate * 0.1);
+                const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+                const data = buffer.getChannelData(0);
+                for (let i = 0; i < bufferSize; i++) {
+                    data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufferSize * 0.1));
+                }
+                
+                const noise = audioCtx.createBufferSource();
+                noise.buffer = buffer;
+                
+                const gain = audioCtx.createGain();
+                gain.gain.value = 0.25;
+                
+                noise.connect(gain);
+                gain.connect(sfxVolume);
+                
+                noise.start();
+            } catch (e) {
+                console.warn('Error playing damage sound:', e);
+            }
+        }
+        
+        // Countermeasure Deploy Sound
+        function playCountermeasureSound() {
+            if (!soundEnabled || !audioCtx) return;
+            
+            try {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(1200, audioCtx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(400, audioCtx.currentTime + 0.15);
+                
+                gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15);
+                
+                osc.connect(gain);
+                gain.connect(sfxVolume);
+                
+                osc.start();
+                osc.stop(audioCtx.currentTime + 0.15);
+            } catch (e) {
+                console.warn('Error playing countermeasure sound:', e);
+            }
+        }
+        function showMissileWarning() {
+            missileWarning = true;
+            missileWarningTime = 3000; // 3 seconds of warning
+            startWarningAlarm();  // Start audio warning
+        }
+        
+        function updateMissileWarning(deltaTime) {
+            if (missileWarning) {
+                missileWarningTime -= deltaTime;
+                if (missileWarningTime <= 0 || enemyProjectiles.length === 0) {
+                    missileWarning = false;
+                    stopWarningAlarm();  // Stop audio warning
+                }
+            }
+        }
+        
+        // ============================================
+        // COUNTERMEASURES
+        // ============================================
+        function deployCountermeasure(type) {
+            const now = performance.now();
+            const cm = countermeasures[type];
+            
+            if (cm.count <= 0) return;
+            if (now - cm.lastUsed < cm.cooldown) return;
+            
+            cm.count--;
+            cm.lastUsed = now;
+            
+            // Play countermeasure deploy sound
+            playCountermeasureSound();
+            
+            // Create visual effect
+            for (let i = 0; i < 5; i++) {
+                const angle = Math.random() * Math.PI * 2;
+                const speed = 2 + Math.random() * 3;
+                explosions.push({
+                    x: camera.x + Math.sin(angle) * 10,
+                    y: camera.y + Math.cos(angle) * 10,
+                    z: camera.height - 10,
+                    size: 8,
+                    maxSize: 8,
+                    lifetime: 20,
+                    maxLifetime: 20,
+                    isCountermeasure: true,
+                    cmType: type
+                });
+            }
+            
+            // Decoy nearby enemy missiles
+            for (let i = enemyProjectiles.length - 1; i >= 0; i--) {
+                const ep = enemyProjectiles[i];
+                if (type === 'flare' && ep.type === 'sam_missile') {
+                    // 70% chance to decoy
+                    if (Math.random() < 0.7) {
+                        createExplosion(ep.x, ep.y, ep.z, 'small');
+                        telemetry.missilesDodged += 1;
+                        enemyProjectiles.splice(i, 1);
+                    }
+                } else if (type === 'chaff') {
+                    // Chaff confuses missile guidance - 50% chance
+                    if (Math.random() < 0.5) {
+                        createExplosion(ep.x, ep.y, ep.z, 'small');
+                        if (ep.type === 'sam_missile') {
+                            telemetry.missilesDodged += 1;
+                        }
+                        enemyProjectiles.splice(i, 1);
+                    }
+                }
+            }
+        }
+        
+        function checkWinCondition() {
+            if (gameState !== GAME_STATES.PLAYING) return;
+            if (missionComplete || isPlayerDead) return;
+            
+            const remaining = targets.filter(t => !t.destroyed).length;
+            if (remaining === 0 && targets.length > 0) {
+                // In free play mode (currentMissionIndex === -1), respawn targets
+                if (currentMissionIndex === -1) {
+                    // Clear destroyed targets and spawn new ones
+                    targets = [];
+                    for (let i = 0; i < 4; i++) spawnTarget('TANK');
+                    for (let i = 0; i < 2; i++) spawnTarget('BUILDING');
+                    for (let i = 0; i < 2; i++) spawnTarget('SAM_SITE');
+                } else {
+                    endMission(true);
+                }
+            }
+        }
+        function updateSoldierWeaponState(deltaTime) {
+            if (gameMode !== GAME_MODES.DELTA) return;
+            const now = performance.now();
+
+            if (soldierWeapon.isReloading) {
+                if (now - soldierWeapon.reloadStartTime >= soldierWeapon.reloadDuration) {
+                    const weaponKey = soldierWeapon.current;
+                    const weapon = WEAPONS_DELTA[weaponKey];
+                    const state = soldierWeapon.weapons[weaponKey];
+                    if (weapon && state && state.mags > 0) {
+                        state.mags--;
+                        state.mag = weapon.magSize;
+                    }
+                    soldierWeapon.isReloading = false;
+                }
+            }
+
+            if (soldierWeapon.recoilOffset > 0) {
+                const recovery = Math.min(soldierWeapon.recoilOffset, soldierWeapon.recoilOffset * 0.35 + 0.3);
+                camera.horizon = Math.min(screenHeight * 0.75, camera.horizon + recovery);
+                soldierWeapon.recoilOffset -= recovery;
+            }
+
+            if (soldierWeapon.muzzleFlashTime > 0) {
+                soldierWeapon.muzzleFlashTime -= deltaTime;
+                if (soldierWeapon.muzzleFlashTime < 0) soldierWeapon.muzzleFlashTime = 0;
+            }
+
+            const scopeStep = deltaTime * 0.008;
+            if (soldierScope.active) {
+                soldierScope.transitionTime = Math.min(1, soldierScope.transitionTime + scopeStep);
+            } else {
+                soldierScope.transitionTime = Math.max(0, soldierScope.transitionTime - scopeStep);
+            }
+        }
+
+        function handleDeltaCombatInput(deltaTime) {
+            const now = performance.now();
+            updateSoldierWeaponState(deltaTime);
+
+            const weaponKey = soldierWeapon.current;
+            const weapon = WEAPONS_DELTA[weaponKey];
+            if (!weapon) {
+                deltaTriggerPressed = false;
+                return;
+            }
+            if (soldierWeapon.isReloading) {
+                deltaTriggerPressed = false;
+                return;
+            }
+
+            const shouldFire = weapon.auto ? deltaTriggerHeld : deltaTriggerPressed;
+            if (shouldFire) {
+                // C4 has special handling: place or detonate
+                if (weaponKey === 'c4') {
+                    handleC4Action(now);
+                } else if (weaponKey === 'airstrike') {
+                    handleAirstrikeAction(now);
+                } else {
+                    fireSoldierWeapon(weaponKey, now);
+                }
+            }
+
+            deltaTriggerPressed = false;
+        }
+
+        function handleCombatInput(deltaTime) {
+            if (gameState !== GAME_STATES.PLAYING) return;
+            if (missionComplete || isPlayerDead) return;
+
+            if (gameMode === GAME_MODES.DELTA) {
+                handleDeltaCombatInput(deltaTime);
+                return;
+            }
+
+            if (comancheTriggerHeld) {
+                fireWeapon(currentWeapon);
+            }
+            // Z/X now cycle weapons (handled in keydown), no quick-fire
+        }
 
         // Telemetry stubs
         function trackEvent() {}
         function updatePlaytime() {}
         function updateTelemetry() {}
         function updateAlertLevel() {}
-        function updateMissileWarning() {}
         function updateTargetingSystem() {}
         function updateResupply() {}
         function updateObjectiveProgress() {}
-        function checkAllObjectivesComplete() {}
-        function checkWinCondition() {}
         function updateProjectiles() {}
         function checkProjectileHits() {}
         function updateExplosions(dt) {
@@ -9375,6 +10045,14 @@
         function updateAirstrikePlanes() {}
         function updateAirportSpawns() {}
         function updateHelipadSpawns() {}
+        function createExplosion(x, y, z, size) {
+            explosions.push({ x: x, y: y, z: z, size: 20, maxSize: 20, lifetime: 30, maxLifetime: 30, type: size || 'medium' });
+        }
+        function handleAirstrikeAction() {}
+        function spawnTarget(typeKey) {
+            const spot = findFlatSpot(100, 20, 25, camera.x, camera.y, 100);
+            if (spot) spawnTargetAt(typeKey, spot.x, spot.y);
+        }
 
         function adjustSetting(index, dir) {
             const item = SETTINGS_ITEMS[index];
