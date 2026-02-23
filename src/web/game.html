@@ -1,0 +1,1469 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VoxelCopter - Powered by VoxelVibe Engine</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: #000; overflow: hidden; font-family: 'Courier New', monospace; }
+        #gameCanvas { display: block; image-rendering: pixelated; image-rendering: crisp-edges; }
+        #ui { position: fixed; top: 10px; left: 10px; color: #0f0; text-shadow: 1px 1px 2px #000, -1px -1px 2px #000; z-index: 100; pointer-events: none; }
+        #fps { font-size: 18px; font-weight: bold; display: none; }
+        #altitude { font-size: 14px; margin-top: 5px; }
+        #speed { font-size: 14px; }
+        #controls { position: fixed; bottom: 10px; right: 10px; color: #fff; font-size: 11px; text-shadow: 1px 1px 2px #000; z-index: 100; background: rgba(0,0,0,0.7); padding: 8px 12px; border-radius: 5px; border: 1px solid #0a0; pointer-events: auto; max-width: 180px; }
+        #controls h3 { color: #0f0; margin-bottom: 5px; }
+        #mapSelector { position: fixed; top: 10px; right: 10px; z-index: 100; padding: 8px 12px; font-size: 14px; font-family: 'Courier New', monospace; background: rgba(0,0,0,0.7); color: #0f0; border: 2px solid #0f0; border-radius: 5px; cursor: pointer; }
+        #mapSelector:hover { background: rgba(0,50,0,0.8); }
+        #mapSelector option { background: #000; color: #0f0; }
+        #loading { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #0f0; font-size: 24px; text-shadow: 0 0 10px #0f0; z-index: 200; }
+        #title { position: fixed; top: 50px; right: 10px; color: #0f0; font-size: 12px; text-shadow: 0 0 5px #0f0; z-index: 100; text-align: right; pointer-events: none; }
+        @keyframes blink { 0%, 50% { opacity: 1; } 51%, 100% { opacity: 0.3; } }
+        @keyframes pulse { 0%, 100% { opacity: 0.7; } 50% { opacity: 1; } }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas"></canvas>
+    <div id="ui">
+        <div id="fps">FPS: --</div>
+        <div id="altitude">ALT: --</div>
+        <div id="speed">SPD: --</div>
+    </div>
+    <select id="mapSelector"></select>
+    <div id="title">VOXELCOPTER<br><span style="font-size:10px; color:#0a0;">Powered by VoxelVibe Engine</span></div>
+    <div id="controls">
+        <h3>CONTROLS [H to hide]</h3>
+        <b style="color:#ff0">═══ COMANCHE (Helicopter) ═══</b><br>
+        <b>Movement:</b><br>
+        W/S - Forward/Back<br>
+        A/D - Bank Left/Right<br>
+        J/L - Yaw Left/Right<br>
+        R/F - Altitude Up/Down<br>
+        Q/E - Look Up/Down<br>
+        Space - Boost<br>
+        <b>Weapons:</b><br>
+        1-4 - Select Weapon<br>
+        Z/X or [ ] - Cycle Weapons<br>
+        ; - Chaff | ' - Flare<br>
+        <b>Targeting:</b><br>
+        T - Target Crosshairs<br>
+        Tab - Cycle Targets<br>
+        <hr style="border-color:#0a0;margin:3px 0">
+        <b style="color:#ff0">═══ DELTA (On Foot) ═══</b><br>
+        <b>Movement:</b><br>
+        WASD - Move | Mouse - Look<br>
+        Shift - Sprint<br>
+        Ctrl - Crouch | V - Prone<br>
+        <b>Weapons:</b><br>
+        Click - Fire | R - Reload<br>
+        Z/X - Cycle Weapons<br>
+        1-5 - Select Weapon<br>
+        <b>Targeting:</b><br>
+        T - Target Crosshairs<br>
+        Tab - Cycle Targets<br>
+        <hr style="border-color:#0a0;margin:3px 0">
+        <b style="color:#ff0">═══ GENERAL ═══</b><br>
+        E - Exit/Enter Heli<br>
+        M - Weather | N - NVG<br>
+        B - Sound | ESC - Pause<br>
+        <hr style="border-color:#0a0;margin:3px 0">
+        <label style="color:#0f0">Draw Distance:</label><br>
+        <input type="range" id="distanceSlider" min="400" max="2000" value="1200"
+               style="width:100%;accent-color:#0f0" oninput="updateDistance(this.value)">
+        <span id="distanceValue" style="color:#0f0">1200</span>
+    </div>
+    <div id="loading">LOADING TERRAIN...</div>
+
+    <script src="/src/web/public/game.js"></script>
+    <script>
+    // =====================================================================
+    // VOXELCOPTER — Ported to VoxelVibe Engine
+    // =====================================================================
+    (function() {
+        'use strict';
+
+        // -----------------------------------------------------------------
+        // ENGINE REFERENCES
+        // -----------------------------------------------------------------
+        const VV = window.VoxelVibe;
+        const { WEATHER_PRESETS, WEATHER_CYCLE } = VV.Systems.Weather;
+        const { WEAPONS, WEAPONS_DELTA, DAMAGE_MULTIPLIERS, WEAPON_ORDER, SOLDIER_WEAPON_ORDER, getDamageMultiplier, DEFAULT_COUNTERMEASURES } = VV.Data.Weapons;
+        const { TARGET_TYPES, FACTIONS, DOMAINS, ENTITY_BUDGET, getTargetDamageCategory } = VV.Data.Targets;
+        const { DEFAULT_MAPS } = VV.Data.Missions;
+        const { HELI_PHYSICS, SOLDIER_PHYSICS } = VV.Systems.Physics;
+        const { renderTerrain, getTerrainHeight: vvGetTerrainHeight, applyAmbient, blendWithFog } = VV.Render.Voxelspace;
+        const { GAME_STATES, GAME_MODES, isMenuState, MAIN_MENU_OPTIONS, PAUSE_OPTIONS } = VV.Game.State;
+        const { computeDeltaTime, createFrameState } = VV.Game.Loop;
+        const VVMath = VV.Core.Math;
+
+        // -----------------------------------------------------------------
+        // CONFIGURATION
+        // -----------------------------------------------------------------
+        const CONFIG = {
+            MAP_SIZE: 1024,
+            MAP_SHIFT: 10,
+            RENDER_DISTANCE: 1200,
+            MIN_ALTITUDE: 5,
+            MAX_ALTITUDE: 800,
+            MOVE_SPEED: 0.25,
+            TURN_SPEED: 0.008,
+            CLIMB_SPEED: 0.25,
+            HORIZON_SPEED: 1.0,
+            BOOST_MULTIPLIER: 3.0,
+            SKY_COLOR: 0xFF8090E0,
+            FOG_START: 400,
+            COLLISION_MARGIN: 5,
+            TARGET_COUNT: 8,
+            RADAR_SIZE: 100,
+            RADAR_RANGE: 500
+        };
+
+        // -----------------------------------------------------------------
+        // GAME STATE
+        // -----------------------------------------------------------------
+        let gameMode = GAME_MODES.COMANCHE;
+        let gameState = GAME_STATES.TITLE;
+        let currentMissionIndex = 0;
+        let missionTime = 0;
+        let missionStartTime = 0;
+        let defeatReason = '';
+        let missionNoDamage = true;
+        let playtimeAccumulator = 0;
+        let lastMissionElapsed = 0;
+        let activeMission = null;
+        let activeAIMission = null;
+        let aiMission = null;
+        let pendingAIMission = null;
+        let aiMissionBaseIndex = 0;
+        let aiMissionMapIndex = null;
+        let isGeneratingMission = false;
+        let missionGeneratorInput = '';
+        let missionGeneratorCursor = true;
+        let missionGeneratorCursorTime = 0;
+        let customMissionConfig = null;
+        const CUSTOM_MISSION_KEY = 'voxelcopter_map_editor';
+
+        // -----------------------------------------------------------------
+        // SETTINGS & PROFILE
+        // -----------------------------------------------------------------
+        const SETTINGS_KEY = 'voxelcopter_settings';
+        const PROFILE_KEY = 'voxelcopter_profile';
+        const DEFAULT_SETTINGS = {
+            masterVolume: 0.5, sfxVolume: 0.7, mouseSensitivity: 1.0,
+            invertY: false, drawDistance: CONFIG.RENDER_DISTANCE,
+            fogEnabled: true, defaultMode: GAME_MODES.COMANCHE
+        };
+        const DEFAULT_PROFILE = {
+            version: 1, highScore: 0, missionScores: {}, missionStars: {},
+            missionsCompleted: [], stats: {
+                totalKills: 0, totalDeaths: 0, totalTimePlayed: 0,
+                missionsPlayed: 0, missionsCompleted: 0,
+                tanksDestroyed: 0, samsDestroyed: 0, buildingsDestroyed: 0
+            },
+            achievements: [], firstPlayDate: null, lastPlayDate: null
+        };
+        let settings = { ...DEFAULT_SETTINGS };
+        let profile = { ...DEFAULT_PROFILE };
+        let fogEnabled = true;
+        let mouseSensitivity = 1.0;
+        let invertY = false;
+
+        function loadSettings() {
+            try {
+                const saved = localStorage.getItem(SETTINGS_KEY);
+                if (saved) { settings = { ...DEFAULT_SETTINGS, ...JSON.parse(saved) }; }
+            } catch(e) { console.warn('Failed to load settings'); }
+            applySettings();
+        }
+        function saveSettings() {
+            try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch(e) {}
+        }
+        function applySettings() {
+            fogEnabled = settings.fogEnabled;
+            mouseSensitivity = settings.mouseSensitivity;
+            invertY = settings.invertY;
+            camera.distance = settings.drawDistance;
+            if (masterVolumeNode) masterVolumeNode.gain.value = settings.masterVolume;
+            if (sfxVolumeNode) sfxVolumeNode.gain.value = settings.sfxVolume;
+        }
+        function loadProfile() {
+            try {
+                const saved = localStorage.getItem(PROFILE_KEY);
+                if (saved) { profile = { ...DEFAULT_PROFILE, ...JSON.parse(saved) }; }
+            } catch(e) {}
+        }
+        function saveProfile() {
+            try { localStorage.setItem(PROFILE_KEY, JSON.stringify(profile)); } catch(e) {}
+        }
+        function touchProfile() {
+            const now = new Date().toISOString();
+            if (!profile.firstPlayDate) profile.firstPlayDate = now;
+            profile.lastPlayDate = now;
+        }
+
+        // -----------------------------------------------------------------
+        // RENDERING STATE
+        // -----------------------------------------------------------------
+        let canvas, ctx, imageData, buf8, buf32;
+        let hiddenYBuffer;
+        let screenWidth, screenHeight;
+
+        // -----------------------------------------------------------------
+        // MAP DATA (uses VoxelVibe DEFAULT_MAPS)
+        // -----------------------------------------------------------------
+        const maps = DEFAULT_MAPS;
+        let currentMap = {
+            width: CONFIG.MAP_SIZE, height: CONFIG.MAP_SIZE,
+            shift: CONFIG.MAP_SHIFT, altitude: null, color: null
+        };
+
+        // Populate map selector from engine data
+        function populateMapSelector() {
+            const sel = document.getElementById('mapSelector');
+            sel.innerHTML = '';
+            maps.forEach((m, i) => {
+                const opt = document.createElement('option');
+                opt.value = (i + 1).toString();
+                opt.textContent = `${i + 1} - ${m.name}`;
+                sel.appendChild(opt);
+            });
+        }
+
+        // -----------------------------------------------------------------
+        // CAMERA STATE
+        // -----------------------------------------------------------------
+        const camera = {
+            x: 512, y: 512, height: 150, angle: 0,
+            horizon: 100, distance: CONFIG.RENDER_DISTANCE,
+            bank: 0, bankVelocity: 0, pitch: 0, yawRate: 0,
+            forwardSpeed: 0, lateralSpeed: 0, verticalSpeed: 0
+        };
+
+        let playerState = {
+            mode: GAME_MODES.COMANCHE,
+            heli: { x: 512, y: 512, z: 25, angle: 0, bank: 0, forwardSpeed: 0, lateralSpeed: 0, verticalSpeed: 0, health: 200, maxHealth: 200, destroyed: false, visible: true },
+            soldier: { x: 512, y: 512, stance: 'stand', health: 100 },
+            activeVehicle: 'heli'
+        };
+
+        const SOLDIER = {
+            stance: 'stand',
+            eyeHeights: { stand: 14, crouch: 9, prone: 4 },
+            speeds: { stand: 0.15, sprint: 0.28, crouch: 0.075, prone: 0.0375 },
+            velocity: { x: 0, y: 0 },
+            accel: 0.008, friction: 0.85,
+            isSprinting: false, stanceChanging: false,
+            headBob: 0, headBobSpeed: 0.15
+        };
+
+        let soldierWeapon = {
+            current: 'm4',
+            weapons: {
+                m4: { mag: 30, mags: 5, lastFire: 0 },
+                sniper: { mag: 5, mags: 4, lastFire: 0 },
+                pistol: { mag: 15, mags: 3, lastFire: 0 },
+                javelin: { mag: 1, mags: 3, lastFire: 0 },
+                stinger: { mag: 1, mags: 4, lastFire: 0 },
+                c4: { mag: 1, mags: 3, lastFire: 0 },
+                airstrike: { mag: 1, mags: 2, lastFire: 0 }
+            },
+            isReloading: false, reloadStartTime: 0, reloadDuration: 2000,
+            viewBob: 0, recoilOffset: 0, muzzleFlashTime: 0
+        };
+
+        let soldierScope = { active: false, zoom: 1 };
+
+        // -----------------------------------------------------------------
+        // INPUT STATE
+        // -----------------------------------------------------------------
+        const keys = {};
+        let currentSpeed = 0;
+        let mouseX = 0, mouseY = 0, lastMouseX = 0, lastMouseY = 0;
+        let isPointerDown = false;
+        let mouseLeftDown = false, mouseRightDown = false;
+        let activeSlider = null;
+        let deltaTriggerHeld = false, deltaTriggerPressed = false;
+        let comancheTriggerHeld = false;
+
+        // Menu navigation
+        let menuSelectionIndex = 0;
+        let campaignSelectionIndex = 0;
+        let freePlaySelectionIndex = 0;
+        let settingsSelectionIndex = 0;
+        let pauseSelectionIndex = 0;
+        let leaderboardScrollOffset = 0;
+        let menuButtons = [];
+        let settingsControls = [];
+        let pauseButtons = [];
+        const FREEPLAY_OPTIONS = ['LAUNCH FREE PLAY', 'BACK TO MENU'];
+        const SETTINGS_ITEMS = [
+            { key: 'masterVolume', label: 'MASTER VOLUME', type: 'slider', min: 0, max: 1, step: 0.01 },
+            { key: 'sfxVolume', label: 'SFX VOLUME', type: 'slider', min: 0, max: 1, step: 0.01 },
+            { key: 'mouseSensitivity', label: 'MOUSE SENSITIVITY', type: 'slider', min: 0.5, max: 2.0, step: 0.05 },
+            { key: 'invertY', label: 'INVERT Y', type: 'toggle' },
+            { key: 'drawDistance', label: 'DRAW DISTANCE', type: 'slider', min: 400, max: 2000, step: 50 },
+            { key: 'fogEnabled', label: 'FOG', type: 'toggle' },
+            { key: 'back', label: 'BACK TO MENU', type: 'action' }
+        ];
+
+        // -----------------------------------------------------------------
+        // COMBAT STATE
+        // -----------------------------------------------------------------
+        let targets = [];
+        let projectiles = [];
+        let enemyProjectiles = [];
+        let explosions = [];
+        let score = 0;
+        let currentWeapon = 'cannon';
+        let lastFireTime = 0;
+        let playerHealth = 100;
+        let maxPlayerHealth = 100;
+        let isPlayerDead = false;
+        let missionComplete = false;
+        let alertLevel = 0, alertTimer = 0;
+        const ALERT_DURATION = 30000;
+
+        let world = { stamps: [], airports: [], bases: [], helipads: [] };
+        let airportSpawnTimers = {};
+        let helipadSpawnTimers = {};
+        let missileWarning = false, missileWarningTime = 0;
+
+        const weaponState = {
+            cannon: { ammo: Infinity },
+            rockets: { ammo: 20 },
+            hellfire: { ammo: 8 },
+            stinger: { ammo: 4 }
+        };
+        let currentWeaponIndex = 0;
+        const weaponOrder = ['cannon', 'rockets', 'hellfire', 'stinger'];
+        const countermeasures = {
+            chaff: { count: 10, cooldown: 2000, lastUsed: 0 },
+            flare: { count: 10, cooldown: 2000, lastUsed: 0 }
+        };
+
+        // Targeting system
+        const targetingSystem = {
+            lockedTarget: null, selectedTarget: null, lockProgress: 0,
+            lockStartTime: 0, isLocking: false, lastCycleTime: 0,
+            lockTimes: { hellfire: 1500, stinger: 1000, javelin: 2000 },
+            getValidTargetTypes() {
+                const weapon = gameMode === GAME_MODES.DELTA ? soldierWeapon.current : weaponOrder[currentWeaponIndex];
+                if (weapon === 'stinger') return { domain: DOMAINS.AIR, requiresLock: true };
+                if (weapon === 'hellfire' || weapon === 'javelin') return { domain: 'surface', requiresLock: true };
+                return { domain: null, requiresLock: false };
+            },
+            isValidTarget(target) {
+                if (!target || target.destroyed) return false;
+                if (target.faction !== FACTIONS.ENEMY) return false;
+                const vt = this.getValidTargetTypes();
+                if (vt.domain) {
+                    if (vt.domain === 'surface') { if (target.domain === DOMAINS.AIR) return false; }
+                    else if (target.domain !== vt.domain) return false;
+                }
+                return true;
+            },
+            getLockTime() {
+                const weapon = gameMode === GAME_MODES.DELTA ? soldierWeapon.current : weaponOrder[currentWeaponIndex];
+                return this.lockTimes[weapon] || 0;
+            },
+            reset() { this.lockedTarget = null; this.selectedTarget = null; this.lockProgress = 0; this.isLocking = false; this.lockStartTime = 0; },
+            getTargetingRange() {
+                const weapon = gameMode === GAME_MODES.DELTA ? soldierWeapon.current : weaponOrder[currentWeaponIndex];
+                if (weapon === 'hellfire' || weapon === 'javelin') return 2000;
+                if (weapon === 'stinger') return 1200;
+                return 800;
+            }
+        };
+
+        // Combat feedback
+        let screenFlashColor = null, screenFlashTime = 0;
+        let screenShake = { x: 0, y: 0, intensity: 0, decay: 0.9, duration: 0 };
+        let muzzleFlashTime = 0, muzzleFlashIntensity = 0;
+        let hitMarkerTime = 0, hitMarkerIntensity = 0;
+        let damageVignetteTime = 0, damageVignetteIntensity = 0;
+        let nightVisionMode = false;
+        let godMode = false;
+        let simpleControls = false;
+
+        // Weather
+        let weatherCondition = 'clear';
+
+        // Particles
+        const MAX_PARTICLES = 200;
+        const PARTICLE_GRAVITY = 120;
+        let particles = [];
+        let particlePool = [];
+
+        // Rain
+        const MAX_RAIN_PARTICLES = 300;
+        let rainParticles = [];
+        let lightningFlash = 0;
+        let nextLightningTime = 0;
+
+        // Performance
+        let lastTime = 0;
+        let frameCount = 0, fps = 0, fpsUpdateTime = 0;
+        let transition = {
+            active: false, alpha: 0, phase: 'out', duration: 0,
+            startTime: 0, targetState: null, onSwitch: null,
+            hold: false, switched: false
+        };
+
+        // Audio
+        let audioCtx = null;
+        let masterVolumeNode = null, sfxVolumeNode = null;
+        let soundEnabled = true;
+        let rotorOscillator = null, rotorLfo = null, rotorGain = null;
+        let warningInterval = null;
+        let windSource = null, windGain = null, windFilter = null;
+        let noiseBuffer = null;
+
+        // Achievements
+        const ACHIEVEMENTS = {
+            first_blood: { name: 'First Blood', desc: 'Destroy your first target', icon: '🎯' },
+            tank_hunter: { name: 'Tank Hunter', desc: 'Destroy 10 tanks', icon: '🚗' },
+            sam_buster: { name: 'SAM Buster', desc: 'Destroy 5 SAM sites', icon: '🚀' },
+            survivor: { name: 'Survivor', desc: 'Complete a mission without taking damage', icon: '🛡️' },
+            speed_demon: { name: 'Speed Demon', desc: 'Complete a mission in under 60 seconds', icon: '⚡' },
+            ace_pilot: { name: 'Ace Pilot', desc: 'Complete all 5 missions', icon: '🏆' },
+            high_scorer: { name: 'High Scorer', desc: 'Score over 10,000 points', icon: '💯' },
+            dedicated: { name: 'Dedicated', desc: 'Play for 30 minutes total', icon: '⏰' },
+            veteran: { name: 'Veteran', desc: 'Complete 3 missions', icon: '🎖️' },
+            scorched_earth: { name: 'Scorched Earth', desc: 'Destroy 10 buildings', icon: '🏗️' }
+        };
+        const ACHIEVEMENT_TOAST_DURATION = 3000;
+        const ACHIEVEMENT_TOAST_SLIDE = 260;
+        let achievementToasts = [];
+
+        // Stats
+        let sessionStats = { shotsFired: 0, targetsDestroyed: 0, score: 0, startTime: 0 };
+        let telemetry = { shotsFired: 0, missilesFired: 0, targetsDestroyed: 0, damageDealt: 0, damageTaken: 0, flightTime: 0, groundTime: 0 };
+        let showOnboardingHints = true;
+
+        // Airstrike / C4
+        let placedC4Charges = [];
+        let airstrikeState = { designating: false, targetX: null, targetY: null, targetZ: null, planesInbound: [], lastCallTime: 0, inboundMessageUntil: 0 };
+
+        // Objective system
+        let objectiveState = { objectives: [], completed: false, startTime: 0, allComplete: false };
+
+        // Leaderboard cache
+        let cachedGlobalStats = null;
+        let lastGlobalStatsFetch = 0;
+
+        // -----------------------------------------------------------------
+        // HELPER: getTerrainHeight using VoxelVibe engine
+        // -----------------------------------------------------------------
+        function getTerrainHeight(x, y) {
+            if (!currentMap.altitude) return 0;
+            const ix = Math.floor(x) & (CONFIG.MAP_SIZE - 1);
+            const iy = Math.floor(y) & (CONFIG.MAP_SIZE - 1);
+            return currentMap.altitude[(iy << CONFIG.MAP_SHIFT) + ix];
+        }
+
+        function getTerrainColor(x, y) {
+            if (!currentMap.color) return 0xFF000000;
+            const ix = Math.floor(x) & (CONFIG.MAP_SIZE - 1);
+            const iy = Math.floor(y) & (CONFIG.MAP_SIZE - 1);
+            return currentMap.color[(iy << CONFIG.MAP_SHIFT) + ix];
+        }
+
+        function isWaterAt(x, y, height) {
+            const h = height !== undefined && height !== null ? height : getTerrainHeight(x, y);
+            if (h < 12) return true;
+            const color = getTerrainColor(x, y);
+            const r = color & 0xFF;
+            const g = (color >> 8) & 0xFF;
+            const b = (color >> 16) & 0xFF;
+            return b > 110 && b > g + 20 && b > r + 20;
+        }
+
+        function estimateSlope(x, y, radius) {
+            radius = radius || 8;
+            let maxDiff = 0;
+            const centerHeight = getTerrainHeight(x, y);
+            for (let angle = 0; angle < Math.PI * 2; angle += Math.PI / 4) {
+                const h = getTerrainHeight(x + Math.cos(angle) * radius, y + Math.sin(angle) * radius);
+                maxDiff = Math.max(maxDiff, Math.abs(h - centerHeight));
+            }
+            return maxDiff;
+        }
+
+        function distance2D(x1, y1, x2, y2) {
+            const dx = x1 - x2, dy = y1 - y2;
+            return Math.sqrt(dx * dx + dy * dy);
+        }
+
+        // -----------------------------------------------------------------
+        // CANVAS & MAP LOADING
+        // -----------------------------------------------------------------
+        function resizeCanvas() {
+            screenWidth = window.innerWidth;
+            screenHeight = window.innerHeight;
+            canvas.width = screenWidth;
+            canvas.height = screenHeight;
+            imageData = ctx.createImageData(screenWidth, screenHeight);
+            buf8 = new Uint8ClampedArray(imageData.data.buffer);
+            buf32 = new Uint32Array(imageData.data.buffer);
+            hiddenYBuffer = new Int32Array(screenWidth);
+            camera.horizon = screenHeight * 0.4;
+            initRainParticles();
+        }
+
+        let baseMap = { altitude: null, color: null };
+        function snapshotBaseMap() {
+            if (currentMap.altitude && currentMap.color) {
+                baseMap.altitude = new Uint16Array(currentMap.altitude);
+                baseMap.color = new Uint32Array(currentMap.color);
+            }
+        }
+        function restoreBaseMap() {
+            if (baseMap.altitude && baseMap.color) {
+                currentMap.altitude.set(baseMap.altitude);
+                currentMap.color.set(baseMap.color);
+            }
+        }
+
+        function loadMap(index) {
+            const loadingEl = document.getElementById('loading');
+            loadingEl.style.display = 'block';
+            loadingEl.textContent = 'LOADING ' + maps[index].name.toUpperCase() + '...';
+            document.getElementById('mapSelector').value = (index + 1).toString();
+
+            const mapData = maps[index];
+            let loadedCount = 0;
+            const colorImg = new Image();
+            const heightImg = new Image();
+            colorImg.crossOrigin = 'anonymous';
+            heightImg.crossOrigin = 'anonymous';
+
+            function checkLoaded() {
+                loadedCount++;
+                if (loadedCount === 2) {
+                    processMapImages(colorImg, heightImg);
+                    loadingEl.style.display = 'none';
+                    camera.x = 512; camera.y = 512; camera.height = 80;
+                    camera.angle = 0; camera.horizon = screenHeight * 0.4;
+                    initCombat();
+                }
+            }
+            colorImg.onload = checkLoaded;
+            heightImg.onload = checkLoaded;
+            colorImg.onerror = () => { loadingEl.textContent = 'ERROR LOADING COLOR MAP'; };
+            heightImg.onerror = () => { loadingEl.textContent = 'ERROR LOADING HEIGHT MAP'; };
+            colorImg.src = mapData.color;
+            heightImg.src = mapData.height;
+        }
+
+        function processMapImages(colorImg, heightImg) {
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = CONFIG.MAP_SIZE;
+            tempCanvas.height = CONFIG.MAP_SIZE;
+            const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
+
+            // Color map → ABGR Uint32Array
+            tempCtx.drawImage(colorImg, 0, 0, CONFIG.MAP_SIZE, CONFIG.MAP_SIZE);
+            const colorData = tempCtx.getImageData(0, 0, CONFIG.MAP_SIZE, CONFIG.MAP_SIZE);
+            currentMap.color = new Uint32Array(CONFIG.MAP_SIZE * CONFIG.MAP_SIZE);
+            for (let i = 0; i < CONFIG.MAP_SIZE * CONFIG.MAP_SIZE; i++) {
+                const r = colorData.data[i * 4];
+                const g = colorData.data[i * 4 + 1];
+                const b = colorData.data[i * 4 + 2];
+                currentMap.color[i] = (255 << 24) | (b << 16) | (g << 8) | r;
+            }
+
+            // Height map → Uint16Array (scaled)
+            tempCtx.drawImage(heightImg, 0, 0, CONFIG.MAP_SIZE, CONFIG.MAP_SIZE);
+            const heightData = tempCtx.getImageData(0, 0, CONFIG.MAP_SIZE, CONFIG.MAP_SIZE);
+            currentMap.altitude = new Uint16Array(CONFIG.MAP_SIZE * CONFIG.MAP_SIZE);
+            const HEIGHT_SCALE = 1.8;
+            for (let i = 0; i < CONFIG.MAP_SIZE * CONFIG.MAP_SIZE; i++) {
+                currentMap.altitude[i] = Math.floor(heightData.data[i * 4] * HEIGHT_SCALE);
+            }
+
+            if (!lastTime) {
+                lastTime = performance.now();
+                requestAnimationFrame(gameLoop);
+            }
+            snapshotBaseMap();
+        }
+
+        // -----------------------------------------------------------------
+        // TERRAIN RENDERING — uses VoxelVibe engine
+        // -----------------------------------------------------------------
+        function render() {
+            if (!currentMap.altitude || !currentMap.color) return;
+
+            const renderCam = {
+                x: camera.x, y: camera.y, height: camera.height,
+                angle: camera.angle, horizon: camera.horizon,
+                distance: camera.distance, bank: camera.bank || 0
+            };
+
+            // Apply screen shake
+            if (screenShake.intensity > 0) {
+                const ss = 0.05;
+                renderCam.x += (Math.cos(renderCam.angle) * -screenShake.y + Math.sin(renderCam.angle) * screenShake.x) * ss;
+                renderCam.y += (Math.sin(renderCam.angle) * -screenShake.y - Math.cos(renderCam.angle) * screenShake.x) * ss;
+                renderCam.horizon += screenShake.y;
+            }
+
+            const weather = WEATHER_PRESETS[weatherCondition];
+            const vvMap = {
+                altitude: currentMap.altitude,
+                color: currentMap.color,
+                shift: CONFIG.MAP_SHIFT,
+                size: CONFIG.MAP_SIZE
+            };
+            const vvConfig = { screenWidth, screenHeight, fogEnabled };
+
+            // >>> USE VOXELVIBE ENGINE FOR TERRAIN RENDERING <<<
+            renderTerrain(buf32, vvMap, renderCam, weather, vvConfig, hiddenYBuffer);
+
+            // Blit terrain to canvas
+            ctx.putImageData(imageData, 0, 0);
+
+            // Game elements rendering during gameplay
+            if (gameState === GAME_STATES.PLAYING || gameState === GAME_STATES.PAUSED) {
+                renderTargets(renderCam);
+                renderAirstrikePlanes(renderCam);
+                renderParkedHelicopter(renderCam);
+                renderExtractionBeacon(renderCam);
+                renderC4Charges(renderCam);
+                renderProjectiles(renderCam);
+                renderEnemyProjectiles(renderCam);
+                renderExplosions(renderCam);
+                renderParticles(renderCam);
+
+                if (nightVisionMode) applyNightVisionEffect();
+                renderScreenFlash();
+                renderMuzzleFlash();
+                renderDamageVignette();
+
+                const zoomFactor = getDeltaZoomFactor();
+                if (zoomFactor > 1.01) {
+                    const srcW = screenWidth / zoomFactor, srcH = screenHeight / zoomFactor;
+                    const srcX = (screenWidth - srcW) / 2, srcY = (screenHeight - srcH) / 2;
+                    ctx.imageSmoothingEnabled = false;
+                    ctx.drawImage(canvas, srcX, srcY, srcW, srcH, 0, 0, screenWidth, screenHeight);
+                    ctx.imageSmoothingEnabled = true;
+                }
+
+                renderHUD();
+                renderObjectivesPanel();
+                renderMissionTimer();
+                renderMissionMessage();
+            }
+
+            renderRainEffect();
+
+            // State overlays
+            if (gameState === GAME_STATES.TITLE) renderTitleOverlay();
+            else if (gameState === GAME_STATES.MENU) renderMainMenuOverlay();
+            else if (gameState === GAME_STATES.CAMPAIGN) renderCampaignOverlay();
+            else if (gameState === GAME_STATES.FREEPLAY) renderFreePlayOverlay();
+            else if (gameState === GAME_STATES.SETTINGS) renderSettingsOverlay();
+            else if (gameState === GAME_STATES.ACHIEVEMENTS) renderAchievementsOverlay();
+            else if (gameState === GAME_STATES.LEADERBOARD) { refreshGlobalStatsIfNeeded(); renderLeaderboardOverlay(); }
+            else if (gameState === GAME_STATES.HOWTO) renderHowToOverlay();
+            else if (gameState === GAME_STATES.MISSION_GENERATOR) renderMissionGeneratorOverlay();
+            else if (gameState === GAME_STATES.CUSTOM_MISSION) renderCustomMissionOverlay();
+            else if (gameState === GAME_STATES.BRIEFING) renderBriefingOverlay();
+            else if (gameState === GAME_STATES.PAUSED) renderPauseOverlay();
+            else if (gameState === GAME_STATES.VICTORY) {
+                renderTargets(camera); renderExplosions(camera); renderHUD();
+                renderVictoryOverlay();
+                refreshGlobalStatsIfNeeded();
+                if (cachedGlobalStats) renderLeaderboard(cachedGlobalStats);
+            } else if (gameState === GAME_STATES.DEFEAT) {
+                renderTargets(camera); renderExplosions(camera); renderHUD();
+                renderDefeatOverlay();
+            }
+
+            if (transition.active && transition.alpha > 0) {
+                ctx.fillStyle = 'rgba(0, 0, 0, ' + transition.alpha + ')';
+                ctx.fillRect(0, 0, screenWidth, screenHeight);
+            }
+            renderAchievementToasts();
+        }
+
+        // -----------------------------------------------------------------
+        // STUB FUNCTIONS (to be ported from index.html)
+        // These are minimal stubs so the game loop runs without errors.
+        // Each will be filled in as we port more code.
+        // -----------------------------------------------------------------
+        function renderTargets(cam) { /* TODO: port from index.html */ }
+        function renderAirstrikePlanes(cam) { /* TODO */ }
+        function renderParkedHelicopter(cam) { /* TODO */ }
+        function renderExtractionBeacon(cam) { /* TODO */ }
+        function renderC4Charges(cam) { /* TODO */ }
+        function renderProjectiles(cam) { /* TODO */ }
+        function renderEnemyProjectiles(cam) { /* TODO */ }
+        function renderExplosions(cam) { /* TODO */ }
+        function renderParticles(cam) { /* TODO */ }
+        function applyNightVisionEffect() { /* TODO */ }
+        function renderScreenFlash() { /* TODO */ }
+        function renderMuzzleFlash() { /* TODO */ }
+        function renderDamageVignette() { /* TODO */ }
+        function getDeltaZoomFactor() { return 1; }
+        function renderHUD() { /* TODO: port from index.html */ }
+        function renderObjectivesPanel() { /* TODO */ }
+        function renderMissionTimer() { /* TODO */ }
+        function renderMissionMessage() { /* TODO */ }
+        function renderTitleOverlay() {
+            ctx.fillStyle = 'rgba(0,0,0,0.6)';
+            ctx.fillRect(0, 0, screenWidth, screenHeight);
+            ctx.fillStyle = '#0f0';
+            ctx.font = 'bold 48px Courier New';
+            ctx.textAlign = 'center';
+            ctx.fillText('VOXELCOPTER', screenWidth / 2, screenHeight / 2 - 40);
+            ctx.font = '16px Courier New';
+            ctx.fillText('Powered by VoxelVibe Engine', screenWidth / 2, screenHeight / 2);
+            ctx.fillStyle = '#0a0';
+            ctx.font = '14px Courier New';
+            const blink = Math.floor(performance.now() / 500) % 2 === 0;
+            if (blink) ctx.fillText('PRESS ANY KEY TO START', screenWidth / 2, screenHeight / 2 + 50);
+            ctx.textAlign = 'left';
+        }
+        function renderMainMenuOverlay() {
+            ctx.fillStyle = 'rgba(0,0,0,0.7)';
+            ctx.fillRect(0, 0, screenWidth, screenHeight);
+            ctx.textAlign = 'center';
+            ctx.fillStyle = '#0f0';
+            ctx.font = 'bold 36px Courier New';
+            ctx.fillText('MAIN MENU', screenWidth / 2, 80);
+            ctx.font = '18px Courier New';
+            const options = MAIN_MENU_OPTIONS;
+            for (let i = 0; i < options.length; i++) {
+                const y = 140 + i * 35;
+                ctx.fillStyle = (i === menuSelectionIndex) ? '#ff0' : '#0f0';
+                let label = options[i];
+                if (i === 0) label = 'MODE: ' + gameMode.toUpperCase() + ' ◄►';
+                ctx.fillText((i === menuSelectionIndex ? '▸ ' : '  ') + label, screenWidth / 2, y);
+            }
+            ctx.textAlign = 'left';
+        }
+        function renderCampaignOverlay() { renderStubOverlay('CAMPAIGN SELECT', 'Use ↑↓ and ENTER'); }
+        function renderFreePlayOverlay() { renderStubOverlay('FREE PLAY', 'Use ↑↓ and ENTER'); }
+        function renderSettingsOverlay() { renderStubOverlay('SETTINGS', 'Use ↑↓←→ and ENTER'); }
+        function renderAchievementsOverlay() { renderStubOverlay('ACHIEVEMENTS', 'Press ENTER to go back'); }
+        function renderLeaderboardOverlay() { renderStubOverlay('LEADERBOARD', 'Press ENTER to go back'); }
+        function renderHowToOverlay() { renderStubOverlay('HOW TO PLAY', 'Press ENTER to go back'); }
+        function renderMissionGeneratorOverlay() { renderStubOverlay('AI MISSION', 'Type a description + ENTER'); }
+        function renderCustomMissionOverlay() { renderStubOverlay('CUSTOM MISSION', 'Press ENTER to start'); }
+        function renderBriefingOverlay() { renderStubOverlay('MISSION BRIEFING', 'Press ENTER to launch'); }
+        function renderPauseOverlay() { renderStubOverlay('PAUSED', 'Press ESC to resume'); }
+        function renderVictoryOverlay() { renderStubOverlay('VICTORY!', 'Press ENTER to continue'); }
+        function renderDefeatOverlay() { renderStubOverlay('DEFEAT', 'Press ENTER to retry'); }
+        function renderLeaderboard() { /* TODO */ }
+        function renderAchievementToasts() { /* TODO */ }
+        function refreshGlobalStatsIfNeeded() { /* TODO */ }
+        function renderStubOverlay(title, subtitle) {
+            ctx.fillStyle = 'rgba(0,0,0,0.7)';
+            ctx.fillRect(0, 0, screenWidth, screenHeight);
+            ctx.textAlign = 'center';
+            ctx.fillStyle = '#0f0'; ctx.font = 'bold 36px Courier New';
+            ctx.fillText(title, screenWidth / 2, screenHeight / 2 - 20);
+            ctx.fillStyle = '#0a0'; ctx.font = '16px Courier New';
+            ctx.fillText(subtitle, screenWidth / 2, screenHeight / 2 + 20);
+            ctx.textAlign = 'left';
+        }
+
+        // -----------------------------------------------------------------
+        // RAIN PARTICLE SYSTEM
+        // -----------------------------------------------------------------
+        function initRainParticles() { rainParticles = []; }
+        function updateRainParticles(deltaTime) {
+            const weather = WEATHER_PRESETS[weatherCondition];
+            if (!weather.hasRain) { rainParticles = []; lightningFlash *= 0.9; return; }
+            while (rainParticles.length < MAX_RAIN_PARTICLES) {
+                rainParticles.push({ x: Math.random() * screenWidth, y: Math.random() * screenHeight, speed: 8 + Math.random() * 12, length: 5 + Math.random() * 15 });
+            }
+            for (let i = rainParticles.length - 1; i >= 0; i--) {
+                const p = rainParticles[i];
+                p.y += p.speed; p.x -= p.speed * 0.3;
+                if (p.y > screenHeight || p.x < 0) { p.y = -p.length; p.x = Math.random() * (screenWidth + 200); }
+            }
+            lightningFlash *= 0.85;
+            if (performance.now() > nextLightningTime) {
+                lightningFlash = 0.8 + Math.random() * 0.2;
+                nextLightningTime = performance.now() + 5000 + Math.random() * 15000;
+            }
+        }
+        function renderRainEffect() {
+            const weather = WEATHER_PRESETS[weatherCondition];
+            if (!weather.hasRain && lightningFlash < 0.01) return;
+            if (lightningFlash > 0.01) {
+                ctx.fillStyle = 'rgba(255,255,255,' + (lightningFlash * 0.3) + ')';
+                ctx.fillRect(0, 0, screenWidth, screenHeight);
+            }
+            if (weather.hasRain && rainParticles.length > 0) {
+                ctx.strokeStyle = 'rgba(180,200,255,0.3)';
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                for (const p of rainParticles) {
+                    ctx.moveTo(p.x, p.y);
+                    ctx.lineTo(p.x - p.speed * 0.3, p.y + p.length);
+                }
+                ctx.stroke();
+            }
+        }
+
+        // -----------------------------------------------------------------
+        // PARTICLE SYSTEM
+        // -----------------------------------------------------------------
+        function getPooledParticle() { return particlePool.pop() || {}; }
+        function recycleParticle(index) {
+            particlePool.push(particles[index]);
+            particles[index] = particles[particles.length - 1];
+            particles.pop();
+        }
+        function updateParticles(deltaTime) {
+            const dt = deltaTime / 1000;
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const p = particles[i];
+                p.lifetime -= deltaTime;
+                if (p.lifetime <= 0) { recycleParticle(i); continue; }
+                p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
+                if (p.type !== 'smoke' && p.type !== 'trail_smoke') p.vz -= PARTICLE_GRAVITY * dt;
+                p.vx *= 0.99; p.vy *= 0.99;
+                const th = getTerrainHeight(p.x, p.y);
+                if (p.z < th) { p.z = th; p.vz = Math.abs(p.vz) * 0.3; p.vx *= 0.8; p.vy *= 0.8; }
+            }
+        }
+
+        // -----------------------------------------------------------------
+        // COMBAT INITIALIZATION
+        // -----------------------------------------------------------------
+        function initCombat() {
+            targets = []; projectiles = []; enemyProjectiles = [];
+            explosions = []; particles = []; particlePool = [];
+            score = 0; playerHealth = maxPlayerHealth;
+            isPlayerDead = false; missionComplete = false;
+            missileWarning = false; missileWarningTime = 0;
+            screenFlashColor = null; screenFlashTime = 0;
+            weaponState.cannon.ammo = Infinity;
+            weaponState.rockets.ammo = WEAPONS.rockets.maxAmmo;
+            weaponState.hellfire.ammo = WEAPONS.hellfire.maxAmmo;
+            weaponState.stinger.ammo = WEAPONS.stinger.maxAmmo;
+            currentWeaponIndex = 0; currentWeapon = weaponOrder[0];
+            countermeasures.chaff.count = 10; countermeasures.flare.count = 10;
+        }
+
+        // -----------------------------------------------------------------
+        // SCREEN TRANSITIONS
+        // -----------------------------------------------------------------
+        function startTransition(targetState, duration, options) {
+            duration = duration || 700; options = options || {};
+            if (transition.active) return;
+            transition.active = true; transition.phase = 'out';
+            transition.startTime = performance.now();
+            transition.duration = duration;
+            transition.targetState = targetState;
+            transition.onSwitch = options.onSwitch || null;
+            transition.hold = options.hold || false;
+            transition.switched = false; transition.alpha = 0;
+            if (!transition.onSwitch && targetState === GAME_STATES.MENU) {
+                transition.onSwitch = function() { gameState = GAME_STATES.MENU; menuSelectionIndex = 0; };
+            }
+        }
+        function releaseTransition() {
+            if (transition.active && transition.phase === 'hold') {
+                transition.phase = 'in'; transition.startTime = performance.now();
+            }
+        }
+        function updateTransition(timestamp) {
+            if (!transition.active) return;
+            const half = Math.max(1, transition.duration / 2);
+            if (transition.phase === 'out') {
+                const t = Math.min(1, (timestamp - transition.startTime) / half);
+                transition.alpha = t;
+                if (t >= 1) {
+                    if (!transition.switched) {
+                        transition.switched = true;
+                        if (transition.onSwitch) transition.onSwitch();
+                        else gameState = transition.targetState;
+                    }
+                    if (transition.hold) { transition.phase = 'hold'; }
+                    else { transition.phase = 'in'; transition.startTime = timestamp; }
+                }
+            } else if (transition.phase === 'hold') {
+                transition.alpha = 1;
+            } else if (transition.phase === 'in') {
+                const t = Math.min(1, (timestamp - transition.startTime) / half);
+                transition.alpha = 1 - t;
+                if (t >= 1) {
+                    transition.active = false; transition.alpha = 0;
+                }
+            }
+        }
+
+        // -----------------------------------------------------------------
+        // COMBAT FEEDBACK
+        // -----------------------------------------------------------------
+        function addScreenShake(intensity, duration) {
+            screenShake.intensity = Math.max(screenShake.intensity, intensity);
+            screenShake.duration = Math.max(screenShake.duration, duration);
+        }
+        function updateScreenShake(deltaTime) {
+            if (screenShake.intensity > 0) {
+                screenShake.x = (Math.random() - 0.5) * screenShake.intensity * 2;
+                screenShake.y = (Math.random() - 0.5) * screenShake.intensity * 2;
+                screenShake.intensity *= screenShake.decay;
+                screenShake.duration -= deltaTime;
+                if (screenShake.duration <= 0 || screenShake.intensity < 0.1) {
+                    screenShake.intensity = 0; screenShake.x = 0; screenShake.y = 0;
+                }
+            }
+        }
+        function updateScreenFlash(deltaTime) {
+            if (screenFlashTime > 0) screenFlashTime -= deltaTime;
+        }
+        function triggerMuzzleFlash(intensity) { muzzleFlashTime = 80; muzzleFlashIntensity = intensity; }
+        function updateCombatFeedback(deltaTime) {
+            if (muzzleFlashTime > 0) muzzleFlashTime -= deltaTime;
+            if (hitMarkerTime > 0) hitMarkerTime -= deltaTime;
+            if (damageVignetteTime > 0) damageVignetteTime -= deltaTime;
+            if (soldierWeapon.recoilOffset > 0) soldierWeapon.recoilOffset *= 0.85;
+            if (soldierWeapon.muzzleFlashTime > 0) soldierWeapon.muzzleFlashTime -= deltaTime;
+        }
+
+        // -----------------------------------------------------------------
+        // INPUT HANDLING
+        // -----------------------------------------------------------------
+        function handlePointerMove(e) {
+            if (gameState === GAME_STATES.PLAYING) {
+                const dx = e.movementX || 0;
+                const dy = e.movementY || 0;
+                const sens = mouseSensitivity * 0.003;
+                camera.angle -= dx * sens;
+                const horizonDelta = invertY ? dx : -dy;
+                camera.horizon += horizonDelta * sens * 100;
+                camera.horizon = Math.max(screenHeight * 0.05, Math.min(screenHeight * 0.95, camera.horizon));
+            }
+            mouseX = e.clientX; mouseY = e.clientY;
+        }
+
+        function handlePointerDown(e) {
+            initAudioOnInteraction();
+            if (gameState === GAME_STATES.PLAYING) {
+                if (e.button === 0) { mouseLeftDown = true; deltaTriggerHeld = true; deltaTriggerPressed = true; comancheTriggerHeld = true; }
+                if (e.button === 2) mouseRightDown = true;
+                if (document.pointerLockElement !== canvas) canvas.requestPointerLock();
+            }
+        }
+
+        function handlePointerUp(e) {
+            if (e.button === 0) { mouseLeftDown = false; deltaTriggerHeld = false; comancheTriggerHeld = false; }
+            if (e.button === 2) mouseRightDown = false;
+        }
+
+        function handleSoldierInput(deltaTime) {
+            const dt = Math.max(0, Math.min(2, deltaTime / 16.666));
+            if ((keys['ControlLeft'] || keys['ControlRight']) && !SOLDIER.stanceChanging) {
+                SOLDIER.stance = SOLDIER.stance === 'crouch' ? 'stand' : 'crouch'; SOLDIER.stanceChanging = true;
+            }
+            if (keys['KeyV'] && !SOLDIER.stanceChanging) {
+                SOLDIER.stance = SOLDIER.stance === 'prone' ? 'stand' : 'prone'; SOLDIER.stanceChanging = true;
+            }
+            const moveX = (keys['KeyD'] ? 1 : 0) - (keys['KeyA'] ? 1 : 0);
+            const moveY = (keys['KeyW'] ? 1 : 0) - (keys['KeyS'] ? 1 : 0);
+            const hasInput = moveX !== 0 || moveY !== 0;
+            SOLDIER.isSprinting = (SOLDIER.stance === 'stand') && (!!keys['ShiftLeft'] || !!keys['ShiftRight']);
+            const baseSpeed = SOLDIER.speeds[SOLDIER.stance] || SOLDIER.speeds.stand;
+            const maxSpeed = (SOLDIER.isSprinting && SOLDIER.stance === 'stand') ? SOLDIER.speeds.sprint : baseSpeed;
+            if (hasInput) {
+                const sinA = Math.sin(camera.angle), cosA = Math.cos(camera.angle);
+                let dirX = (-sinA) * moveY + cosA * moveX;
+                let dirY = (-cosA) * moveY + (-sinA) * moveX;
+                const dirLen = Math.hypot(dirX, dirY) || 1;
+                dirX /= dirLen; dirY /= dirLen;
+                SOLDIER.velocity.x += dirX * SOLDIER.accel * dt;
+                SOLDIER.velocity.y += dirY * SOLDIER.accel * dt;
+                const speed = Math.hypot(SOLDIER.velocity.x, SOLDIER.velocity.y);
+                const speedLimit = maxSpeed * dt;
+                if (speed > speedLimit) { const s = speedLimit / speed; SOLDIER.velocity.x *= s; SOLDIER.velocity.y *= s; }
+            } else {
+                SOLDIER.velocity.x *= SOLDIER.friction; SOLDIER.velocity.y *= SOLDIER.friction;
+                if (Math.abs(SOLDIER.velocity.x) < 0.0001) SOLDIER.velocity.x = 0;
+                if (Math.abs(SOLDIER.velocity.y) < 0.0001) SOLDIER.velocity.y = 0;
+            }
+            camera.x += SOLDIER.velocity.x; camera.y += SOLDIER.velocity.y;
+            camera.x = ((camera.x % CONFIG.MAP_SIZE) + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
+            camera.y = ((camera.y % CONFIG.MAP_SIZE) + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
+            const terrainH = getTerrainHeight(camera.x, camera.y);
+            const eyeH = SOLDIER.eyeHeights[SOLDIER.stance] || SOLDIER.eyeHeights.stand;
+            const moveSpeed = Math.hypot(SOLDIER.velocity.x, SOLDIER.velocity.y);
+            if (moveSpeed > 0.001) {
+                const bobMul = SOLDIER.isSprinting ? 1.6 : 1.0;
+                SOLDIER.headBob += SOLDIER.headBobSpeed * bobMul * dt;
+            } else { SOLDIER.headBob *= 0.9; }
+            soldierWeapon.viewBob = SOLDIER.headBob;
+            const bobAmp = SOLDIER.isSprinting ? 1.4 : (soldierScope.active ? 0.4 : 0.8);
+            camera.height = terrainH + eyeH + Math.sin(SOLDIER.headBob) * bobAmp;
+            camera.horizon = Math.max(screenHeight * 0.05, Math.min(screenHeight * 0.95, camera.horizon));
+            currentSpeed = moveSpeed;
+        }
+
+        function handleInput(deltaTime) {
+            if (gameState !== GAME_STATES.PLAYING) return;
+            if (gameMode === GAME_MODES.DELTA) { handleSoldierInput(deltaTime); return; }
+
+            const dt = Math.max(0, Math.min(2, deltaTime / 16.666));
+            const boost = keys['Space'] ? CONFIG.BOOST_MULTIPLIER : 1;
+            const climbSpeed = CONFIG.CLIMB_SPEED * boost;
+
+            if (simpleControls) {
+                if (keys['KeyA'] || keys['ArrowLeft']) camera.angle += CONFIG.TURN_SPEED * boost * dt;
+                if (keys['KeyD'] || keys['ArrowRight']) camera.angle -= CONFIG.TURN_SPEED * boost * dt;
+                if (keys['KeyW'] || keys['ArrowUp']) camera.forwardSpeed = CONFIG.MOVE_SPEED * boost;
+                else if (keys['KeyS'] || keys['ArrowDown']) camera.forwardSpeed = -CONFIG.MOVE_SPEED * boost * 0.5;
+                else camera.forwardSpeed = 0;
+                camera.bank = 0; camera.lateralSpeed = 0;
+            } else {
+                // Helicopter banking physics
+                let bankInput = 0;
+                if (keys['KeyA'] || keys['ArrowLeft']) bankInput = 1;
+                if (keys['KeyD'] || keys['ArrowRight']) bankInput = -1;
+                if (bankInput !== 0) camera.bank += bankInput * HELI_PHYSICS.BANK_RATE;
+                else { camera.bank *= (1 - HELI_PHYSICS.BANK_RETURN); if (Math.abs(camera.bank) < 0.01) camera.bank = 0; }
+                camera.bank = Math.max(-HELI_PHYSICS.MAX_BANK, Math.min(HELI_PHYSICS.MAX_BANK, camera.bank));
+                if (gameMode === GAME_MODES.DELTA) camera.bank = 0;
+
+                if (keys['KeyW'] || keys['ArrowUp']) camera.forwardSpeed += HELI_PHYSICS.ACCELERATION * boost;
+                else if (keys['KeyS'] || keys['ArrowDown']) camera.forwardSpeed -= HELI_PHYSICS.ACCELERATION * boost;
+                else camera.forwardSpeed *= (1 - HELI_PHYSICS.DECELERATION);
+                camera.forwardSpeed = Math.max(-HELI_PHYSICS.MAX_FORWARD_SPEED * boost, Math.min(HELI_PHYSICS.MAX_FORWARD_SPEED * boost, camera.forwardSpeed));
+
+                if (keys['KeyQ']) camera.lateralSpeed += HELI_PHYSICS.ACCELERATION * boost;
+                else if (keys['KeyE']) camera.lateralSpeed -= HELI_PHYSICS.ACCELERATION * boost;
+                else {
+                    const bankDrift = -camera.bank * HELI_PHYSICS.LATERAL_DRIFT * Math.abs(camera.forwardSpeed);
+                    camera.lateralSpeed *= (1 - HELI_PHYSICS.DECELERATION);
+                    camera.lateralSpeed += bankDrift;
+                }
+                camera.lateralSpeed = Math.max(-HELI_PHYSICS.MAX_FORWARD_SPEED * boost, Math.min(HELI_PHYSICS.MAX_FORWARD_SPEED * boost, camera.lateralSpeed));
+
+                const effectiveSpeed = Math.max(0.3, Math.abs(camera.forwardSpeed) / HELI_PHYSICS.MAX_FORWARD_SPEED);
+                camera.yawRate = camera.bank * HELI_PHYSICS.TURN_BANK_RATIO * effectiveSpeed * 15;
+                camera.angle += camera.yawRate;
+            }
+
+            const sinA = Math.sin(camera.angle), cosA = Math.cos(camera.angle);
+            camera.x -= sinA * camera.forwardSpeed * dt;
+            camera.y -= cosA * camera.forwardSpeed * dt;
+            camera.x -= cosA * camera.lateralSpeed * dt;
+            camera.y += sinA * camera.lateralSpeed * dt;
+            currentSpeed = camera.forwardSpeed;
+
+            if (keys['KeyR']) camera.verticalSpeed += climbSpeed * 0.06 * dt;
+            else if (keys['KeyF']) camera.verticalSpeed -= climbSpeed * 0.06 * dt;
+            else camera.verticalSpeed *= Math.max(0, 1 - 0.08 * dt);
+            camera.verticalSpeed = Math.max(-climbSpeed * 0.7, Math.min(climbSpeed, camera.verticalSpeed));
+            camera.height += camera.verticalSpeed * dt;
+            camera.pitch *= Math.max(0, 1 - 0.05 * dt);
+
+            if (keys['KeyJ']) camera.angle += HELI_PHYSICS.MAX_YAW_RATE * dt;
+            if (keys['KeyL']) camera.angle -= HELI_PHYSICS.MAX_YAW_RATE * dt;
+
+            camera.horizon = Math.max(0, Math.min(screenHeight, camera.horizon));
+            camera.height = Math.max(CONFIG.MIN_ALTITUDE, Math.min(CONFIG.MAX_ALTITUDE, camera.height));
+            camera.x = ((camera.x % CONFIG.MAP_SIZE) + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
+            camera.y = ((camera.y % CONFIG.MAP_SIZE) + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
+
+            const terrainH = getTerrainHeight(camera.x, camera.y);
+            if (camera.height < terrainH + CONFIG.COLLISION_MARGIN) {
+                camera.height = terrainH + CONFIG.COLLISION_MARGIN;
+                camera.verticalSpeed = Math.max(0, camera.verticalSpeed);
+            }
+        }
+
+        function handleCombatInput(deltaTime) {
+            // TODO: port full combat input from index.html
+        }
+
+        // -----------------------------------------------------------------
+        // MENU INPUT
+        // -----------------------------------------------------------------
+        function handleMenuInput(e) {
+            initAudioOnInteraction();
+            if (transition.active) return true;
+            if (e.code === 'KeyB') { toggleSound(); return true; }
+
+            if (gameState === GAME_STATES.TITLE) {
+                if (!e.repeat) { playMenuConfirmSound(); startTransition(GAME_STATES.MENU, 900); }
+                return true;
+            }
+            if (gameState === GAME_STATES.MENU) {
+                if (e.code === 'ArrowUp') { menuSelectionIndex = (menuSelectionIndex - 1 + MAIN_MENU_OPTIONS.length) % MAIN_MENU_OPTIONS.length; playMenuNavigateSound(); return true; }
+                if (e.code === 'ArrowDown') { menuSelectionIndex = (menuSelectionIndex + 1) % MAIN_MENU_OPTIONS.length; playMenuNavigateSound(); return true; }
+                if ((e.code === 'ArrowLeft' || e.code === 'ArrowRight') && menuSelectionIndex === 0) { toggleGameMode(); playMenuNavigateSound(); return true; }
+                if (e.code === 'Enter') { playMenuConfirmSound(); handleMainMenuSelection(menuSelectionIndex); return true; }
+            } else if (gameState === GAME_STATES.CAMPAIGN) {
+                if (e.code === 'Escape') { playMenuConfirmSound(); startTransition(GAME_STATES.MENU, 500); return true; }
+                if (e.code === 'Enter') { playMenuConfirmSound(); startTransition(GAME_STATES.BRIEFING, 600); return true; }
+            } else if (gameState === GAME_STATES.FREEPLAY) {
+                if (e.code === 'ArrowUp') { freePlaySelectionIndex = (freePlaySelectionIndex - 1 + FREEPLAY_OPTIONS.length) % FREEPLAY_OPTIONS.length; return true; }
+                if (e.code === 'ArrowDown') { freePlaySelectionIndex = (freePlaySelectionIndex + 1) % FREEPLAY_OPTIONS.length; return true; }
+                if (e.code === 'Enter') {
+                    playMenuConfirmSound();
+                    if (freePlaySelectionIndex === 0) startTransition(GAME_STATES.PLAYING, 700, { onSwitch: function() { startFreePlay(); } });
+                    else startTransition(GAME_STATES.MENU, 500);
+                    return true;
+                }
+                if (e.code === 'Escape') { startTransition(GAME_STATES.MENU, 500); return true; }
+            } else if (gameState === GAME_STATES.SETTINGS || gameState === GAME_STATES.ACHIEVEMENTS || gameState === GAME_STATES.LEADERBOARD || gameState === GAME_STATES.HOWTO) {
+                if (e.code === 'Enter' || e.code === 'Escape') { playMenuConfirmSound(); startTransition(GAME_STATES.MENU, 500); return true; }
+            } else if (gameState === GAME_STATES.BRIEFING) {
+                if (e.code === 'Enter') {
+                    playMenuConfirmSound();
+                    startTransition(GAME_STATES.PLAYING, 900, { hold: true, onSwitch: function() { startMission(currentMissionIndex, { onReady: releaseTransition }); } });
+                    return true;
+                }
+                if (e.code === 'Escape') { playMenuConfirmSound(); startTransition(GAME_STATES.CAMPAIGN, 500); return true; }
+            } else if (gameState === GAME_STATES.PLAYING) {
+                if (e.code === 'Escape') {
+                    playMenuConfirmSound();
+                    startTransition(GAME_STATES.PAUSED, 250, { onSwitch: function() { pauseSelectionIndex = 0; gameState = GAME_STATES.PAUSED; } });
+                    return true;
+                }
+            } else if (gameState === GAME_STATES.PAUSED) {
+                if (e.code === 'ArrowUp') { pauseSelectionIndex = (pauseSelectionIndex - 1 + PAUSE_OPTIONS.length) % PAUSE_OPTIONS.length; return true; }
+                if (e.code === 'ArrowDown') { pauseSelectionIndex = (pauseSelectionIndex + 1) % PAUSE_OPTIONS.length; return true; }
+                if (e.code === 'Enter' || e.code === 'Escape') {
+                    playMenuConfirmSound();
+                    if (pauseSelectionIndex === 0 || e.code === 'Escape') startTransition(GAME_STATES.PLAYING, 250, { onSwitch: function() { gameState = GAME_STATES.PLAYING; } });
+                    else if (pauseSelectionIndex === 1) startTransition(GAME_STATES.PLAYING, 900, { hold: true, onSwitch: function() { startFreePlay(); } });
+                    else startTransition(GAME_STATES.MENU, 700);
+                    return true;
+                }
+            } else if (gameState === GAME_STATES.VICTORY || gameState === GAME_STATES.DEFEAT) {
+                if (e.code === 'Enter' || e.code === 'Escape') { playMenuConfirmSound(); startTransition(GAME_STATES.MENU, 700); return true; }
+            }
+            return false;
+        }
+
+        function handleMainMenuSelection(index) {
+            const options = MAIN_MENU_OPTIONS;
+            const label = options[index];
+            if (label === 'MODE') { toggleGameMode(); }
+            else if (label === 'CAMPAIGN') startTransition(GAME_STATES.CAMPAIGN, 600);
+            else if (label === 'FREE PLAY') startTransition(GAME_STATES.FREEPLAY, 600);
+            else if (label === 'SETTINGS') startTransition(GAME_STATES.SETTINGS, 600);
+            else if (label === 'ACHIEVEMENTS') startTransition(GAME_STATES.ACHIEVEMENTS, 600);
+            else if (label === 'LEADERBOARD') startTransition(GAME_STATES.LEADERBOARD, 600);
+            else if (label === 'HOW TO PLAY') startTransition(GAME_STATES.HOWTO, 600);
+            else if (label === 'RANDOM MISSION') {
+                startTransition(GAME_STATES.PLAYING, 700, { onSwitch: function() { startFreePlay(); } });
+            }
+        }
+        function toggleGameMode() {
+            gameMode = (gameMode === GAME_MODES.COMANCHE) ? GAME_MODES.DELTA : GAME_MODES.COMANCHE;
+        }
+
+        // -----------------------------------------------------------------
+        // MISSION / FREEPLAY STARTERS
+        // -----------------------------------------------------------------
+        function startFreePlay() {
+            gameState = GAME_STATES.PLAYING;
+            activeMission = null;
+            initCombat();
+            resetPlayerForMode(gameMode);
+            generateWorldStructures();
+            releaseTransition();
+        }
+
+        function startMission(missionIndex, options) {
+            options = options || {};
+            gameState = GAME_STATES.PLAYING;
+            initCombat();
+            resetPlayerForMode(gameMode);
+            generateWorldStructures();
+            if (options.onReady) options.onReady();
+        }
+
+        function resetPlayerForMode(mode) {
+            camera.bank = 0; camera.bankVelocity = 0; camera.pitch = 0;
+            camera.yawRate = 0; camera.forwardSpeed = 0;
+            camera.lateralSpeed = 0; camera.verticalSpeed = 0;
+            if (mode === GAME_MODES.DELTA) {
+                const th = getTerrainHeight(camera.x, camera.y);
+                SOLDIER.velocity.x = 0; SOLDIER.velocity.y = 0;
+                SOLDIER.headBob = 0; SOLDIER.isSprinting = false;
+                camera.height = Math.max(CONFIG.MIN_ALTITUDE, th + SOLDIER.eyeHeights[SOLDIER.stance]);
+                camera.horizon = screenHeight * 0.5;
+            } else {
+                camera.height = 80; camera.horizon = screenHeight * 0.4;
+            }
+        }
+
+        function isHeliLanded(heli) {
+            const agl = heli.z - getTerrainHeight(heli.x, heli.y);
+            const slow = Math.abs(heli.forwardSpeed) < 0.03 && Math.abs(heli.lateralSpeed) < 0.03 && Math.abs(heli.verticalSpeed) < 0.3;
+            return agl <= 6 && slow && !heli.destroyed;
+        }
+
+        function findFlatSpot(tries, minHeight, maxSlope, avoidX, avoidY, minDist) {
+            tries = tries || 200; minHeight = minHeight || 20; maxSlope = maxSlope || 20;
+            avoidX = avoidX || 512; avoidY = avoidY || 512; minDist = minDist || 200;
+            for (let i = 0; i < tries; i++) {
+                const x = Math.random() * CONFIG.MAP_SIZE, y = Math.random() * CONFIG.MAP_SIZE;
+                const h = getTerrainHeight(x, y);
+                if (h < minHeight || h > 180) continue;
+                if (isWaterAt(x, y, h)) continue;
+                const s1 = estimateSlope(x, y, 15), s2 = estimateSlope(x, y, 30), s3 = estimateSlope(x, y, 50);
+                if (s1 > maxSlope || s2 > maxSlope * 1.5 || s3 > maxSlope * 2.0) continue;
+                const dx = x - avoidX, dy = y - avoidY;
+                if (Math.sqrt(dx * dx + dy * dy) < minDist) continue;
+                return { x, y, height: h };
+            }
+            return null;
+        }
+
+        function generateWorldStructures() {
+            world.stamps = []; world.airports = []; world.bases = []; world.helipads = [];
+            airportSpawnTimers = {}; helipadSpawnTimers = {};
+            // Simplified structure generation - spawn some targets
+            const targetCount = CONFIG.TARGET_COUNT + Math.floor(Math.random() * 5);
+            for (let i = 0; i < targetCount; i++) {
+                const spot = findFlatSpot(100, 20, 25, camera.x, camera.y, 100);
+                if (spot) {
+                    const types = ['TANK', 'SOLDIER', 'BUILDING', 'SAM_SITE'];
+                    const typeKey = types[Math.floor(Math.random() * types.length)];
+                    spawnTargetAt(typeKey, spot.x, spot.y);
+                }
+            }
+        }
+
+        function spawnTargetAt(typeKey, x, y, faction, baseHeight) {
+            const template = TARGET_TYPES[typeKey];
+            if (!template) return null;
+            faction = faction || FACTIONS.ENEMY;
+            const terrainH = baseHeight !== undefined && baseHeight !== null ? baseHeight : getTerrainHeight(x, y);
+            const heightOffset = typeof template.heightOffset === 'number' ? template.heightOffset : template.size * 0.5;
+            let aiState = null;
+            if (template.ai) {
+                if (template.ai.type === 'patrol') {
+                    aiState = { type: 'patrol', speed: template.ai.speed, patrolRadius: template.ai.patrolRadius, patrolCenter: {x, y}, patrolAngle: Math.random() * Math.PI * 2, patrolDirection: Math.random() > 0.5 ? 1 : -1, detectRange: template.ai.detectRange, engageRange: template.ai.engageRange, fireRate: template.ai.fireRate, bulletSpeed: template.ai.bulletSpeed, bulletDamage: template.ai.bulletDamage, lastFired: 0, state: 'patrol' };
+                } else if (template.ai.type === 'sam') {
+                    aiState = { type: 'sam', fireRate: template.ai.fireRate, lastFired: 0, range: template.ai.range, missileSpeed: template.ai.missileSpeed, missileDamage: template.ai.missileDamage };
+                } else if (template.ai.type === 'infantry') {
+                    aiState = { type: 'infantry', state: 'patrol', patrolCenter: {x, y}, patrolRadius: template.ai.patrolRadius, patrolAngle: Math.random() * Math.PI * 2, patrolSpeed: template.ai.patrolSpeed, detectRange: template.ai.detectRange, engageRange: template.ai.engageRange, fireRate: template.ai.fireRate, accuracy: template.ai.accuracy, bulletSpeed: template.ai.bulletSpeed, bulletDamage: template.ai.bulletDamage, lastFired: 0, facingAngle: Math.random() * Math.PI * 2, pose: 'stand' };
+                }
+            }
+            const target = {
+                id: 'target_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
+                x, y, z: terrainH + heightOffset, type: template.type,
+                domain: template.domain, faction, health: template.health,
+                maxHealth: template.health, size: template.size, hitHeight: template.hitHeight,
+                color: template.color, points: template.points, destroyed: false, ai: aiState
+            };
+            targets.push(target);
+            return target;
+        }
+
+        // -----------------------------------------------------------------
+        // AUDIO STUBS
+        // -----------------------------------------------------------------
+        function initAudio() {
+            try {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                masterVolumeNode = audioCtx.createGain();
+                sfxVolumeNode = audioCtx.createGain();
+                masterVolumeNode.connect(audioCtx.destination);
+                sfxVolumeNode.connect(masterVolumeNode);
+                applySettings();
+            } catch(e) { soundEnabled = false; }
+        }
+        function initAudioOnInteraction() {
+            if (!audioCtx) initAudio();
+            if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+        }
+        function toggleSound() { soundEnabled = !soundEnabled; }
+        function playMenuNavigateSound() { /* TODO */ }
+        function playMenuConfirmSound() { /* TODO */ }
+        function playCannonSound() { /* TODO */ }
+        function playRocketSound() { /* TODO */ }
+        function playMissileSound() { /* TODO */ }
+        function playExplosionSound() { /* TODO */ }
+        function updateRotorSound() { /* TODO */ }
+        function updateWindSound() { /* TODO */ }
+        function stopRotorSound() { /* TODO */ }
+        function stopWarningAlarm() { /* TODO */ }
+        function stopWindSound() { /* TODO */ }
+
+        // Telemetry stubs
+        function trackEvent() {}
+        function updatePlaytime() {}
+        function updateTelemetry() {}
+        function updateAlertLevel() {}
+        function updateMissileWarning() {}
+        function updateTargetingSystem() {}
+        function updateResupply() {}
+        function updateObjectiveProgress() {}
+        function checkAllObjectivesComplete() {}
+        function checkWinCondition() {}
+        function updateProjectiles() {}
+        function checkProjectileHits() {}
+        function updateExplosions(dt) {
+            for (let i = explosions.length - 1; i >= 0; i--) {
+                explosions[i].lifetime--;
+                if (explosions[i].lifetime <= 0) explosions.splice(i, 1);
+            }
+        }
+        function updateEnemyAI() {}
+        function updateEnemyProjectiles() {}
+        function updateAirstrikePlanes() {}
+        function updateAirportSpawns() {}
+        function updateHelipadSpawns() {}
+
+        function adjustSetting(index, dir) {
+            const item = SETTINGS_ITEMS[index];
+            if (item.type === 'slider') {
+                settings[item.key] = Math.max(item.min, Math.min(item.max, settings[item.key] + item.step * dir));
+                applySettings(); saveSettings();
+            } else if (item.type === 'toggle') {
+                settings[item.key] = !settings[item.key];
+                applySettings(); saveSettings();
+            }
+        }
+
+        // -----------------------------------------------------------------
+        // UI UPDATE
+        // -----------------------------------------------------------------
+        function updateUI() {
+            document.getElementById('altitude').style.display = 'none';
+            document.getElementById('speed').style.display = 'none';
+        }
+        function updateOverlayVisibility() {
+            document.getElementById('mapSelector').style.display = (gameState === GAME_STATES.FREEPLAY) ? 'block' : 'none';
+            document.getElementById('ui').style.display = (gameState === GAME_STATES.PLAYING && gameMode !== GAME_MODES.DELTA) ? 'block' : 'none';
+            if (gameState !== GAME_STATES.PLAYING && gameState !== GAME_STATES.PAUSED) {
+                document.getElementById('controls').style.display = 'none';
+            }
+        }
+
+        // -----------------------------------------------------------------
+        // GAME LOOP
+        // -----------------------------------------------------------------
+        function gameLoop(timestamp) {
+            const rawDelta = timestamp - lastTime;
+            const deltaTime = Math.min(50, Math.max(0, rawDelta));
+            lastTime = timestamp;
+
+            frameCount++;
+            if (timestamp - fpsUpdateTime >= 1000) { fps = frameCount; frameCount = 0; fpsUpdateTime = timestamp; }
+
+            if (gameState === GAME_STATES.PLAYING) {
+                if (!isPlayerDead && !missionComplete) {
+                    handleInput(deltaTime);
+                    handleCombatInput(deltaTime);
+                    if (gameMode === GAME_MODES.COMANCHE) {
+                        playerState.heli.x = camera.x; playerState.heli.y = camera.y;
+                        playerState.heli.z = camera.height; playerState.heli.angle = camera.angle;
+                        playerState.heli.bank = camera.bank; playerState.heli.forwardSpeed = camera.forwardSpeed;
+                    }
+                    updateProjectiles(deltaTime); updateExplosions(deltaTime); updateParticles(deltaTime);
+                    updateEnemyAI(deltaTime, timestamp);
+                }
+                updateCombatFeedback(deltaTime); updateScreenShake(deltaTime); updateScreenFlash(deltaTime);
+            } else if (isMenuState(gameState)) {
+                camera.angle += 0.001;
+            }
+
+            if (gameState !== GAME_STATES.PLAYING) {
+                updateCombatFeedback(deltaTime); updateScreenShake(deltaTime); updateScreenFlash(deltaTime);
+            }
+
+            updateRainParticles(deltaTime);
+            updateTransition(timestamp);
+            render();
+            updateOverlayVisibility();
+            if (gameState === GAME_STATES.PLAYING) updateUI();
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        // -----------------------------------------------------------------
+        // INITIALIZATION
+        // -----------------------------------------------------------------
+        function init() {
+            canvas = document.getElementById('gameCanvas');
+            ctx = canvas.getContext('2d');
+            resizeCanvas();
+            window.addEventListener('resize', resizeCanvas);
+
+            document.getElementById('controls').style.display = 'none';
+            document.getElementById('title').style.display = 'none';
+            document.getElementById('ui').style.display = 'none';
+            document.getElementById('mapSelector').style.display = 'none';
+
+            populateMapSelector();
+            loadSettings();
+            loadProfile();
+            touchProfile();
+            saveProfile();
+
+            document.getElementById('mapSelector').addEventListener('change', function(e) {
+                const idx = parseInt(e.target.value) - 1;
+                if (idx >= 0 && idx < maps.length) loadMap(idx);
+            });
+
+            canvas.addEventListener('mousemove', handlePointerMove);
+            canvas.addEventListener('mousedown', handlePointerDown);
+            canvas.addEventListener('mouseup', handlePointerUp);
+            canvas.addEventListener('mouseleave', handlePointerUp);
+            canvas.addEventListener('contextmenu', function(e) { e.preventDefault(); });
+
+            document.addEventListener('keydown', function(e) {
+                if (handleMenuInput(e)) { e.preventDefault(); return; }
+                if (e.code === 'F1') { showOnboardingHints = !showOnboardingHints; e.preventDefault(); return; }
+                keys[e.code] = true;
+                if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].includes(e.code)) e.preventDefault();
+                if (gameState === GAME_STATES.PLAYING) {
+                    if (gameMode === GAME_MODES.COMANCHE) {
+                        if (e.code === 'Digit1') { currentWeaponIndex = 0; currentWeapon = weaponOrder[0]; targetingSystem.reset(); }
+                        if (e.code === 'Digit2') { currentWeaponIndex = 1; currentWeapon = weaponOrder[1]; targetingSystem.reset(); }
+                        if (e.code === 'Digit3') { currentWeaponIndex = 2; currentWeapon = weaponOrder[2]; targetingSystem.reset(); }
+                        if (e.code === 'Digit4') { currentWeaponIndex = 3; currentWeapon = weaponOrder[3]; targetingSystem.reset(); }
+                    }
+                    if (e.code === 'KeyH') {
+                        const c = document.getElementById('controls');
+                        c.style.display = c.style.display === 'none' ? 'block' : 'none';
+                    }
+                    if (e.code === 'KeyM') {
+                        const conditions = ['clear', 'dusk', 'night', 'fog', 'storm'];
+                        const ci = conditions.indexOf(weatherCondition);
+                        weatherCondition = conditions[(ci + 1) % conditions.length];
+                    }
+                    if (e.code === 'KeyN') nightVisionMode = !nightVisionMode;
+                    if (e.code === 'KeyG') godMode = !godMode;
+                    if (e.code === 'Backquote') {
+                        simpleControls = !simpleControls;
+                        if (simpleControls) { camera.bank = 0; camera.bankVelocity = 0; }
+                    }
+                }
+            });
+            document.addEventListener('keyup', function(e) {
+                keys[e.code] = false;
+                if (e.code === 'KeyC' || e.code === 'KeyX') SOLDIER.stanceChanging = false;
+            });
+
+            gameState = GAME_STATES.TITLE;
+            loadMap(0);
+        }
+
+        // Global distance update function
+        window.updateDistance = function(value) {
+            camera.distance = parseInt(value);
+            document.getElementById('distanceValue').textContent = value;
+            settings.drawDistance = camera.distance;
+            saveSettings();
+        };
+
+        window.addEventListener('load', init);
+    })();
+    </script>
+</body>
+</html>
