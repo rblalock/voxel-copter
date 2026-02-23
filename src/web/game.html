@@ -102,7 +102,9 @@
                 drawTank, drawBuilding, drawHangar, drawControlTower, drawBarracks,
                 drawFuelDepot, drawHelipad, drawResupplyGlow, drawSAMSite,
                 lightenColor, darkenColor, hexToRgb, rgbToHex, normalizeHexColor,
-                blendColors, rgbToCss, applyAmbientToHex, blendColorWithFog } = VV.Render.Sprites;
+                blendColors, rgbToCss, applyAmbientToHex, blendColorWithFog,
+                isTargetOccluded, isProjectileOccluded, isShadowOccluded,
+                renderProjectiles, renderEnemyProjectiles, renderExplosions, renderParticles } = VV.Render.Sprites;
 
         // -----------------------------------------------------------------
         // CONFIGURATION
@@ -605,164 +607,7 @@
 
         // -----------------------------------------------------------------
         // RENDERING FUNCTIONS (ported from index.html)
-        // -----------------------------------------------------------------
-        function renderEnemyProjectiles(cam) {
-            const sinAngle = Math.sin(cam.angle);
-            const cosAngle = Math.cos(cam.angle);
-            
-            for (const ep of enemyProjectiles) {
-                // Calculate relative position
-                let dx = ep.x - cam.x;
-                let dy = ep.y - cam.y;
-                
-                // Handle map wrapping
-                if (dx > CONFIG.MAP_SIZE / 2) dx -= CONFIG.MAP_SIZE;
-                if (dx < -CONFIG.MAP_SIZE / 2) dx += CONFIG.MAP_SIZE;
-                if (dy > CONFIG.MAP_SIZE / 2) dy -= CONFIG.MAP_SIZE;
-                if (dy < -CONFIG.MAP_SIZE / 2) dy += CONFIG.MAP_SIZE;
-                
-                // Rotate to camera space
-                const rx = dx * cosAngle - dy * sinAngle;
-                const ry = -dx * sinAngle - dy * cosAngle;
-                
-                // Check if in front of camera
-                if (ry > 5 && ry < cam.distance) {
-                    // Check terrain occlusion for enemy projectiles
-                    if (isProjectileOccluded(ep, cam, dx, dy, ry)) {
-                        continue;
-                    }
-                    
-                    const scaleX = (screenWidth / 2) / ry;
-                    const scaleY = 240.0 / ry;
-                    const screenX = screenWidth / 2 + rx * scaleX;
-                    
-                    // Apply bank tilt
-                    const bankTiltFactor = Math.sin(cam.bank || 0) * 0.3;
-                    const bankOffset = (screenX - screenWidth / 2) * bankTiltFactor;
-                    const screenY = (cam.height - ep.z) * scaleY + cam.horizon + bankOffset;
-                    
-                    // ALL ENEMY PROJECTILES - BALL-BASED (no tracer lines)
-                    const scale = Math.min(scaleY, 1);
-                    
-                    if (ep.type === 'air_cannon') {
-                        // Aircraft cannon - small ball
-                        const bulletSize = Math.max(2.5, 2.5 * scale);
-                        ctx.fillStyle = '#ffcc66';
-                        ctx.beginPath();
-                        ctx.arc(screenX, screenY, bulletSize, 0, Math.PI * 2);
-                        ctx.fill();
-                    } else if (ep.type === 'air_rocket') {
-                        // Aircraft rocket - medium ball with smoke trail circles
-                        const rocketSize = Math.max(3.5, 4 * scale);
-                        ctx.fillStyle = '#ff8844';
-                        ctx.beginPath();
-                        ctx.arc(screenX, screenY, rocketSize, 0, Math.PI * 2);
-                        ctx.fill();
-
-                        // Smoke trail as fading circles
-                        const trailAngle = Math.atan2(ep.vx || 0, ep.vy || 0);
-                        for (let t = 1; t <= 2; t++) {
-                            const trailDist = t * 7 * scale;
-                            const trailX = screenX + Math.sin(trailAngle) * trailDist;
-                            const trailY = screenY - Math.cos(trailAngle) * trailDist;
-                            const trailSize = (3 - t * 0.6) * scale;
-                            ctx.fillStyle = `rgba(180, 180, 180, ${0.5 - t * 0.15})`;
-                            ctx.beginPath();
-                            ctx.arc(trailX, trailY, Math.max(trailSize, 1), 0, Math.PI * 2);
-                            ctx.fill();
-                        }
-                    } else if (ep.type === 'air_missile') {
-                        // Aircraft missile - larger ball with smoke trail circles
-                        const missileSize = Math.max(4, 5 * scale);
-                        ctx.fillStyle = '#ff4455';
-                        ctx.beginPath();
-                        ctx.arc(screenX, screenY, missileSize, 0, Math.PI * 2);
-                        ctx.fill();
-
-                        // Smoke trail as fading circles
-                        const trailAngle = Math.atan2(ep.vx || 0, ep.vy || 0);
-                        for (let t = 1; t <= 3; t++) {
-                            const trailDist = t * 8 * scale;
-                            const trailX = screenX + Math.sin(trailAngle) * trailDist;
-                            const trailY = screenY - Math.cos(trailAngle) * trailDist;
-                            const trailSize = (3.5 - t * 0.7) * scale;
-                            ctx.fillStyle = `rgba(220, 220, 220, ${0.6 - t * 0.15})`;
-                            ctx.beginPath();
-                            ctx.arc(trailX, trailY, Math.max(trailSize, 1), 0, Math.PI * 2);
-                            ctx.fill();
-                        }
-                    } else if (ep.type === 'infantry_bullet') {
-                        // Infantry bullet - tiny ball
-                        const bulletSize = Math.max(1.5, 1.5 * scale);
-                        ctx.fillStyle = '#ffe066';
-                        ctx.beginPath();
-                        ctx.arc(screenX, screenY, bulletSize, 0, Math.PI * 2);
-                        ctx.fill();
-                    } else if (ep.type === 'tank_shell') {
-                        // Tank shell - medium ball
-                        const shellSize = Math.max(3, 4 * scale);
-                        ctx.fillStyle = '#d0c8a0';
-                        ctx.beginPath();
-                        ctx.arc(screenX, screenY, shellSize, 0, Math.PI * 2);
-                        ctx.fill();
-                    } else if (ep.type === 'sam_missile') {
-                        // SAM missile - medium-large ball with smoke trail
-                        const missileSize = Math.max(4, 5 * scale);
-                        ctx.fillStyle = '#ff3300';
-                        ctx.beginPath();
-                        ctx.arc(screenX, screenY, missileSize, 0, Math.PI * 2);
-                        ctx.fill();
-                        
-                        // Smoke trail as fading circles (different for launch vs track phase)
-                        const trailAngle = ep.phase === 'launch' ? Math.PI : (ep.angle || 0);
-                        for (let t = 1; t <= 3; t++) {
-                            const trailDist = t * 8 * scale;
-                            const trailX = screenX + Math.sin(trailAngle) * trailDist;
-                            const trailY = screenY - Math.cos(trailAngle) * trailDist;
-                            const trailSize = (4 - t * 0.8) * scale;
-                            ctx.fillStyle = `rgba(200, 200, 200, ${0.5 - t * 0.12})`;
-                            ctx.beginPath();
-                            ctx.arc(trailX, trailY, Math.max(trailSize, 1), 0, Math.PI * 2);
-                            ctx.fill();
-                        }
-                        
-                        // Flame at exhaust
-                        const flameX = screenX + Math.sin(trailAngle) * 10 * scale;
-                        const flameY = screenY - Math.cos(trailAngle) * 10 * scale;
-                        ctx.fillStyle = '#ffaa00';
-                        ctx.beginPath();
-                        ctx.arc(flameX, flameY, Math.max(2.5 * scale, 1.5), 0, Math.PI * 2);
-                        ctx.fill();
-                    } else {
-                        // Generic enemy projectile - ball with smoke trail
-                        const missileSize = Math.max(4, 5 * scale);
-                        ctx.fillStyle = '#ff3300';
-                        ctx.beginPath();
-                        ctx.arc(screenX, screenY, missileSize, 0, Math.PI * 2);
-                        ctx.fill();
-                        
-                        // Smoke trail as fading circles
-                        const trailAngle = ep.angle || 0;
-                        for (let t = 1; t <= 3; t++) {
-                            const trailDist = t * 7 * scale;
-                            const trailX = screenX + Math.sin(trailAngle) * trailDist;
-                            const trailY = screenY - Math.cos(trailAngle) * trailDist;
-                            const trailSize = (3.5 - t * 0.7) * scale;
-                            ctx.fillStyle = `rgba(200, 200, 200, ${0.5 - t * 0.12})`;
-                            ctx.beginPath();
-                            ctx.arc(trailX, trailY, Math.max(trailSize, 1), 0, Math.PI * 2);
-                            ctx.fill();
-                        }
-                    }
-                }
-            }
-        }
-        
-        // ============================================
-        // SCREEN FLASH EFFECT
-        // ============================================
-        
-        // ============================================
+        // -----------------------------------------------------------------        
         // NIGHT VISION EFFECT (GPU-accelerated)
         // Uses canvas compositing instead of per-pixel manipulation
         // ============================================
@@ -770,298 +615,13 @@
         // ============================================
         // TERRAIN OCCLUSION CHECK
         // ============================================
-        function isTargetOccluded(target, cam, dx, dy, ry) {
-            // Check if target is below terrain at its position
-            const targetTerrainHeight = getTerrainHeight(target.x, target.y);
-            if (target.z < targetTerrainHeight) {
-                return true;  // Target is underground
-            }
-            
-            // Check line-of-sight occlusion with denser sampling
-            const numSamples = Math.min(40, Math.max(10, Math.floor(ry / 10)));
-            const targetHeight = (typeof target.hitHeight === 'number') ? target.hitHeight : target.size * 0.5;
-            
-            // Check occlusion for the BASE of the target (most important)
-            const targetBaseZ = target.z;
-            // Use very tight clearance - terrain must clearly be below line of sight
-            const clearance = 2;
-            
-            for (let s = 1; s < numSamples; s++) {
-                // Non-linear sampling: more samples near the target where occlusion matters most
-                const linearT = s / numSamples;
-                const t = linearT;  // Can use linearT * linearT for even more near-target density
-                
-                // Interpolate position along ray
-                let sampleX = cam.x + dx * t;
-                let sampleY = cam.y + dy * t;
-                
-                // Wrap coordinates
-                sampleX = ((sampleX % CONFIG.MAP_SIZE) + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
-                sampleY = ((sampleY % CONFIG.MAP_SIZE) + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
-                
-                const terrainAtSample = getTerrainHeight(sampleX, sampleY);
-                
-                // Check if terrain blocks line of sight to target BASE
-                const expectedHeightToBase = cam.height + (targetBaseZ - cam.height) * t;
-                
-                if (terrainAtSample > expectedHeightToBase + clearance) {
-                    return true;  // Terrain blocks view of target base
-                }
-            }
-            
-            // Additional check: sample terrain in a small area around the target
-            // to catch cases where local terrain should occlude
-            const checkRadius = 5;
-            for (let ox = -checkRadius; ox <= checkRadius; ox += checkRadius) {
-                for (let oy = -checkRadius; oy <= checkRadius; oy += checkRadius) {
-                    let checkX = target.x + ox;
-                    let checkY = target.y + oy;
-                    checkX = ((checkX % CONFIG.MAP_SIZE) + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
-                    checkY = ((checkY % CONFIG.MAP_SIZE) + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
-                    
-                    const nearbyTerrain = getTerrainHeight(checkX, checkY);
-                    if (nearbyTerrain > target.z + targetHeight * 0.3) {
-                        // Nearby terrain is significantly higher than target - likely occluded
-                        // But only if that terrain is between camera and target
-                        const tdx = checkX - cam.x;
-                        const tdy = checkY - cam.y;
-                        const dotProduct = tdx * dx + tdy * dy;
-                        if (dotProduct > 0 && dotProduct < dx * dx + dy * dy) {
-                            return true;
-                        }
-                    }
-                }
-            }
-            
-            return false;  // Target is visible
-        }
-
         // Check if a projectile/explosion is occluded by terrain
-        function isProjectileOccluded(obj, cam, dx, dy, ry) {
-            // Quick check: is the object below terrain at its position?
-            const terrainHeight = getTerrainHeight(obj.x, obj.y);
-            if (obj.z < terrainHeight) {
-                return true;
-            }
-            
-            // Sample terrain along line of sight
-            const numSamples = Math.min(15, Math.max(5, Math.floor(ry / 30)));
-            const clearance = 2;
-            
-            for (let s = 1; s < numSamples; s++) {
-                const t = s / numSamples;
-                
-                let sampleX = cam.x + dx * t;
-                let sampleY = cam.y + dy * t;
-                
-                sampleX = ((sampleX % CONFIG.MAP_SIZE) + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
-                sampleY = ((sampleY % CONFIG.MAP_SIZE) + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
-                
-                const terrainAtSample = getTerrainHeight(sampleX, sampleY);
-                const expectedHeight = cam.height + (obj.z - cam.height) * t;
-                
-                if (terrainAtSample > expectedHeight + clearance) {
-                    return true;
-                }
-            }
-            
-            return false;
-        }
-
         // Check if a shadow on the ground is occluded by terrain between camera and shadow
-        function isShadowOccluded(shadowX, shadowY, shadowZ, cam, dx, dy, ry) {
-            // Sample terrain along the line from camera to shadow position
-            const numSamples = Math.min(20, Math.max(5, Math.floor(ry / 20)));
-            const clearance = 3;
-            
-            for (let s = 1; s < numSamples; s++) {
-                const t = s / numSamples;
-                
-                // Interpolate position along ray
-                let sampleX = cam.x + dx * t;
-                let sampleY = cam.y + dy * t;
-                
-                // Wrap coordinates
-                sampleX = ((sampleX % CONFIG.MAP_SIZE) + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
-                sampleY = ((sampleY % CONFIG.MAP_SIZE) + CONFIG.MAP_SIZE) % CONFIG.MAP_SIZE;
-                
-                const terrainAtSample = getTerrainHeight(sampleX, sampleY);
-                
-                // Check if terrain blocks line of sight to shadow on ground
-                const expectedHeight = cam.height + (shadowZ - cam.height) * t;
-                
-                if (terrainAtSample > expectedHeight + clearance) {
-                    return true;  // Terrain blocks view of shadow
-                }
-            }
-            
-            return false;
-        }
-
         // ============================================
-        // PROJECTILE RENDERING
-        function renderProjectiles(cam) {
-            const sinAngle = Math.sin(cam.angle);
-            const cosAngle = Math.cos(cam.angle);
-            
-            for (const proj of projectiles) {
-                // Calculate relative position
-                let dx = proj.x - cam.x;
-                let dy = proj.y - cam.y;
-                
-                // Handle map wrapping
-                if (!proj.noWrap) {
-                    if (dx > CONFIG.MAP_SIZE / 2) dx -= CONFIG.MAP_SIZE;
-                    if (dx < -CONFIG.MAP_SIZE / 2) dx += CONFIG.MAP_SIZE;
-                    if (dy > CONFIG.MAP_SIZE / 2) dy -= CONFIG.MAP_SIZE;
-                    if (dy < -CONFIG.MAP_SIZE / 2) dy += CONFIG.MAP_SIZE;
-                }
-                
-                // Rotate to camera space
-                const rx = dx * cosAngle - dy * sinAngle;
-                const ry = -dx * sinAngle - dy * cosAngle;
-                
-                // Check if in front of camera
-                if (ry > 5 && ry < cam.distance) {
-                    // Check terrain occlusion for projectiles
-                    if (isProjectileOccluded(proj, cam, dx, dy, ry)) {
-                        continue;
-                    }
-                    const scaleX = (screenWidth / 2) / ry;
-                    const scaleY = 240.0 / ry;
-                    const screenX = screenWidth / 2 + rx * scaleX;
-
-                    // Apply bank tilt
-                    const bankTiltFactor = Math.sin(cam.bank || 0) * 0.3;
-                    const bankOffset = (screenX - screenWidth / 2) * bankTiltFactor;
-                    const screenY = (cam.height - proj.z) * scaleY + cam.horizon + bankOffset;
-                    
-                    // Different rendering based on projectile type - ALL BALL-BASED
-                    const scale = Math.min(scaleY, 1);
-                    
-                    if (proj.projectileType === 'missile') {
-                        // Missiles - larger ball with smoke trail as fading circles
-                        const missileSize = 5 * scale;
-                        ctx.fillStyle = proj.color || '#ff4400';
-                        ctx.beginPath();
-                        ctx.arc(screenX, screenY, missileSize, 0, Math.PI * 2);
-                        ctx.fill();
-                        
-                        // Smoke trail as fading circles behind (not a line)
-                        const trailAngle = proj.angle - cam.angle;
-                        for (let t = 1; t <= 3; t++) {
-                            const trailDist = t * 8 * scale;
-                            const trailX = screenX + Math.sin(trailAngle) * trailDist;
-                            const trailY = screenY + Math.cos(trailAngle) * trailDist;
-                            const trailSize = (4 - t * 0.8) * scale;
-                            const alpha = 0.6 - t * 0.15;
-                            ctx.fillStyle = `rgba(150, 150, 150, ${alpha})`;
-                            ctx.beginPath();
-                            ctx.arc(trailX, trailY, trailSize, 0, Math.PI * 2);
-                            ctx.fill();
-                        }
-                        
-                        // Flame at exhaust
-                        const flameX = screenX + Math.sin(trailAngle) * 10 * scale;
-                        const flameY = screenY + Math.cos(trailAngle) * 10 * scale;
-                        ctx.fillStyle = '#ffaa00';
-                        ctx.beginPath();
-                        ctx.arc(flameX, flameY, 3 * scale, 0, Math.PI * 2);
-                        ctx.fill();
-                        
-                    } else if (proj.projectileType === 'rocket') {
-                        // Rockets - medium ball with fire trail as circles
-                        const rocketSize = 4 * scale;
-                        ctx.fillStyle = proj.color || '#ff6600';
-                        ctx.beginPath();
-                        ctx.arc(screenX, screenY, rocketSize, 0, Math.PI * 2);
-                        ctx.fill();
-                        
-                        // Fire trail as fading circles
-                        const trailAngle = proj.angle - cam.angle;
-                        for (let t = 1; t <= 2; t++) {
-                            const trailDist = t * 6 * scale;
-                            const trailX = screenX + Math.sin(trailAngle) * trailDist;
-                            const trailY = screenY + Math.cos(trailAngle) * trailDist;
-                            const trailSize = (3 - t * 0.6) * scale;
-                            const alpha = 0.7 - t * 0.2;
-                            ctx.fillStyle = `rgba(255, 100, 0, ${alpha})`;
-                            ctx.beginPath();
-                            ctx.arc(trailX, trailY, trailSize, 0, Math.PI * 2);
-                            ctx.fill();
-                        }
-                        
-                    } else {
-                        // Bullets - just balls, no tracer lines
-                        // Heli cannon = larger, soldier bullets = smaller
-                        const bulletSize = proj.projectileType === 'cannon' ? 3 * scale : 2.5 * scale;
-                        ctx.fillStyle = proj.color || '#ffff00';
-                        ctx.beginPath();
-                        ctx.arc(screenX, screenY, Math.max(bulletSize, 1.5), 0, Math.PI * 2);
-                        ctx.fill();
-                    }
-                }
-            }
-        }
-        
+        // PROJECTILE RENDERING        
         // ============================================
         // EXPLOSION RENDERING
-        // ============================================
-        function renderExplosions(cam) {
-            const sinAngle = Math.sin(cam.angle);
-            const cosAngle = Math.cos(cam.angle);
-            
-            for (const exp of explosions) {
-                // Calculate relative position
-                let dx = exp.x - cam.x;
-                let dy = exp.y - cam.y;
-                
-                // Handle map wrapping
-                if (dx > CONFIG.MAP_SIZE / 2) dx -= CONFIG.MAP_SIZE;
-                if (dx < -CONFIG.MAP_SIZE / 2) dx += CONFIG.MAP_SIZE;
-                if (dy > CONFIG.MAP_SIZE / 2) dy -= CONFIG.MAP_SIZE;
-                if (dy < -CONFIG.MAP_SIZE / 2) dy += CONFIG.MAP_SIZE;
-                
-                // Rotate to camera space
-                const rx = dx * cosAngle - dy * sinAngle;
-                const ry = -dx * sinAngle - dy * cosAngle;
-                
-                if (ry > 5 && ry < cam.distance) {
-                    // Check terrain occlusion for explosions
-                    if (isProjectileOccluded(exp, cam, dx, dy, ry)) {
-                        continue;
-                    }
-                    const scaleX = (screenWidth / 2) / ry;
-                    const scaleY = 240.0 / ry;
-                    const screenX = screenWidth / 2 + rx * scaleX;
-
-                    // Apply bank tilt
-                    const bankTiltFactor = Math.sin(cam.bank || 0) * 0.3;
-                    const bankOffset = (screenX - screenWidth / 2) * bankTiltFactor;
-                    const screenY = (cam.height - exp.z) * scaleY + cam.horizon + bankOffset;
-                    
-                    const progress = 1 - (exp.lifetime / exp.maxLifetime);
-                    const currentSize = exp.size * scaleY * (0.5 + progress * 0.5);
-                    const alpha = 1 - progress;
-                    
-                    // Draw explosion layers
-                    const gradient = ctx.createRadialGradient(
-                        screenX, screenY, 0,
-                        screenX, screenY, currentSize
-                    );
-                    gradient.addColorStop(0, `rgba(255, 255, 200, ${alpha})`);
-                    gradient.addColorStop(0.3, `rgba(255, 200, 50, ${alpha * 0.8})`);
-                    gradient.addColorStop(0.6, `rgba(255, 100, 0, ${alpha * 0.5})`);
-                    gradient.addColorStop(1, `rgba(100, 50, 0, 0)`);
-                    
-                    ctx.fillStyle = gradient;
-                    ctx.beginPath();
-                    ctx.arc(screenX, screenY, currentSize, 0, Math.PI * 2);
-                    ctx.fill();
-                }
-            }
-        }
-        
+        // ============================================        
         // ============================================
         // HUD RENDERING - Comanche Style
         // ============================================
@@ -4429,16 +3989,16 @@
                 renderC4Charges(renderCam);
                 
                 // Render projectiles
-                renderProjectiles(renderCam);
+                renderProjectiles(renderCam, projectiles);
                 
                 // Render enemy projectiles
                 renderEnemyProjectiles(renderCam);
                 
                 // Render explosions
-                renderExplosions(renderCam);
+                renderExplosions(renderCam, explosions);
 
                 // Render particles
-                renderParticles(renderCam);
+                renderParticles(renderCam, particles);
                 
                 // Apply night vision effect AFTER all game elements but BEFORE HUD
                 // This ensures targets, projectiles, and explosions all get the NV treatment
@@ -4668,86 +4228,7 @@
         
         // ============================================
         // TERRAIN OCCLUSION CHECK
-        // ============================================
-        function renderParticles(cam) {
-            if (particles.length === 0) return;
-
-            const sinAngle = Math.sin(cam.angle);
-            const cosAngle = Math.cos(cam.angle);
-
-            for (const p of particles) {
-                let dx = p.x - cam.x;
-                let dy = p.y - cam.y;
-
-                if (dx > CONFIG.MAP_SIZE / 2) dx -= CONFIG.MAP_SIZE;
-                if (dx < -CONFIG.MAP_SIZE / 2) dx += CONFIG.MAP_SIZE;
-                if (dy > CONFIG.MAP_SIZE / 2) dy -= CONFIG.MAP_SIZE;
-                if (dy < -CONFIG.MAP_SIZE / 2) dy += CONFIG.MAP_SIZE;
-
-                const rx = dx * cosAngle - dy * sinAngle;
-                const ry = -dx * sinAngle - dy * cosAngle;
-
-                if (ry > 5 && ry < cam.distance) {
-                    // Check terrain occlusion for particles
-                    if (isProjectileOccluded(p, cam, dx, dy, ry)) {
-                        continue;
-                    }
-                    const scaleX = (screenWidth / 2) / ry;
-                    const scaleY = 240.0 / ry;
-                    const screenX = screenWidth / 2 + rx * scaleX;
-
-                    const bankTiltFactor = Math.sin(cam.bank || 0) * 0.3;
-                    const bankOffset = (screenX - screenWidth / 2) * bankTiltFactor;
-                    const screenY = (cam.height - p.z) * scaleY + cam.horizon + bankOffset;
-
-                    const size = Math.max(1, p.size * scaleY);
-                    const alpha = Math.max(0, p.life / p.maxLife);
-
-                    if (screenX > -size && screenX < screenWidth + size &&
-                        screenY > -size && screenY < screenHeight + size) {
-                        if (p.type === 'spark') {
-                            ctx.fillStyle = `rgba(${p.color.r}, ${p.color.g}, ${p.color.b}, ${alpha})`;
-                            ctx.beginPath();
-                            ctx.arc(screenX, screenY, size, 0, Math.PI * 2);
-                            ctx.fill();
-                        } else if (p.type === 'smoke') {
-                            ctx.fillStyle = `rgba(${p.color.r}, ${p.color.g}, ${p.color.b}, ${alpha * 0.6})`;
-                            ctx.beginPath();
-                            ctx.arc(screenX, screenY, size, 0, Math.PI * 2);
-                            ctx.fill();
-                        } else if (p.type === 'debris') {
-                            ctx.fillStyle = `rgba(${p.color.r}, ${p.color.g}, ${p.color.b}, ${alpha * 0.9})`;
-                            ctx.fillRect(screenX - size * 0.5, screenY - size * 0.5, size, size);
-                        } else if (p.type === 'dust') {
-                            ctx.strokeStyle = `rgba(${p.color.r}, ${p.color.g}, ${p.color.b}, ${alpha * 0.4})`;
-                            ctx.lineWidth = Math.max(1, size * 0.15);
-                            ctx.beginPath();
-                            ctx.arc(screenX, screenY, size, 0, Math.PI * 2);
-                            ctx.stroke();
-                        } else if (p.type === 'blood') {
-                            // Blood splatter - small dark red droplets
-                            ctx.fillStyle = `rgba(${p.color.r}, ${p.color.g}, ${p.color.b}, ${alpha * 0.85})`;
-                            ctx.beginPath();
-                            ctx.arc(screenX, screenY, size, 0, Math.PI * 2);
-                            ctx.fill();
-                        } else if (p.type === 'trail_smoke') {
-                            // Subtle smoke trail for rockets/missiles - lower opacity
-                            ctx.fillStyle = `rgba(${p.color.r}, ${p.color.g}, ${p.color.b}, ${alpha * 0.3})`;
-                            ctx.beginPath();
-                            ctx.arc(screenX, screenY, size, 0, Math.PI * 2);
-                            ctx.fill();
-                        } else if (p.type === 'muzzle_flash') {
-                            // Brief bright muzzle flash - high opacity, yellow-orange
-                            ctx.fillStyle = `rgba(${p.color.r}, ${p.color.g}, ${p.color.b}, ${alpha * 0.7})`;
-                            ctx.beginPath();
-                            ctx.arc(screenX, screenY, size, 0, Math.PI * 2);
-                            ctx.fill();
-                        }
-                    }
-                }
-            }
-        }
-        function renderMissionMessage() {
+        // ============================================        function renderMissionMessage() {
             if (!missionMessage || performance.now() > missionMessageEnd) {
                 missionMessage = null;
                 return;
@@ -8513,7 +7994,7 @@
         function init() {
             canvas = document.getElementById('gameCanvas');
             ctx = canvas.getContext('2d');
-            VV.Render.Sprites.init(ctx);
+            VV.Render.Sprites.init(ctx, getTerrainHeight);
             resizeCanvas();
             window.addEventListener('resize', resizeCanvas);
 
