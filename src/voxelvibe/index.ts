@@ -23,6 +23,7 @@ import * as AI from './systems/ai';
 
 // Render
 import * as Voxelspace from './render/voxelspace';
+import * as Sprites from './render/sprites';
 
 // Input
 import * as Keyboard from './input/keyboard';
@@ -55,6 +56,7 @@ export const Systems = {
 
 export const Render = {
 	Voxelspace,
+	Sprites,
 };
 
 export const Input = {
@@ -98,6 +100,7 @@ export {
 	Combat,
 	AI,
 	Voxelspace,
+	Sprites,
 	Keyboard,
 	State,
 	Loop,
