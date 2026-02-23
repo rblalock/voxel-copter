@@ -78,6 +78,7 @@
     <script src="/src/web/public/game.js"></script>
     <script src="/src/web/game/ui-menus.js"></script>
     <script src="/src/web/game/ui-hud.js"></script>
+    <script src="/src/web/game/audio.js"></script>
     <script>
     // =====================================================================
     // VOXELCOPTER — Ported to VoxelVibe Engine
@@ -2555,6 +2556,65 @@
         };
         const VVAudio = VV.Systems.Audio;
 
+        // -----------------------------------------------------------------
+        // AUDIO MODULE — Context bridge for extracted audio system
+        // -----------------------------------------------------------------
+        const gameAudioCtx = {
+            get audioCtx() { return audioCtx; },
+            set audioCtx(v) { audioCtx = v; },
+            get masterVolumeNode() { return masterVolumeNode; },
+            set masterVolumeNode(v) { masterVolumeNode = v; },
+            get sfxVolumeNode() { return sfxVolumeNode; },
+            set sfxVolumeNode(v) { sfxVolumeNode = v; },
+            get soundEnabled() { return soundEnabled; },
+            set soundEnabled(v) { soundEnabled = v; },
+            get noiseBuffer() { return noiseBuffer; },
+            set noiseBuffer(v) { noiseBuffer = v; },
+            get rotorOscillator() { return rotorOscillator; },
+            set rotorOscillator(v) { rotorOscillator = v; },
+            get rotorLfo() { return rotorLfo; },
+            set rotorLfo(v) { rotorLfo = v; },
+            get rotorGain() { return rotorGain; },
+            set rotorGain(v) { rotorGain = v; },
+            get windSource() { return windSource; },
+            set windSource(v) { windSource = v; },
+            get windGain() { return windGain; },
+            set windGain(v) { windGain = v; },
+            get windFilter() { return windFilter; },
+            set windFilter(v) { windFilter = v; },
+            get warningInterval() { return warningInterval; },
+            set warningInterval(v) { warningInterval = v; },
+            get missileWarning() { return missileWarning; },
+            set missileWarning(v) { missileWarning = v; },
+            get missileWarningTime() { return missileWarningTime; },
+            set missileWarningTime(v) { missileWarningTime = v; },
+            get settings() { return settings; },
+            get camera() { return camera; },
+            get gameMode() { return gameMode; },
+            get GAME_MODES() { return GAME_MODES; },
+            get enemyProjectiles() { return enemyProjectiles; },
+            get VVAudio() { return VVAudio; },
+            get audioProxy() { return audioProxy; },
+            get gameState() { return gameState; },
+            get GAME_STATES() { return GAME_STATES; },
+            get HELI_PHYSICS() { return HELI_PHYSICS; },
+            get CONFIG() { return CONFIG; },
+        };
+        window.GameAudio.init(gameAudioCtx);
+        const {
+            initAudio, initAudioOnInteraction, toggleSound,
+            applyAudioSettings, getNoiseBuffer,
+            startWindSound, stopWindSound, updateWindSound,
+            updateRotorSound, startRotorSound, stopRotorSound,
+            playMenuNavigateSound, playMenuConfirmSound,
+            playAchievementSound, playVictoryStinger, playDefeatStinger,
+            playCannonSound, playRocketSound, playMissileSound,
+            playExplosionSound, playHitSound, playMissileWarningBeep,
+            playDamageSound, playCountermeasureSound,
+            startWarningAlarm, stopWarningAlarm, updateMissileWarning,
+            showMissileWarning,
+        } = window.GameAudio;
+
         // AI world context - bridges game globals to VoxelVibe AI system
         const aiCtx = {
             get playerX() { return camera.x; },
@@ -2575,243 +2635,15 @@
             set alertTimer(v) { alertTimer = v; },
             get alertDuration() { return ALERT_DURATION; },
         };
-        function initAudio() {
-            try {
-                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                masterVolume = audioCtx.createGain();
-                sfxVolume = audioCtx.createGain();
-                masterVolume.connect(audioCtx.destination);
-                sfxVolume.connect(masterVolume);
-                applyAudioSettings();
-            } catch (e) {
-                console.warn('Web Audio API not supported');
-                soundEnabled = false;
-            }
-        }
-        
-        function initAudioOnInteraction() {
-            if (!audioCtx) {
-                initAudio();
-            }
-            if (audioCtx && audioCtx.state === 'suspended') {
-                audioCtx.resume();
-            }
-        }
-        
-        function toggleSound() {
-            soundEnabled = !soundEnabled;
-            if (!soundEnabled) {
-                stopRotorSound();
-                stopWarningAlarm();
-                stopWindSound();
-            }
-            if (soundEnabled) {
-                if (gameState === GAME_STATES.PLAYING) {
-                    startRotorSound();
-                    startWindSound();
-                }
-            }
-        }
-
-        function applyAudioSettings() {
-            if (!masterVolume || !sfxVolume) return;
-            masterVolume.gain.value = settings.masterVolume;
-            sfxVolume.gain.value = settings.sfxVolume;
-        }
-
-        function getNoiseBuffer() {
-            if (noiseBuffer || !audioCtx) return noiseBuffer;
-            const bufferSize = Math.floor(audioCtx.sampleRate * 2);
-            const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
-            const data = buffer.getChannelData(0);
-            for (let i = 0; i < bufferSize; i++) {
-                data[i] = Math.random() * 2 - 1;
-            }
-            noiseBuffer = buffer;
-            return noiseBuffer;
-        }
-
-        function startWindSound() {
-            if (!soundEnabled || !audioCtx || windSource) return;
-            const buffer = getNoiseBuffer();
-            if (!buffer) return;
-            windSource = audioCtx.createBufferSource();
-            windFilter = audioCtx.createBiquadFilter();
-            windGain = audioCtx.createGain();
-            windSource.buffer = buffer;
-            windSource.loop = true;
-            windFilter.type = 'highpass';
-            windFilter.frequency.value = 180;
-            windGain.gain.value = 0;
-            windSource.connect(windFilter);
-            windFilter.connect(windGain);
-            windGain.connect(sfxVolume);
-            windSource.start();
-        }
-
-        function stopWindSound() {
-            try {
-                if (windSource) {
-                    windSource.stop();
-                    windSource.disconnect();
-                    windSource = null;
-                }
-                if (windFilter) {
-                    windFilter.disconnect();
-                    windFilter = null;
-                }
-                if (windGain) {
-                    windGain.disconnect();
-                    windGain = null;
-                }
-            } catch (e) {
-                // Ignore errors
-            }
-        }
-
-        function updateWindSound() {
-            if (!windGain || !audioCtx) return;
-            const maxSpeed = Math.max(0.01, HELI_PHYSICS.MAX_FORWARD_SPEED);
-            const speedNorm = Math.min(1, Math.abs(camera.forwardSpeed) / maxSpeed);
-            const targetGain = 0.02 + speedNorm * 0.12;
-            const targetFilter = 180 + speedNorm * 1000;
-            windGain.gain.setTargetAtTime(targetGain, audioCtx.currentTime, 0.08);
-            if (windFilter) {
-                windFilter.frequency.setTargetAtTime(targetFilter, audioCtx.currentTime, 0.08);
-            }
-        }
-
-        function updateRotorSound() {
-            if (!rotorOscillator || !rotorGain || !audioCtx) return;
-            const maxSpeed = Math.max(0.01, HELI_PHYSICS.MAX_FORWARD_SPEED);
-            const speedNorm = Math.min(1, Math.abs(camera.forwardSpeed) / maxSpeed);
-            const climbNorm = Math.min(1, Math.abs(camera.verticalSpeed) / (CONFIG.CLIMB_SPEED || 1));
-            const baseFreq = 38;
-            const targetFreq = baseFreq * (1 + speedNorm * 0.6 + climbNorm * 0.4);
-            const targetGain = 0.09 + speedNorm * 0.05 + climbNorm * 0.04;
-            rotorOscillator.frequency.setTargetAtTime(targetFreq, audioCtx.currentTime, 0.07);
-            rotorGain.gain.setTargetAtTime(targetGain, audioCtx.currentTime, 0.08);
-            if (rotorLfo) {
-                rotorLfo.frequency.setTargetAtTime(8 + speedNorm * 4, audioCtx.currentTime, 0.1);
-            }
-        }
-
-        function playMenuNavigateSound() { VVAudio.playMenuNavigateSound(audioProxy); }
-
-        function playMenuConfirmSound() { VVAudio.playMenuConfirmSound(audioProxy); }
-
-        function playAchievementSound() { VVAudio.playAchievementSound(audioProxy); }
-
-        function playVictoryStinger() { VVAudio.playVictoryStinger(audioProxy); }
-
-        function playDefeatStinger() { VVAudio.playDefeatStinger(audioProxy); }
-        
         // Rotor/Engine Sound (looping) - only for helicopter mode
-        function startRotorSound() {
-            // Don't play rotor sound in Delta (soldier) mode
-            if (gameMode === GAME_MODES.DELTA) return;
-            if (!soundEnabled || !audioCtx || rotorOscillator) return;
-            
-            try {
-                // Create low-frequency "thwop thwop" helicopter rotor
-                rotorOscillator = audioCtx.createOscillator();
-                rotorGain = audioCtx.createGain();
-                
-                rotorOscillator.type = 'sawtooth';
-                rotorOscillator.frequency.value = 40;  // Low frequency
-                
-                // Create modulation for "chopping" effect
-                rotorLfo = audioCtx.createOscillator();
-                const lfoGain = audioCtx.createGain();
-                rotorLfo.frequency.value = 8;  // 8 Hz modulation (blade frequency)
-                lfoGain.gain.value = 20;
-                
-                rotorLfo.connect(lfoGain);
-                lfoGain.connect(rotorOscillator.frequency);
-                
-                rotorOscillator.connect(rotorGain);
-                rotorGain.gain.value = 0.12;
-                rotorGain.connect(sfxVolume);
-                
-                rotorOscillator.start();
-                rotorLfo.start();
-            } catch (e) {
-                console.warn('Error starting rotor sound:', e);
-            }
-        }
-        
-        function stopRotorSound() {
-            try {
-                if (rotorOscillator) {
-                    rotorOscillator.stop();
-                    rotorOscillator.disconnect();
-                    rotorOscillator = null;
-                }
-                if (rotorLfo) {
-                    rotorLfo.stop();
-                    rotorLfo.disconnect();
-                    rotorLfo = null;
-                }
-                if (rotorGain) {
-                    rotorGain.disconnect();
-                    rotorGain = null;
-                }
-            } catch (e) {
-                // Ignore errors when stopping
-            }
-        }
         
         // Cannon Fire Sound
-        function playCannonSound() { VVAudio.playCannonSound(audioProxy); }
-        
         // Rocket Launch Sound
-        function playRocketSound() { VVAudio.playRocketSound(audioProxy); }
-        
-        // Missile Launch Sound (Hellfire/Stinger)
-        function playMissileSound() { VVAudio.playMissileSound(audioProxy); }
-        
         // Explosion Sound
-        function playExplosionSound(size = 'medium') { VVAudio.playExplosionSound(audioProxy, size); }
-        
         // Hit Sound (bullet impact)
-        function playHitSound() { VVAudio.playHitSound(audioProxy); }
-        
-        // Missile Warning Alarm
-        function playMissileWarningBeep() { VVAudio.playMissileWarningBeep(audioProxy); }
-        
-        function startWarningAlarm() {
-            if (warningInterval || !soundEnabled) return;
-            playMissileWarningBeep();
-            warningInterval = setInterval(playMissileWarningBeep, 500);  // Beep every 500ms
-        }
-        
-        function stopWarningAlarm() {
-            if (warningInterval) {
-                clearInterval(warningInterval);
-                warningInterval = null;
-            }
-        }
         
         // Player Damage Sound
-        function playDamageSound() { VVAudio.playDamageSound(audioProxy); }
-        
         // Countermeasure Deploy Sound
-        function playCountermeasureSound() { VVAudio.playCountermeasureSound(audioProxy); }
-        function showMissileWarning() {
-            missileWarning = true;
-            missileWarningTime = 3000; // 3 seconds of warning
-            startWarningAlarm();  // Start audio warning
-        }
-        
-        function updateMissileWarning(deltaTime) {
-            if (missileWarning) {
-                missileWarningTime -= deltaTime;
-                if (missileWarningTime <= 0 || enemyProjectiles.length === 0) {
-                    missileWarning = false;
-                    stopWarningAlarm();  // Stop audio warning
-                }
-            }
-        }
         
         // ============================================
         // COUNTERMEASURES
